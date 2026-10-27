@@ -15,6 +15,7 @@ use App\Http\Controllers\Api\Admin\TripController as AdminTripController;
 use App\Http\Controllers\Api\Admin\UserController as AdminUserManagementController;
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\BookingController;
+use App\Http\Controllers\Api\ChatController;
 use App\Http\Controllers\Api\DisputeController;
 use App\Http\Controllers\Api\DriverController;
 use App\Http\Controllers\Api\DriverDocumentController;
@@ -108,6 +109,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('notifications/mark-all-read', [NotificationController::class, 'markAllRead']);
     Route::post('notifications/{notification}/read', [NotificationController::class, 'markRead']);
     Route::post('notifications/chat-message', [NotificationController::class, 'sendChatNotification']);
+    Route::post('chat/voice', [ChatController::class, 'uploadVoice']);
     Route::post('fcm-token', [NotificationController::class, 'registerFcmToken']);
 });
 

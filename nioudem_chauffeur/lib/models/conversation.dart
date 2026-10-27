@@ -5,13 +5,24 @@ class ChatMessage {
   final DateTime timestamp;
   final bool read;
 
+  /// `text` ou `voice`. Un message vocal porte l'URL de son fichier audio
+  /// (hébergé par le backend) et sa durée.
+  final String type;
+  final String? audioUrl;
+  final int? durationMs;
+
   const ChatMessage({
     required this.id,
     required this.senderId,
     required this.text,
     required this.timestamp,
     required this.read,
+    this.type = 'text',
+    this.audioUrl,
+    this.durationMs,
   });
+
+  bool get isVoice => type == 'voice' && audioUrl != null;
 
   factory ChatMessage.fromMap(String id, Map<String, dynamic> map) {
     return ChatMessage(
@@ -20,6 +31,9 @@ class ChatMessage {
       text: map['text'] as String? ?? '',
       timestamp: DateTime.tryParse(map['timestamp'] as String? ?? '') ?? DateTime.now(),
       read: map['read'] as bool? ?? false,
+      type: map['type'] as String? ?? 'text',
+      audioUrl: map['audioUrl'] as String?,
+      durationMs: (map['durationMs'] as num?)?.toInt(),
     );
   }
 
@@ -29,6 +43,9 @@ class ChatMessage {
       'text': text,
       'timestamp': timestamp.toIso8601String(),
       'read': read,
+      'type': type,
+      if (audioUrl != null) 'audioUrl': audioUrl,
+      if (durationMs != null) 'durationMs': durationMs,
     };
   }
 }

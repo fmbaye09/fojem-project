@@ -99,7 +99,7 @@ class ApiClient {
   /// envoi de la position GPS toutes les 8 s), qui ne changent rien à
   /// l'affichage.
   void _signalChange(String path) {
-    const technical = ['/auth/', '/fcm-token', '/notifications', '/location'];
+    const technical = ['/auth/', '/fcm-token', '/notifications', '/location', '/chat/'];
     if (technical.any(path.contains)) return;
     DataRefresh.instance.notify();
   }

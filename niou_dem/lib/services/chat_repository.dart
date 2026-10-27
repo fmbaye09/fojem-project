@@ -10,6 +10,9 @@ import '../models/conversation.dart';
 /// login/register API (voir `services/auth/api_auth_service.dart`), donc les
 /// règles Firestore (`request.auth != null`) continuent de fonctionner sans
 /// changement ici.
+/// Aperçu d'un message vocal (liste des conversations, notification).
+const kVoiceMessagePreview = '🎤 Message vocal';
+
 class ChatRepository {
   final FirebaseFirestore? _injectedFirestore;
   FirebaseFirestore get _firestore => _injectedFirestore ?? FirebaseFirestore.instance;
@@ -106,20 +109,41 @@ class ChatRepository {
     required String conversationId,
     required String senderId,
     required String text,
-  }) async {
+  }) =>
+      _send(conversationId, ChatMessage(
+        id: '',
+        senderId: senderId,
+        text: text,
+        timestamp: DateTime.now(),
+        read: false,
+      ));
+
+  /// Message vocal : le fichier est déjà en ligne ([audioUrl]) ; le texte
+  /// sert d'aperçu dans la liste des conversations.
+  Future<void> sendVoiceMessage({
+    required String conversationId,
+    required String senderId,
+    required String audioUrl,
+    required int durationMs,
+  }) =>
+      _send(conversationId, ChatMessage(
+        id: '',
+        senderId: senderId,
+        text: kVoiceMessagePreview,
+        timestamp: DateTime.now(),
+        read: false,
+        type: 'voice',
+        audioUrl: audioUrl,
+        durationMs: durationMs,
+      ));
+
+  Future<void> _send(String conversationId, ChatMessage message) async {
     final conversationRef = _conversations.doc(conversationId);
-    final message = ChatMessage(
-      id: '',
-      senderId: senderId,
-      text: text,
-      timestamp: DateTime.now(),
-      read: false,
-    );
     await conversationRef.collection('messages').add(message.toMap());
     await conversationRef.update({
-      'lastMessageText': text,
+      'lastMessageText': message.text,
       'lastMessageAt': message.timestamp.toIso8601String(),
-      'lastSenderId': senderId,
+      'lastSenderId': message.senderId,
     });
   }
 }

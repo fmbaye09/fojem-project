@@ -81,7 +81,7 @@ class ApiClient {
   /// appels techniques (session, token push, lecture de notifications), qui
   /// ne changent rien à l'affichage.
   void _signalChange(String path) {
-    const technical = ['/auth/', '/fcm-token', '/notifications'];
+    const technical = ['/auth/', '/fcm-token', '/notifications', '/chat/'];
     if (technical.any(path.contains)) return;
     DataRefresh.instance.notify();
   }

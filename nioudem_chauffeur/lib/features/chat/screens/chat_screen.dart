@@ -5,9 +5,11 @@ import 'package:provider/provider.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_text_styles.dart';
 import '../../../core/widgets/driver_avatar.dart';
+import '../../../core/widgets/voice_message.dart';
 import '../../../models/app_user.dart';
 import '../../../models/conversation.dart';
 import '../../../providers/app_provider.dart';
+import '../../../services/chat_media_repository.dart';
 import '../../../services/chat_repository.dart';
 import '../../../services/notification_repository.dart';
 import '../../../services/user_repository.dart';
@@ -15,7 +17,7 @@ import '../../../services/user_repository.dart';
 /// Conversation — fidèle à la maquette : en-tête (retour, photo, nom,
 /// statut, menu), séparateurs de jour, bulles marine (envoyées) et pêche
 /// (reçues) avec heure et accusé de lecture, champ de saisie avec trombone
-/// et bouton d'envoi rond. Temps réel via Firestore `snapshots()` ; la
+/// et bouton rond : micro (message vocal) quand le champ est vide, envoi sinon. Temps réel via Firestore `snapshots()` ; la
 /// notification push à la réception nécessite une Cloud Function côté
 /// serveur.
 class ChatScreen extends StatefulWidget {
@@ -36,10 +38,13 @@ class ChatScreen extends StatefulWidget {
 
 class _ChatScreenState extends State<ChatScreen> {
   final _repository = ChatRepository();
+  final _media = ChatMediaRepository();
   final _textController = TextEditingController();
   late final Stream<List<ChatMessage>> _messages;
   AppUser? _otherUser;
   bool _canSend = false;
+  bool _isRecording = false;
+  bool _isSendingVoice = false;
 
   @override
   void initState() {
@@ -106,6 +111,52 @@ class _ChatScreenState extends State<ChatScreen> {
         const SnackBar(
             content: Text('Message non envoyé. Vérifiez votre connexion.')),
       );
+    }
+  }
+
+  Future<void> _startRecording() async {
+    if (!await requestMicrophone()) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Autorisez l’accès au micro pour envoyer un message vocal.')),
+      );
+      return;
+    }
+    if (mounted) setState(() => _isRecording = true);
+  }
+
+  /// Envoie le fichier au backend puis publie le message dans Firestore.
+  Future<void> _sendVoice(VoiceRecording recording) async {
+    final userId = context.read<AppProvider>().user?.id;
+    setState(() {
+      _isRecording = false;
+      _isSendingVoice = true;
+    });
+    try {
+      if (userId == null) throw StateError('not signed in');
+      final url = await _media.uploadVoice(recording.file.path, recording.duration);
+      await _repository.sendVoiceMessage(
+        conversationId: widget.conversationId,
+        senderId: userId,
+        audioUrl: url,
+        durationMs: recording.duration.inMilliseconds,
+      );
+      if (widget.otherUserId != null && widget.otherUserId!.isNotEmpty) {
+        NotificationRepository().sendChatNotification(
+          recipientId: widget.otherUserId!,
+          message: kVoiceMessagePreview,
+          conversationId: widget.conversationId,
+        );
+      }
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Message vocal non envoyé. Vérifiez votre connexion.')),
+        );
+      }
+    } finally {
+      recording.file.delete().ignore();
+      if (mounted) setState(() => _isSendingVoice = false);
     }
   }
 
@@ -188,15 +239,24 @@ class _ChatScreenState extends State<ChatScreen> {
                 },
               ),
             ),
-            _Composer(
-              controller: _textController,
-              canSend: _canSend,
-              onSend: _send,
-              onAttach: () => ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                    content: Text('L’envoi de pièces jointes arrive bientôt.')),
+            if (_isSendingVoice)
+              const LinearProgressIndicator(minHeight: 2, color: AppColors.primary, backgroundColor: Colors.transparent),
+            if (_isRecording)
+              VoiceRecorderBar(
+                onSend: _sendVoice,
+                onCancel: () => setState(() => _isRecording = false),
+              )
+            else
+              _Composer(
+                controller: _textController,
+                canSend: _canSend,
+                onSend: _send,
+                onMic: _isSendingVoice ? null : _startRecording,
+                onAttach: () => ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                      content: Text('L’envoi de pièces jointes arrive bientôt.')),
+                ),
               ),
-            ),
           ],
         ),
       ),
@@ -336,6 +396,12 @@ class _MessageList extends StatelessWidget {
   }
 }
 
+Widget _voicePlayer(ChatMessage message, Color color) => VoiceMessagePlayer(
+      url: message.audioUrl!,
+      duration: Duration(milliseconds: message.durationMs ?? 0),
+      color: color,
+    );
+
 const _bubbleRadius = BorderRadius.all(Radius.circular(14));
 const _bubblePadding = EdgeInsets.symmetric(horizontal: 16, vertical: 12);
 
@@ -359,7 +425,9 @@ class _SentBubble extends StatelessWidget {
             ),
             child: Padding(
               padding: _bubblePadding,
-              child: Text(
+              child: message.isVoice
+                  ? _voicePlayer(message, Colors.white)
+                  : Text(
                 message.text,
                 style: AppTextStyles.bodyLarge
                     .copyWith(fontSize: 15, color: Colors.white, height: 1.45),
@@ -427,7 +495,9 @@ class _ReceivedBubble extends StatelessWidget {
                   ),
                   child: Padding(
                     padding: _bubblePadding,
-                    child: Text(
+                    child: message.isVoice
+                        ? _voicePlayer(message, const Color(0xFF1C1C1A))
+                        : Text(
                       message.text,
                       style: AppTextStyles.bodyLarge.copyWith(
                         fontSize: 15,
@@ -496,12 +566,14 @@ class _Composer extends StatelessWidget {
   final TextEditingController controller;
   final bool canSend;
   final VoidCallback onSend;
+  final VoidCallback? onMic;
   final VoidCallback onAttach;
 
   const _Composer({
     required this.controller,
     required this.canSend,
     required this.onSend,
+    required this.onMic,
     required this.onAttach,
   });
 
@@ -556,22 +628,23 @@ class _Composer extends StatelessWidget {
               ),
             ),
             const SizedBox(width: 8),
+            // Champ vide : micro (message vocal) ; sinon : envoi du texte.
             Semantics(
               button: true,
-              label: 'Envoyer',
+              label: canSend ? 'Envoyer' : 'Enregistrer un message vocal',
               child: Material(
-                color: canSend
+                color: canSend || onMic != null
                     ? AppColors.primary
                     : AppColors.primary.withValues(alpha: 0.45),
                 shape: const CircleBorder(),
                 child: InkWell(
-                  onTap: canSend ? onSend : null,
+                  onTap: canSend ? onSend : onMic,
                   customBorder: const CircleBorder(),
-                  child: const SizedBox(
+                  child: SizedBox(
                     width: 48,
                     height: 48,
-                    child:
-                        Icon(Icons.send_rounded, color: Colors.white, size: 22),
+                    child: Icon(canSend ? Icons.send_rounded : Icons.mic_rounded,
+                        color: Colors.white, size: 22),
                   ),
                 ),
               ),

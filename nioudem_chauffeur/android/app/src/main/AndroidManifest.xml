@@ -5,6 +5,7 @@
     <!-- Requis par image_picker pour la capture photo (pièce d'identité,
          permis — Phase 9). -->
     <uses-permission android:name="android.permission.CAMERA"/>
+    <uses-permission android:name="android.permission.RECORD_AUDIO"/>
     <!-- Requis sur Android 13+ pour afficher les notifications FCM. -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"/>
