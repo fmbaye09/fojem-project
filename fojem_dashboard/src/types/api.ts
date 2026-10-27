@@ -135,8 +135,9 @@ export interface OverviewResponse {
   users_active: number;
   drivers: { total: number; pending_verification: number; approved: number };
   trips_by_status: Record<string, number>;
-  bookings_today_by_status: { status: string; count: number }[];
-  bookings_this_week_by_status: { status: string; count: number }[];
+  /** `{ statut: nombre }`, ou `[]` quand il n'y a aucune réservation (pluck Laravel). */
+  bookings_today_by_status: Record<string, number> | [];
+  bookings_this_week_by_status: Record<string, number> | [];
   completed_transactions_last_30_days: { date: string; total: string }[];
   sos_alerts_open: number;
   disputes_open: number;

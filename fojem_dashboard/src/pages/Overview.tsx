@@ -9,7 +9,19 @@ import { TimeseriesChart } from "../components/charts/TimeseriesChart";
 import { CategoryBarChart, type CategoryDatum } from "../components/charts/CategoryBarChart";
 import { CATEGORICAL_COLORS } from "../lib/chartColors";
 
-function bookingsCount(rows: { status: string; count: number }[]): number {
+type StatusRows = { status: string; count: number }[];
+
+/**
+ * Le backend renvoie `{ statut: nombre }` (pluck Laravel), qui devient `[]`
+ * quand il n'y a aucune réservation : on accepte les deux formes.
+ */
+function toStatusRows(value: StatusRows | Record<string, number> | undefined): StatusRows {
+  if (!value) return [];
+  if (Array.isArray(value)) return value;
+  return Object.entries(value).map(([status, count]) => ({ status, count: Number(count) || 0 }));
+}
+
+function bookingsCount(rows: StatusRows): number {
   return rows.reduce((sum, r) => sum + r.count, 0);
 }
 
@@ -55,7 +67,7 @@ function tripStatusData(byStatus: Record<string, number> | undefined): CategoryD
   }));
 }
 
-function bookingStatusData(rows: { status: string; count: number }[]): CategoryDatum[] {
+function bookingStatusData(rows: StatusRows): CategoryDatum[] {
   const known: CategoryDatum[] = [];
   let otherTotal = 0;
   for (const status of BOOKING_STATUS_ORDER) {
@@ -130,7 +142,9 @@ export function Overview() {
 
   const tripStatusChart = tripStatusData(o?.trips_by_status);
   const driverVerificationChart = driverVerificationData(o);
-  const bookingWeekChart = bookingStatusData(o?.bookings_this_week_by_status ?? []);
+  const bookingsToday = toStatusRows(o?.bookings_today_by_status);
+  const bookingsThisWeek = toStatusRows(o?.bookings_this_week_by_status);
+  const bookingWeekChart = bookingStatusData(bookingsThisWeek);
 
   return (
     <div className="flex flex-col gap-6">
@@ -162,9 +176,9 @@ export function Overview() {
             />
             <StatTile
               label="Réservations aujourd'hui"
-              value={bookingsCount(o?.bookings_today_by_status ?? [])}
+              value={bookingsCount(bookingsToday)}
               icon={CalendarClock}
-              hint={`${bookingsCount(o?.bookings_this_week_by_status ?? [])} cette semaine`}
+              hint={`${bookingsCount(bookingsThisWeek)} cette semaine`}
             />
             <StatTile
               label="Chauffeurs en attente"
