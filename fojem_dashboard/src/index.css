@@ -1,0 +1,77 @@
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap");
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: #fbf9f7;
+  color: #0b2a47;
+  font-family: "Inter", ui-sans-serif, system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+h1,
+h2,
+h3,
+h4 {
+  font-weight: 600;
+  margin: 0;
+}
+
+p {
+  margin: 0;
+}
+
+@layer base {
+  :focus-visible {
+    outline: 2px solid #ea671a;
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+}
+
+@layer utilities {
+  .caps-label {
+    font-size: 11px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    font-weight: 600;
+    color: #a0a09a;
+  }
+
+  .skeleton {
+    background: linear-gradient(90deg, #eeece6 25%, #f6f4ef 50%, #eeece6 75%);
+    background-size: 800px 100%;
+    animation: skeleton-shimmer 1.5s infinite linear;
+  }
+}
+
+@keyframes skeleton-shimmer {
+  0% {
+    background-position: -400px 0;
+  }
+  100% {
+    background-position: 400px 0;
+  }
+}
+
+/* react-leaflet map container needs an explicit height to render */
+.leaflet-container {
+  width: 100%;
+  height: 100%;
+  border-radius: 12px;
+  font-family: "Inter", ui-sans-serif, system-ui, sans-serif;
+}

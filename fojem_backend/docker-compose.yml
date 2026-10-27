@@ -1,0 +1,48 @@
+services:
+  db:
+    image: postgis/postgis:16-3.4
+    container_name: fojem_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: fojem
+      POSTGRES_PASSWORD: fojem_local_dev
+      POSTGRES_DB: fojem
+    ports:
+      - "55432:5432"
+    volumes:
+      - fojem_db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U fojem -d fojem"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: fojem_backend
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "0.0.0.0:8000:8000"
+    environment:
+      APP_NAME: FOJEM
+      APP_ENV: local
+      APP_DEBUG: "true"
+      APP_URL: http://192.168.1.4:8000
+      DB_CONNECTION: pgsql
+      DB_HOST: db
+      DB_PORT: 5432
+      DB_DATABASE: fojem
+      DB_USERNAME: fojem
+      DB_PASSWORD: fojem_local_dev
+    volumes:
+      - .:/var/www/html
+      - fojem_vendor:/var/www/html/vendor
+
+volumes:
+  fojem_db_data:
+  fojem_vendor:

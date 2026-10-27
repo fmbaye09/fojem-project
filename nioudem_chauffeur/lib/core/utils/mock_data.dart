@@ -1,0 +1,18 @@
+const List<String> senegalCities = [
+  'Dakar',
+  'Thiès',
+  'Mbour',
+  'Saint-Louis',
+  'Ziguinchor',
+  'Kaolack',
+  'Tambacounda',
+  'Touba',
+  'Diourbel',
+  'Louga',
+  'Fatick',
+  'Kolda',
+  'Sédhiou',
+  'Kaffrine',
+  'Kédougou',
+  'Matam',
+];

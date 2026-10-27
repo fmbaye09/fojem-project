@@ -1,0 +1,22 @@
+# Filet de sécurité du monorepo — les .gitignore de chaque projet s'appliquent aussi.
+
+# Builds et dépendances
+**/build/
+**/.dart_tool/
+**/node_modules/
+**/dist/
+**/vendor/
+
+# Secrets
+**/.env
+**/.env.backup
+**/storage/app/secrets/
+**/*firebase-adminsdk*.json
+**/*.jks
+**/*.keystore
+**/key.properties
+
+# Outils locaux
+**/.idea/
+**/.claude/
+**/.phpunit.result.cache

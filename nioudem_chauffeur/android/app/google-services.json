@@ -1,0 +1,48 @@
+{
+  "project_info": {
+    "project_number": "733029550749",
+    "project_id": "nioudem-eecc4",
+    "storage_bucket": "nioudem-eecc4.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:733029550749:android:49dd4de0c68378d250a274",
+        "android_client_info": {
+          "package_name": "com.example.niou_dem"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBMWD8AFBlOP3_o8ZtJGQHwsrzWb9aHPXg"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:733029550749:android:09810f5613390c5350a274",
+        "android_client_info": {
+          "package_name": "com.example.niou_dem_chauffeur"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBMWD8AFBlOP3_o8ZtJGQHwsrzWb9aHPXg"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

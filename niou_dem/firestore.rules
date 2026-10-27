@@ -1,0 +1,107 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    // users/{userId} : profil de base (nom, téléphone, rôle, avatar, token FCM,
+    // note agrégée). Lecture ouverte à tout utilisateur connecté — nécessaire
+    // pour les pages profil chauffeur publiques (Phase 8/9). Écriture réservée
+    // au propriétaire, SAUF rating/ratingCount/totalTrips que d'AUTRES
+    // utilisateurs authentifiés doivent pouvoir modifier (avis reçu,
+    // réservation acceptée — ReviewRepository/BookingRepository, pas de
+    // backend serveur dans cette version) : restreint aux seuls champs
+    // concernés plutôt que laissé ouvert sur tout le document.
+    match /users/{userId} {
+      allow read: if signedIn();
+      allow create: if signedIn() && request.auth.uid == userId;
+      allow update: if signedIn() && (
+        request.auth.uid == userId ||
+        request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['rating', 'ratingCount', 'totalTrips'])
+      );
+      allow delete: if false;
+    }
+
+    // vehicles/{id} : un véhicule actif par chauffeur (Phase 8). Lecture
+    // ouverte (affiché sur les trajets/profils publics), écriture réservée
+    // au chauffeur propriétaire.
+    match /vehicles/{vehicleId} {
+      allow read: if signedIn();
+      allow create: if signedIn() && request.resource.data.driverId == request.auth.uid;
+      allow update: if signedIn() && resource.data.driverId == request.auth.uid;
+      allow delete: if false;
+    }
+
+    // trips/{id} : trajets publiés (Phase 2). Lecture ouverte (recherche/
+    // matching). Création et modification réservées au chauffeur propriétaire
+    // (y compris les mises à jour de seatsAvailable/occupiedSeatIds faites par
+    // BookingRepository.accept(), toujours déclenchées depuis l'écran du
+    // chauffeur).
+    match /trips/{tripId} {
+      allow read: if signedIn();
+      allow create: if signedIn() && request.resource.data.driverId == request.auth.uid;
+      allow update: if signedIn() && resource.data.driverId == request.auth.uid;
+      allow delete: if false;
+    }
+
+    // bookings/{id} : demandes de réservation (Phase 7). Créées par le
+    // passager. Lues/modifiées par le passager concerné ou le chauffeur du
+    // trajet (accepter/refuser).
+    match /bookings/{bookingId} {
+      allow create: if signedIn() && request.resource.data.passengerId == request.auth.uid;
+      allow read: if signedIn() && (
+        resource.data.passengerId == request.auth.uid ||
+        get(/databases/$(database)/documents/trips/$(resource.data.tripId)).data.driverId == request.auth.uid
+      );
+      allow update: if signedIn() && (
+        resource.data.passengerId == request.auth.uid ||
+        get(/databases/$(database)/documents/trips/$(resource.data.tripId)).data.driverId == request.auth.uid
+      );
+      allow delete: if false;
+    }
+
+    // ride_requests/{id} : demandes passager (Phase 3). Lecture ouverte
+    // (parcourues par les chauffeurs pour le matching). Écriture réservée au
+    // passager propriétaire.
+    match /ride_requests/{requestId} {
+      allow read: if signedIn();
+      allow create: if signedIn() && request.resource.data.passengerId == request.auth.uid;
+      allow update: if signedIn() && resource.data.passengerId == request.auth.uid;
+      allow delete: if false;
+    }
+
+    // conversations/{id} + messages (Phase 6) : réservées aux participants.
+    match /conversations/{conversationId} {
+      allow read: if signedIn() && request.auth.uid in resource.data.participants;
+      allow create: if signedIn() && request.auth.uid in request.resource.data.participants;
+      allow update: if signedIn() && request.auth.uid in resource.data.participants;
+      allow delete: if false;
+
+      match /messages/{messageId} {
+        allow read: if signedIn() &&
+          request.auth.uid in get(/databases/$(database)/documents/conversations/$(conversationId)).data.participants;
+        allow create: if signedIn() &&
+          request.auth.uid in get(/databases/$(database)/documents/conversations/$(conversationId)).data.participants &&
+          request.resource.data.senderId == request.auth.uid;
+        allow update, delete: if false;
+      }
+    }
+
+    // reviews/{id} : avis chauffeur (Phase 9). Lecture publique, création par
+    // l'auteur uniquement, immuables une fois postés.
+    match /reviews/{reviewId} {
+      allow read: if signedIn();
+      allow create: if signedIn() && request.resource.data.authorId == request.auth.uid;
+      allow update, delete: if false;
+    }
+
+    // Tout le reste : verrouillé par défaut.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
