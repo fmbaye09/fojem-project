@@ -42,13 +42,16 @@ class ApiAuthService implements AuthService {
 
   /// Appelé au démarrage de l'app pour restaurer une session existante à
   /// partir du token stocké de façon sécurisée.
+  ///
+  /// Une erreur réseau est propagée (le token est conservé, l'appelant
+  /// propose de réessayer) ; un 401 déconnecte via [_handleUnauthorized].
   Future<void> restoreSession() async {
     final token = await _tokenStorage.readToken();
     if (token == null) {
       _emit(null);
       return;
     }
-    final user = await refreshCurrentUser();
+    final user = await _fetchMe();
     _emit(user);
   }
 
@@ -151,19 +154,23 @@ class ApiAuthService implements AuthService {
   @override
   Future<AppUser?> refreshCurrentUser() async {
     try {
-      final response = await _client.get('/auth/me');
-      final userJson = response['user'] as Map<String, dynamic>?;
-      if (userJson == null) return null;
-
-      final customToken = response['firebase_custom_token'] as String?;
-      await _bridgeFirebaseAuth(customToken);
-
-      final user = AppUser.fromApi(userJson);
-      _currentUser = user;
-      return user;
+      return await _fetchMe();
     } catch (_) {
       return null;
     }
+  }
+
+  Future<AppUser?> _fetchMe() async {
+    final response = await _client.get('/auth/me');
+    final userJson = response['user'] as Map<String, dynamic>?;
+    if (userJson == null) return null;
+
+    final customToken = response['firebase_custom_token'] as String?;
+    await _bridgeFirebaseAuth(customToken);
+
+    final user = AppUser.fromApi(userJson);
+    _currentUser = user;
+    return user;
   }
 
   void _handleUnauthorized() {

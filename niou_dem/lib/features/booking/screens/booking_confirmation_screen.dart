@@ -18,12 +18,14 @@ import '../../../services/trip_repository.dart';
 
 class BookingConfirmationScreen extends StatefulWidget {
   final String tripId;
-  final String seatId;
+
+  /// Sièges choisis sur le plan du véhicule (au moins un).
+  final List<String> seatIds;
 
   const BookingConfirmationScreen({
     super.key,
     required this.tripId,
-    required this.seatId,
+    required this.seatIds,
   });
 
   @override
@@ -161,8 +163,7 @@ class _BookingConfirmationScreenState
         passengerId: user.id,
         passengerName: user.name.isEmpty ? user.phoneNumber : user.name,
         passengerPhone: user.phoneNumber,
-        seatId: widget.seatId,
-        price: trip.pricePerSeat,
+        seatIds: widget.seatIds,
         hasHeavyLuggage: _hasHeavyLuggage,
         luggagePhotos: _luggagePhotos,
         pickupLat: _customPickup?.lat,
@@ -179,6 +180,11 @@ class _BookingConfirmationScreenState
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(msg)),
       );
+      // Place prise entre-temps par un autre passager : retour au plan,
+      // rechargé avec les sièges à jour.
+      if (e is ApiException && (e.fieldErrors?.containsKey('seat_numbers') ?? false)) {
+        context.pushReplacement('/seat-selection?tripId=${trip.id}');
+      }
     }
   }
 
@@ -199,6 +205,22 @@ class _BookingConfirmationScreenState
     }
     final trip = _trip!;
     final user = context.watch<AppProvider>().user;
+
+    if (widget.seatIds.isEmpty) {
+      return Scaffold(
+        backgroundColor: AppColors.background,
+        appBar: AppBar(leading: IconButton(onPressed: () => context.pop(), icon: const Icon(Icons.arrow_back))),
+        body: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(AppSpacing.lg),
+            child: FojemButton.primary(
+              label: 'Choisir une place',
+              onPressed: () => context.pushReplacement('/seat-selection?tripId=${trip.id}'),
+            ),
+          ),
+        ),
+      );
+    }
 
     return Scaffold(
       backgroundColor: AppColors.background,
@@ -227,9 +249,12 @@ class _BookingConfirmationScreenState
                     onPickOnMap: _pickPickupLocation,
                   ),
                   const SizedBox(height: AppSpacing.lg),
-                  Text('Votre place', style: AppTextStyles.title2),
+                  Text(
+                    widget.seatIds.length > 1 ? 'Vos places' : 'Votre place',
+                    style: AppTextStyles.title2,
+                  ),
                   const SizedBox(height: AppSpacing.md),
-                  _SeatSummary(seatId: widget.seatId),
+                  _SeatSummary(seatIds: widget.seatIds),
                   const SizedBox(height: AppSpacing.lg),
                   Text('Récapitulatif passager', style: AppTextStyles.title2),
                   const SizedBox(height: AppSpacing.md),
@@ -255,13 +280,16 @@ class _BookingConfirmationScreenState
                     },
                   ),
                   const SizedBox(height: AppSpacing.lg),
-                  _PriceSummary(pricePerSeat: trip.pricePerSeat),
+                  _PriceSummary(
+                    pricePerSeat: trip.pricePerSeat,
+                    seatCount: widget.seatIds.length,
+                  ),
                 ],
               ),
             ),
           ),
           _ConfirmBar(
-            total: trip.pricePerSeat,
+            total: trip.pricePerSeat * widget.seatIds.length,
             isLoading: _isConfirming,
             onConfirm: _confirm,
           ),
@@ -372,9 +400,9 @@ class _TripSummaryCard extends StatelessWidget {
 }
 
 class _SeatSummary extends StatelessWidget {
-  final String seatId;
+  final List<String> seatIds;
 
-  const _SeatSummary({required this.seatId});
+  const _SeatSummary({required this.seatIds});
 
   @override
   Widget build(BuildContext context) {
@@ -392,7 +420,9 @@ class _SeatSummary extends StatelessWidget {
             const SizedBox(width: AppSpacing.md),
             Expanded(
               child: Text(
-                'Place #$seatId',
+                seatIds.length > 1
+                    ? 'Places #${seatIds.join(', ')}'
+                    : 'Place #${seatIds.first}',
                 style: AppTextStyles.bodyLargeSemibold,
               ),
             ),
@@ -457,8 +487,9 @@ class _PassengerSummary extends StatelessWidget {
 
 class _PriceSummary extends StatelessWidget {
   final double pricePerSeat;
+  final int seatCount;
 
-  const _PriceSummary({required this.pricePerSeat});
+  const _PriceSummary({required this.pricePerSeat, required this.seatCount});
 
   @override
   Widget build(BuildContext context) {
@@ -468,8 +499,18 @@ class _PriceSummary extends StatelessWidget {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Text('Total', style: AppTextStyles.bodyLargeSemibold),
-          PriceDisplay(amount: pricePerSeat, isLarge: true),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('Total', style: AppTextStyles.bodyLargeSemibold),
+              if (seatCount > 1)
+                Text(
+                  '$seatCount places × ${pricePerSeat.round()} FCFA',
+                  style: AppTextStyles.caption,
+                ),
+            ],
+          ),
+          PriceDisplay(amount: pricePerSeat * seatCount, isLarge: true),
         ],
       ),
     );

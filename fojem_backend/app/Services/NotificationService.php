@@ -86,6 +86,22 @@ class NotificationService
     }
 
     /**
+     * Notify a passenger that the driver cancelled the whole trip.
+     */
+    public function tripCancelled(User $passenger, array $bookingData): Notification
+    {
+        $tripLabel = $bookingData['trip_label'] ?? 'votre trajet';
+
+        return $this->create(
+            $passenger,
+            Notification::TYPE_TRIP_CANCELLED,
+            'Trajet annulé',
+            "Le chauffeur a annulé le trajet $tripLabel. Votre réservation est annulée, recherchez un autre trajet.",
+            $bookingData,
+        );
+    }
+
+    /**
      * Notify the passenger that the trip is completed.
      */
     public function bookingCompleted(User $passenger, array $bookingData): Notification

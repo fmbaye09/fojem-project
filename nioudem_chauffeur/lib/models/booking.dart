@@ -26,6 +26,10 @@ class Booking {
   final String tripId;
   final String passengerId;
   final int seatCount;
+
+  /// Sièges choisis par le passager sur le plan du véhicule ; vide pour les
+  /// réservations faites sans plan.
+  final List<String> seatNumbers;
   final double price;
   final BookingStatus status;
   final DateTime bookedAt;
@@ -44,6 +48,7 @@ class Booking {
     required this.tripId,
     required this.passengerId,
     this.seatCount = 1,
+    this.seatNumbers = const [],
     required this.price,
     required this.status,
     required this.bookedAt,
@@ -106,6 +111,9 @@ class Booking {
       tripId: json['trip_id'] as String? ?? '',
       passengerId: json['passenger_id'] as String? ?? '',
       seatCount: json['seat_count'] as int? ?? 1,
+      seatNumbers: [
+        for (final seat in (json['seat_numbers'] as List? ?? const [])) '$seat',
+      ],
       price: double.tryParse('${json['price_charged'] ?? 0}') ?? 0,
       status: _statusFromApi(json['status'] as String?),
       bookedAt: DateTime.tryParse(json['created_at'] as String? ?? '') ?? DateTime.now(),
@@ -132,6 +140,7 @@ class Booking {
       tripId: tripId,
       passengerId: passengerId,
       seatCount: seatCount,
+      seatNumbers: seatNumbers,
       price: price,
       status: status ?? this.status,
       bookedAt: bookedAt,

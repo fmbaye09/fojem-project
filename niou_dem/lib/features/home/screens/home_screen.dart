@@ -587,7 +587,7 @@ class _ActiveBookingCard extends StatelessWidget {
                           if (trip != null) ...[
                             const SizedBox(height: 4),
                             Text(
-                              '${DateFormat('EEEE d MMM à HH:mm', 'fr_FR').format(trip.departureTime)} • ${booking.seatId} place(s)',
+                              '${DateFormat('EEEE d MMM à HH:mm', 'fr_FR').format(trip.departureTime)} • ${booking.seatLabel}',
                               style: AppTextStyles.caption.copyWith(color: AppColors.textSecondary),
                             ),
                           ],

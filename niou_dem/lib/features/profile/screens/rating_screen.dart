@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
+import '../../../core/network/api_exception.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_text_styles.dart';
 import '../../../core/theme/app_spacing.dart';
@@ -63,14 +64,26 @@ class _RatingScreenState extends State<RatingScreen> {
       if (_selectedTags.isNotEmpty) _selectedTags.join(', '),
     ].where((s) => s.isNotEmpty).join(' — ');
 
-    await ReviewRepository().submitReview(
-      tripId: widget.tripId,
-      driverId: driver.id,
-      authorId: user.id,
-      authorName: user.name.isEmpty ? user.phoneNumber : user.name,
-      rating: _rating,
-      comment: comment,
-    );
+    try {
+      await ReviewRepository().submitReview(
+        tripId: widget.tripId,
+        driverId: driver.id,
+        authorId: user.id,
+        authorName: user.name.isEmpty ? user.phoneNumber : user.name,
+        rating: _rating,
+        comment: comment,
+      );
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _isSubmitting = false);
+      final message = e is ApiException
+          ? e.message
+          : e is StateError
+              ? e.message
+              : 'Impossible d\'envoyer votre note. Réessayez.';
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+      return;
+    }
 
     if (!mounted) return;
     setState(() => _isSubmitting = false);

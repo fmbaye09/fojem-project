@@ -354,6 +354,16 @@ class _RequestCardState extends State<_RequestCard> {
                   style: AppTextStyles.label.copyWith(color: Colors.white, fontSize: 12, height: 1),
                 ),
               ),
+              if (widget.booking.seatNumbers.isNotEmpty) ...[
+                const SizedBox(width: 8),
+                Flexible(
+                  child: Text(
+                    'n° ${widget.booking.seatNumbers.join(', ')}',
+                    overflow: TextOverflow.ellipsis,
+                    style: AppTextStyles.bodySemibold.copyWith(fontSize: 14),
+                  ),
+                ),
+              ],
             ],
           ),
 

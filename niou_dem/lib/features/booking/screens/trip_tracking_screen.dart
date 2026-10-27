@@ -82,12 +82,16 @@ class _TripTrackingScreenState extends State<TripTrackingScreen> {
         passengerId: userId,
       );
       if (booking == null) {
-        final all = await BookingRepository().fetchForPassenger(userId);
-        for (final b in all) {
-          if (b.tripId == widget.tripId) {
-            booking = b;
-            break;
+        try {
+          final all = await BookingRepository().fetchForPassenger(userId);
+          for (final b in all) {
+            if (b.tripId == widget.tripId) {
+              booking = b;
+              break;
+            }
           }
+        } catch (_) {
+          // Le suivi du trajet reste affichable sans le détail du billet.
         }
       }
     }

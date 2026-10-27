@@ -1,4 +1,5 @@
 import '../../core/network/api_client.dart';
+import '../../core/network/api_exception.dart';
 import '../../core/network/token_storage.dart';
 import '../../models/app_user.dart';
 import 'auth_service.dart';
@@ -33,9 +34,11 @@ class ApiAuthService implements AuthService {
   }
 
   @override
-  Future<AuthResult> login({required String email, required String password}) async {
+  Future<AuthResult> login({required String login, required String password}) async {
+    // `login` accepte un e-mail ou un numéro : le backend cherche dans les
+    // deux colonnes.
     final body = await _client.post('/auth/login', data: {
-      'email': email,
+      'login': login,
       'password': password,
       'client_type': 'driver',
     });
@@ -43,9 +46,13 @@ class ApiAuthService implements AuthService {
   }
 
   Future<AuthResult> _handleAuthResponse(Map<String, dynamic> body) async {
-    final token = body['token'] as String;
+    final token = body['token'];
+    final userJson = body['user'];
+    if (token is! String || userJson is! Map<String, dynamic>) {
+      throw const ApiException('Réponse du serveur inattendue. Réessayez.');
+    }
     await _tokenStorage.saveToken(token);
-    final user = AppUser.fromJson(body['user'] as Map<String, dynamic>);
+    final user = AppUser.fromJson(userJson);
     return AuthResult(
       user: user,
       token: token,

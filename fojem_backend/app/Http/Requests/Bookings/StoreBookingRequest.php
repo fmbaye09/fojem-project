@@ -17,6 +17,8 @@ class StoreBookingRequest extends FormRequest
             'trip_id' => ['required', 'uuid', 'exists:trips,id'],
             'ride_request_id' => ['sometimes', 'nullable', 'uuid', 'exists:ride_requests,id'],
             'seat_count' => ['sometimes', 'integer', 'min:1', 'max:8'],
+            'seat_numbers' => ['sometimes', 'array', 'min:1', 'max:8'],
+            'seat_numbers.*' => ['string', 'max:10', 'distinct'],
             'pickup_lat' => ['required', 'numeric', 'between:-90,90'],
             'pickup_lng' => ['required', 'numeric', 'between:-180,180'],
             'has_heavy_luggage' => ['sometimes', 'boolean'],

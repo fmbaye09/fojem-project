@@ -288,8 +288,10 @@ class _TripSummaryCard extends StatelessWidget {
             value: trip.driver?.name ?? '—',
           ),
           _Row(
-            label: 'Place',
-            value: '#${booking.seatId}',
+            label: booking.seatNumbers.length > 1 ? 'Places' : 'Place',
+            value: booking.seatNumbers.isEmpty
+                ? booking.seatLabel
+                : '#${booking.seatNumbers.join(', ')}',
           ),
           const Divider(height: AppSpacing.md, color: AppColors.border),
           Row(

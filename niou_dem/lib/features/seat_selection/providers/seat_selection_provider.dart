@@ -3,18 +3,21 @@ import '../../../models/trip.dart';
 import '../../../models/vehicle.dart';
 import '../models/seat.dart';
 
-/// Sièges réels du trajet demandé : plan dérivé du véhicule du chauffeur
-/// (Phase 8), prix réel du trajet (Phase 7) et sièges déjà occupés reflétant
-/// `seatsAvailable`/`occupiedSeatIds` — plus de plan Sprinter/prix fixes.
+/// Sièges réels du trajet demandé : plan dérivé du véhicule du chauffeur,
+/// prix réel du trajet et sièges déjà pris (`occupied_seats` renvoyé par le
+/// backend). Le passager peut choisir plusieurs places, dans la limite des
+/// places encore proposées par le chauffeur (`seatsAvailable`).
 class SeatSelectionProvider extends ChangeNotifier {
   final VehicleType vehicleType;
   final double pricePerSeat;
+  final int maxSelectable;
   final List<SeatState> _seats;
 
   factory SeatSelectionProvider.forTrip(Trip trip) {
     return SeatSelectionProvider._(
       vehicleType: trip.vehicleType,
       pricePerSeat: trip.pricePerSeat,
+      maxSelectable: trip.availableSeats,
       occupiedSeatIds: trip.occupiedSeatIds.toSet(),
     );
   }
@@ -22,6 +25,7 @@ class SeatSelectionProvider extends ChangeNotifier {
   SeatSelectionProvider._({
     required this.vehicleType,
     required this.pricePerSeat,
+    required this.maxSelectable,
     required Set<String> occupiedSeatIds,
   }) : _seats = seatLayoutFor(vehicleType).map((c) {
           if (c.initialStatus == SeatStatus.driver) {
@@ -33,41 +37,54 @@ class SeatSelectionProvider extends ChangeNotifier {
 
   List<SeatState> get seats => List.unmodifiable(_seats);
 
-  SeatState? get selectedSeat =>
-      _seats.cast<SeatState?>().firstWhere(
-        (s) => s!.isSelected,
-        orElse: () => null,
-      );
+  List<SeatState> get selectedSeats => _seats.where((s) => s.isSelected).toList();
 
-  int get availableCount => _seats.where((s) => s.isAvailable).length;
+  Set<String> get selectedSeatIds => {for (final s in selectedSeats) s.config.id};
+
+  bool get hasSelection => _seats.any((s) => s.isSelected);
+
+  /// Places encore réservables : libres sur le plan, sans dépasser le
+  /// nombre de places que le chauffeur propose encore.
+  int get availableCount {
+    final free = _seats.where((s) => s.isAvailable || s.isSelected).length;
+    return free < maxSelectable ? free : maxSelectable;
+  }
 
   int get totalPassengerSeats => _seats.where((s) => !s.isDriver).length;
 
-  double get totalPrice => selectedSeat != null ? pricePerSeat : 0;
+  double get totalPrice => pricePerSeat * selectedSeats.length;
 
   String get formattedPrice => '${_formatAmount(totalPrice.round())} FCFA';
 
-  String get selectionLabel =>
-      selectedSeat != null ? 'Place #${selectedSeat!.config.label}' : '—';
+  String get selectionLabel {
+    final selected = selectedSeats;
+    if (selected.isEmpty) return '—';
+    final labels = selected.map((s) => s.config.label).join(', ');
+    return selected.length == 1 ? 'Place #$labels' : 'Places #$labels';
+  }
 
-  void toggleSeat(String seatId) {
+  /// Sélectionne/désélectionne un siège. Renvoie un message à afficher si
+  /// la sélection est refusée (limite de places atteinte), sinon `null`.
+  String? toggleSeat(String seatId) {
     final idx = _seats.indexWhere((s) => s.config.id == seatId);
-    if (idx == -1) return;
+    if (idx == -1) return null;
 
     final tapped = _seats[idx];
-    if (!tapped.isInteractive) return;
+    if (!tapped.isInteractive) return null;
 
-    for (int i = 0; i < _seats.length; i++) {
-      if (_seats[i].isSelected) {
-        _seats[i] = _seats[i].copyWith(status: SeatStatus.available);
-      }
-    }
-
-    if (!tapped.isSelected) {
+    if (tapped.isSelected) {
+      _seats[idx] = tapped.copyWith(status: SeatStatus.available);
+    } else if (selectedSeats.length >= maxSelectable) {
+      if (maxSelectable <= 0) return 'Ce trajet est complet.';
+      return maxSelectable == 1
+          ? 'Il ne reste qu\'une place sur ce trajet.'
+          : 'Il ne reste que $maxSelectable places sur ce trajet.';
+    } else {
       _seats[idx] = tapped.copyWith(status: SeatStatus.selected);
     }
 
     notifyListeners();
+    return null;
   }
 
   static String _formatAmount(int amount) {

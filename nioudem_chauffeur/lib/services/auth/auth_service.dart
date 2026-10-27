@@ -28,7 +28,8 @@ abstract class AuthService {
     required String gender,
   });
 
-  Future<AuthResult> login({required String email, required String password});
+  /// [login] : adresse e-mail ou numéro de téléphone (format +221…).
+  Future<AuthResult> login({required String login, required String password});
 
   /// Crée le profil `drivers` (statut `pending`) associé au compte courant.
   /// Appelé automatiquement juste après un register réussi — cette app est

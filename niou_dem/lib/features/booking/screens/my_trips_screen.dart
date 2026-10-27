@@ -107,7 +107,7 @@ class _MyTripsScreenState extends State<MyTripsScreen>
               _isLoading
                   ? const _LoadingState()
                   : _hasError
-                      ? const _ErrorState()
+                      ? _ErrorState(onRetry: _loadBookings)
                       : _upcoming.isEmpty
                           ? const _EmptyState(
                               message: 'Aucun trajet à venir',
@@ -119,7 +119,7 @@ class _MyTripsScreenState extends State<MyTripsScreen>
               _isLoading
                   ? const _LoadingState()
                   : _hasError
-                      ? const _ErrorState()
+                      ? _ErrorState(onRetry: _loadBookings)
                       : _past.isEmpty
                           ? const _EmptyState(
                               message: 'Aucun historique',
@@ -506,7 +506,9 @@ class _EmptyState extends StatelessWidget {
 }
 
 class _ErrorState extends StatelessWidget {
-  const _ErrorState();
+  final VoidCallback onRetry;
+
+  const _ErrorState({required this.onRetry});
 
   @override
   Widget build(BuildContext context) {
@@ -524,10 +526,13 @@ class _ErrorState extends StatelessWidget {
               style: AppTextStyles.body.copyWith(color: AppColors.textSecondary),
             ),
             const SizedBox(height: 8),
-            Text(
-              'Tirez vers le bas pour réessayer.',
-              textAlign: TextAlign.center,
-              style: AppTextStyles.caption.copyWith(color: AppColors.textMuted),
+            TextButton.icon(
+              onPressed: onRetry,
+              icon: const Icon(Icons.refresh, color: AppColors.primary),
+              label: Text(
+                'Réessayer',
+                style: AppTextStyles.bodySemibold.copyWith(color: AppColors.primary),
+              ),
             ),
           ],
         ),

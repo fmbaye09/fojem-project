@@ -49,6 +49,12 @@ GoRouter _buildRouter(AppProvider appProvider) => GoRouter(
     final path = state.matchedLocation;
     if (appProvider.isLoading) return null;
 
+    // Session stockée mais serveur injoignable : on reste sur l'accueil,
+    // qui propose de réessayer, au lieu de renvoyer vers la connexion.
+    if (appProvider.sessionUnavailable) {
+      return path == '/splash' ? null : '/splash';
+    }
+
     final isLoggedIn = appProvider.isLoggedIn;
 
     if (!isLoggedIn) {

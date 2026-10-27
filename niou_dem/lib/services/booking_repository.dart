@@ -22,22 +22,27 @@ class BookingRepository {
     required String passengerId,
     required String passengerName,
     required String passengerPhone,
-    required String seatId,
-    required double price,
+    required List<String> seatIds,
     bool hasHeavyLuggage = false,
     List<File> luggagePhotos = const [],
     double? pickupLat,
     double? pickupLng,
   }) async {
     final trip = await _tripRepository.fetch(tripId);
-    final resolvedLat = pickupLat ?? trip?.origin.lat ?? 0;
-    final resolvedLng = pickupLng ?? trip?.origin.lng ?? 0;
+    final resolvedLat = pickupLat ?? trip?.origin.lat;
+    final resolvedLng = pickupLng ?? trip?.origin.lng;
+    // Sans trajet ni point choisi, on refuse plutôt que d'envoyer un point
+    // de prise en charge fictif en (0, 0).
+    if (resolvedLat == null || resolvedLng == null) {
+      throw const ApiException(
+          'Impossible de charger le trajet. Vérifiez votre connexion et réessayez.');
+    }
 
     dynamic requestData;
     if (hasHeavyLuggage && luggagePhotos.isNotEmpty) {
       final formDataMap = <String, dynamic>{
         'trip_id': tripId,
-        'seat_count': 1,
+        'seat_numbers[]': seatIds,
         'pickup_lat': resolvedLat,
         'pickup_lng': resolvedLng,
         'has_heavy_luggage': 1,
@@ -53,7 +58,7 @@ class BookingRepository {
     } else {
       requestData = {
         'trip_id': tripId,
-        'seat_count': 1,
+        'seat_numbers': seatIds,
         'pickup_lat': resolvedLat,
         'pickup_lng': resolvedLng,
         'has_heavy_luggage': hasHeavyLuggage ? 1 : 0,
@@ -77,28 +82,27 @@ class BookingRepository {
     }
   }
 
+  /// Réservations du passager connecté. Lève une [ApiException] en cas
+  /// d'erreur réseau/serveur, pour que l'écran puisse afficher une erreur
+  /// au lieu d'une liste vide trompeuse.
   Future<List<Booking>> fetchForPassenger(String? passengerId) async {
-    try {
-      final response = await _client.get('/bookings/mine');
-      final data = (response['data'] as List?) ?? [];
-      final result = <Booking>[];
-      for (final item in data) {
-        final map = item as Map<String, dynamic>;
-        Trip? trip;
-        if (map['trip'] is Map<String, dynamic>) {
-          trip = Trip.fromApi(map['trip'] as Map<String, dynamic>);
-        } else {
-          try {
-            trip = await _tripRepository.fetch(map['trip_id'] as String? ?? '');
-          } catch (_) {}
-        }
-        result.add(Booking.fromApi(map, trip: trip));
+    final response = await _client.get('/bookings/mine');
+    final data = (response['data'] as List?) ?? [];
+    final result = <Booking>[];
+    for (final item in data) {
+      final map = item as Map<String, dynamic>;
+      Trip? trip;
+      if (map['trip'] is Map<String, dynamic>) {
+        trip = Trip.fromApi(map['trip'] as Map<String, dynamic>);
+      } else {
+        try {
+          trip = await _tripRepository.fetch(map['trip_id'] as String? ?? '');
+        } catch (_) {}
       }
-      result.sort((a, b) => b.bookedAt.compareTo(a.bookedAt));
-      return result;
-    } on ApiException {
-      return [];
+      result.add(Booking.fromApi(map, trip: trip));
     }
+    result.sort((a, b) => b.bookedAt.compareTo(a.bookedAt));
+    return result;
   }
 
   Future<void> cancel(String bookingId) async {
@@ -109,7 +113,14 @@ class BookingRepository {
     required String tripId,
     required String passengerId,
   }) async {
-    final bookings = await fetchForPassenger(passengerId);
+    // Complément d'affichage (bouton « déjà réservé ») : une erreur réseau
+    // ne doit pas empêcher l'écran du trajet de s'afficher.
+    final List<Booking> bookings;
+    try {
+      bookings = await fetchForPassenger(passengerId);
+    } on ApiException {
+      return null;
+    }
     for (final b in bookings) {
       if (b.tripId == tripId &&
           (b.status == BookingStatus.pending || b.status == BookingStatus.confirmed)) {

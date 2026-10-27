@@ -17,6 +17,7 @@ import '../../../models/vehicle.dart';
 import '../../../providers/app_provider.dart';
 import '../../../services/booking_repository.dart';
 import '../../../services/chat_repository.dart';
+import '../../../services/trip_location_tracker.dart';
 import '../../../services/trip_repository.dart';
 import '../../../services/vehicle_repository.dart';
 
@@ -47,22 +48,45 @@ class _TripManageScreenState extends State<TripManageScreen> {
   DateTime? _lastGpsSentAt;
   bool _gpsPermissionDenied = false;
 
+  final _tracker = TripLocationTracker.instance;
+
   @override
   void initState() {
     super.initState();
+    _tracker.lastSentAt.addListener(_onTrackerUpdate);
+    _tracker.permissionDenied.addListener(_onTrackerUpdate);
     _load();
     _pollTimer = Timer.periodic(const Duration(seconds: 8), (_) {
       _load(silent: true);
-      if (_trip?.status == TripStatus.inProgress) {
-        _broadcastCurrentGps();
-      }
     });
   }
 
   @override
   void dispose() {
     _pollTimer?.cancel();
+    _tracker.lastSentAt.removeListener(_onTrackerUpdate);
+    _tracker.permissionDenied.removeListener(_onTrackerUpdate);
+    // Le suivi GPS continue volontairement après la fermeture de l'écran :
+    // il s'arrête à la fin ou à l'annulation du trajet.
     super.dispose();
+  }
+
+  void _onTrackerUpdate() {
+    if (!mounted) return;
+    setState(() {
+      _lastGpsSentAt = _tracker.lastSentAt.value ?? _lastGpsSentAt;
+      _gpsPermissionDenied = _tracker.permissionDenied.value;
+    });
+  }
+
+  /// Aligne le suivi GPS sur le statut du trajet.
+  void _syncTracking(Trip? trip) {
+    if (trip == null) return;
+    if (trip.status == TripStatus.inProgress) {
+      _tracker.start(trip.id);
+    } else if (_tracker.activeTripId == trip.id) {
+      _tracker.stop();
+    }
   }
 
   Future<void> _broadcastCurrentGps() async {
@@ -106,6 +130,7 @@ class _TripManageScreenState extends State<TripManageScreen> {
     }
     try {
       final trip = await TripRepository().fetch(widget.tripId);
+      _syncTracking(trip);
       final vehicle = trip == null ? null : await VehicleRepository().fetch(trip.vehicleId);
       try {
         final bookings = await BookingRepository().fetchForTrip(widget.tripId);
@@ -145,7 +170,7 @@ class _TripManageScreenState extends State<TripManageScreen> {
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppSpacing.borderRadiusMd)),
         title: Text('Annuler ce trajet ?', style: AppTextStyles.title2),
         content: Text(
-          'Les passagers déjà confirmés seront notifiés de l\'annulation.',
+          'Les réservations en cours seront annulées et les passagers prévenus.',
           style: AppTextStyles.body.copyWith(color: AppColors.textSecondary),
         ),
         actions: [
@@ -161,12 +186,21 @@ class _TripManageScreenState extends State<TripManageScreen> {
     if (confirmed != true) return;
 
     setState(() => _isCancelling = true);
-    await TripRepository().updateStatus(widget.tripId, TripStatus.cancelled);
+    try {
+      await TripRepository().updateStatus(widget.tripId, TripStatus.cancelled);
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      setState(() => _isCancelling = false);
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
+      return;
+    }
+    _tracker.stop();
     if (!mounted) return;
     setState(() {
       _isCancelling = false;
       _trip = _trip?.copyWith(status: TripStatus.cancelled);
     });
+    _load(silent: true);
   }
 
   Future<void> _startTrip() async {
@@ -178,10 +212,12 @@ class _TripManageScreenState extends State<TripManageScreen> {
         _isStarting = false;
         _trip = _trip?.copyWith(status: TripStatus.inProgress);
       });
+      _tracker.start(widget.tripId);
       _broadcastCurrentGps();
-    } catch (_) {
+    } on ApiException catch (e) {
       if (!mounted) return;
       setState(() => _isStarting = false);
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
     }
   }
 
@@ -210,6 +246,7 @@ class _TripManageScreenState extends State<TripManageScreen> {
     setState(() => _isCompleting = true);
     try {
       await TripRepository().updateStatus(widget.tripId, TripStatus.completed);
+      _tracker.stop();
       if (!mounted) return;
       setState(() {
         _isCompleting = false;
@@ -222,7 +259,9 @@ class _TripManageScreenState extends State<TripManageScreen> {
       if (!mounted) return;
       setState(() => _isCompleting = false);
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Erreur: $e')),
+        SnackBar(
+          content: Text(e is ApiException ? e.message : 'Impossible de terminer le trajet. Réessayez.'),
+        ),
       );
     }
   }

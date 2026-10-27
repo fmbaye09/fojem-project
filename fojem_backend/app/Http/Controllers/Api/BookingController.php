@@ -57,7 +57,12 @@ class BookingController extends Controller
             return response()->json(['message' => 'Vous avez déjà une réservation confirmée sur ce trajet.'], 422);
         }
 
-        $seatCount = (int) $request->input('seat_count', 1);
+        // Seats picked on the vehicle plan; when present they define the
+        // seat count. Older clients only send seat_count.
+        $seatNumbers = $request->has('seat_numbers')
+            ? array_values(array_map('strval', $request->input('seat_numbers')))
+            : null;
+        $seatCount = $seatNumbers !== null ? count($seatNumbers) : (int) $request->input('seat_count', 1);
 
         if ($seatCount > $trip->seats_available) {
             return response()->json(['message' => 'Pas assez de places disponibles.'], 422);
@@ -65,19 +70,40 @@ class BookingController extends Controller
 
         $hasHeavyLuggage = $request->boolean('has_heavy_luggage');
 
-        $booking = new Booking([
-            'trip_id' => $trip->id,
-            'ride_request_id' => $request->input('ride_request_id'),
-            'passenger_id' => $request->user()->id,
-            'seat_count' => $seatCount,
-            'has_heavy_luggage' => $hasHeavyLuggage,
-            'status' => Booking::STATUS_PENDING_DRIVER,
-            'departure_code' => Booking::generateDepartureCode(),
-            'price_charged' => bcmul((string) $trip->price_per_seat, (string) $seatCount, 2),
-        ]);
+        // The seat conflict check and the insert run under a lock on the
+        // trip, so two passengers tapping the same seat at once can't both
+        // get it.
+        $booking = DB::transaction(function () use ($request, $trip, $seatNumbers, $seatCount, $hasHeavyLuggage) {
+            Trip::whereKey($trip->id)->lockForUpdate()->first();
 
-        $booking->setPickupPoint((float) $request->input('pickup_lat'), (float) $request->input('pickup_lng'));
-        $booking->save();
+            if ($seatNumbers !== null) {
+                $taken = array_values(array_intersect($seatNumbers, Booking::occupiedSeatNumbers($trip->id)));
+                if ($taken !== []) {
+                    throw ValidationException::withMessages([
+                        'seat_numbers' => count($taken) === 1
+                            ? "La place {$taken[0]} vient d'être réservée. Choisissez-en une autre."
+                            : 'Les places ' . implode(', ', $taken) . " viennent d'être réservées. Choisissez-en d'autres.",
+                    ]);
+                }
+            }
+
+            $booking = new Booking([
+                'trip_id' => $trip->id,
+                'ride_request_id' => $request->input('ride_request_id'),
+                'passenger_id' => $request->user()->id,
+                'seat_count' => $seatCount,
+                'seat_numbers' => $seatNumbers,
+                'has_heavy_luggage' => $hasHeavyLuggage,
+                'status' => Booking::STATUS_PENDING_DRIVER,
+                'departure_code' => Booking::generateDepartureCode(),
+                'price_charged' => bcmul((string) $trip->price_per_seat, (string) $seatCount, 2),
+            ]);
+
+            $booking->setPickupPoint((float) $request->input('pickup_lat'), (float) $request->input('pickup_lng'));
+            $booking->save();
+
+            return $booking;
+        });
 
         // Enregistrement des photos de bagages si fournies
         if ($request->hasFile('luggage_photos')) {

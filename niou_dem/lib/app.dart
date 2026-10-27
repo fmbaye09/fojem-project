@@ -41,9 +41,30 @@ CustomTransitionPage<void> _tabPage(GoRouterState state, Widget child) {
   );
 }
 
-final _router = GoRouter(
+/// Chemins accessibles sans session (avant connexion).
+const _publicPaths = {'/splash', '/role-selection'};
+
+GoRouter _buildRouter(AppProvider appProvider) => GoRouter(
   initialLocation: '/splash',
   debugLogDiagnostics: false,
+  refreshListenable: appProvider,
+  redirect: (context, state) {
+    final path = state.matchedLocation;
+    if (appProvider.isLoading) return null;
+
+    // Session stockée mais serveur injoignable : on reste sur l'accueil,
+    // qui propose de réessayer, au lieu de renvoyer vers la connexion.
+    if (appProvider.sessionUnavailable) {
+      return path == '/splash' ? null : '/splash';
+    }
+
+    if (!appProvider.isLoggedIn) {
+      return _publicPaths.contains(path) ? null : '/role-selection';
+    }
+
+    if (_publicPaths.contains(path)) return '/home';
+    return null;
+  },
   routes: [
     GoRoute(
       path: '/splash',
@@ -82,8 +103,11 @@ final _router = GoRouter(
       path: '/booking/confirm',
       builder: (_, state) {
         final tripId = state.uri.queryParameters['tripId'] ?? '';
-        final seatId = state.uri.queryParameters['seatId'] ?? '';
-        return BookingConfirmationScreen(tripId: tripId, seatId: seatId);
+        final seats = (state.uri.queryParameters['seats'] ?? '')
+            .split(',')
+            .where((s) => s.isNotEmpty)
+            .toList();
+        return BookingConfirmationScreen(tripId: tripId, seatIds: seats);
       },
     ),
     GoRoute(
@@ -190,6 +214,7 @@ class FojemApp extends StatefulWidget {
 class _FojemAppState extends State<FojemApp> with WidgetsBindingObserver {
   late final AppProvider _appProvider =
       widget.createAppProvider?.call() ?? AppProvider();
+  late final GoRouter _router = _buildRouter(_appProvider);
 
   @override
   void initState() {
@@ -213,8 +238,13 @@ class _FojemAppState extends State<FojemApp> with WidgetsBindingObserver {
         return;
       }
 
-      if (type == 'booking_confirmed') {
-        _router.push('/trips');
+      // `/trips` est l'écran de résultats de recherche : une réservation
+      // confirmée se consulte dans « Mes trajets ».
+      if (type == 'booking_confirmed' ||
+          type == 'booking_rejected' ||
+          type == 'booking_cancelled' ||
+          type == 'trip_cancelled') {
+        _router.push('/my-trips');
         return;
       }
 

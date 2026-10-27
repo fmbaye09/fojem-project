@@ -92,4 +92,51 @@ class BookingTest extends TestCase
 
         $response->assertUnprocessable();
     }
+
+    public function test_picked_seats_are_stored_and_blocked_for_other_passengers(): void
+    {
+        [, $trip] = $this->makeOpenTrip(3);
+
+        Sanctum::actingAs(User::factory()->create());
+        $first = $this->postJson('/api/bookings', [
+            'trip_id' => $trip->id,
+            'seat_numbers' => ['1', '3'],
+            'pickup_lat' => 14.693,
+            'pickup_lng' => -17.447,
+        ]);
+
+        $first->assertCreated();
+        $this->assertEquals(2, $first->json('booking.seat_count'));
+        $this->assertEquals(['1', '3'], $first->json('booking.seat_numbers'));
+
+        $this->getJson("/api/trips/{$trip->id}")
+            ->assertOk()
+            ->assertJsonPath('trip.occupied_seats', ['1', '3']);
+
+        Sanctum::actingAs(User::factory()->create());
+        $this->postJson('/api/bookings', [
+            'trip_id' => $trip->id,
+            'seat_numbers' => ['3'],
+            'pickup_lat' => 14.693,
+            'pickup_lng' => -17.447,
+        ])->assertUnprocessable()->assertJsonValidationErrors('seat_numbers');
+    }
+
+    public function test_cancelled_booking_frees_its_seats(): void
+    {
+        [, $trip] = $this->makeOpenTrip(3);
+
+        Sanctum::actingAs(User::factory()->create());
+        $bookingId = $this->postJson('/api/bookings', [
+            'trip_id' => $trip->id,
+            'seat_numbers' => ['2'],
+            'pickup_lat' => 14.693,
+            'pickup_lng' => -17.447,
+        ])->json('booking.id');
+
+        $this->postJson("/api/bookings/{$bookingId}/cancel")->assertOk();
+
+        $this->getJson("/api/trips/{$trip->id}")
+            ->assertJsonPath('trip.occupied_seats', []);
+    }
 }

@@ -87,6 +87,16 @@ class _SplashScreenState extends State<SplashScreen> {
                   const Spacer(flex: 4),
                   const CircularProgressIndicator(color: AppColors.primary),
                   const SizedBox(height: 40),
+                ] else if (app.sessionUnavailable) ...[
+                  const Spacer(flex: 4),
+                  _OfflineNotice(message: app.sessionError),
+                  const SizedBox(height: AppSpacing.md),
+                  FojemButton.primary(
+                    label: 'Réessayer',
+                    suffixIcon: Icons.refresh,
+                    onPressed: () => app.retrySession(),
+                  ),
+                  const SizedBox(height: AppSpacing.lg),
                 ] else ...[
                   const Spacer(flex: 4),
                   FojemButton.primary(
@@ -107,6 +117,30 @@ class _SplashScreenState extends State<SplashScreen> {
           ),
         ),
       ),
+    );
+  }
+}
+
+/// Bandeau affiché quand la session n'a pas pu être restaurée faute de
+/// réseau : l'utilisateur reste connecté, il lui suffit de réessayer.
+class _OfflineNotice extends StatelessWidget {
+  final String? message;
+
+  const _OfflineNotice({this.message});
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        const Icon(Icons.wifi_off_rounded, size: 18, color: AppColors.danger),
+        const SizedBox(width: AppSpacing.sm),
+        Expanded(
+          child: Text(
+            message ?? 'Impossible de joindre le serveur. Vérifiez votre connexion.',
+            style: AppTextStyles.body.copyWith(color: AppColors.textSecondary),
+          ),
+        ),
+      ],
     );
   }
 }

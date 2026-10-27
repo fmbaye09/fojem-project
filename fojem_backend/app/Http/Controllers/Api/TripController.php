@@ -11,6 +11,7 @@ use App\Models\Trip;
 use App\Models\Vehicle;
 use App\Services\MatchingService;
 use App\Services\NotificationService;
+use App\Services\TripCancellationService;
 use App\Services\TripLifecycleService;
 use App\Services\WalletService;
 use Illuminate\Http\Request;
@@ -119,6 +120,7 @@ class TripController extends Controller
         TripLifecycleService::sync();
 
         $trip = Trip::withLatLng()->with('vehicle', 'driverProfile.user')->findOrFail($trip->id);
+        $trip->setAttribute('occupied_seats', Booking::occupiedSeatNumbers($trip->id));
 
         return response()->json(['trip' => $trip]);
     }
@@ -214,7 +216,7 @@ class TripController extends Controller
     }
 
     /** Driver cancels their own trip. */
-    public function cancel(Request $request, Trip $trip)
+    public function cancel(Request $request, Trip $trip, TripCancellationService $cancellation)
     {
         $driver = $request->user()->driver;
 
@@ -226,7 +228,7 @@ class TripController extends Controller
             return response()->json(['message' => 'Ce trajet ne peut plus etre annule.'], 422);
         }
 
-        $trip->update(['status' => Trip::STATUS_CANCELLED, 'closed_by' => 'driver']);
+        $cancellation->cancel($trip, 'driver');
 
         return response()->json(['trip' => $trip->fresh()]);
     }

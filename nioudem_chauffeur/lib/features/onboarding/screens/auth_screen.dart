@@ -127,8 +127,20 @@ class _LoginCardState extends State<_LoginCard> {
     super.dispose();
   }
 
-  bool get _isValid =>
-      _emailController.text.trim().contains('@') && _passwordController.text.isNotEmpty;
+  /// Identifiant normalisé : l'e-mail tel quel, ou le numéro complété en
+  /// +221 s'il est saisi en local (9 chiffres). `null` si ni l'un ni l'autre.
+  String? get _loginId {
+    final raw = _emailController.text.trim();
+    if (raw.contains('@')) return raw;
+    final digits = raw.replaceAll(RegExp(r'[\s.-]'), '');
+    if (RegExp(r'^\d{9}$').hasMatch(digits)) return '+221$digits';
+    if (RegExp(r'^(\+|00)?221\d{9}$').hasMatch(digits)) {
+      return '+221${digits.substring(digits.length - 9)}';
+    }
+    return null;
+  }
+
+  bool get _isValid => _loginId != null && _passwordController.text.isNotEmpty;
 
   Future<void> _submit() async {
     if (!_isValid || _isLoading) return;
@@ -137,7 +149,7 @@ class _LoginCardState extends State<_LoginCard> {
       _error = null;
     });
     final ok = await context.read<AppProvider>().login(
-          email: _emailController.text.trim(),
+          login: _loginId!,
           password: _passwordController.text,
         );
     if (!mounted) return;
@@ -154,12 +166,12 @@ class _LoginCardState extends State<_LoginCard> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Text('Adresse e-mail', style: AppTextStyles.bodyLargeSemibold),
+        Text('E-mail ou téléphone', style: AppTextStyles.bodyLargeSemibold),
         const SizedBox(height: AppSpacing.sm),
         FojemTextField(
           controller: _emailController,
-          hint: 'vous@exemple.com',
-          prefixIcon: Icons.mail_outline_rounded,
+          hint: 'vous@exemple.com ou 77 000 00 00',
+          prefixIcon: Icons.person_outline,
           keyboardType: TextInputType.emailAddress,
           textInputAction: TextInputAction.next,
           onChanged: (_) => setState(() {}),

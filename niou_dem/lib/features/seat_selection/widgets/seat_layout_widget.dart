@@ -25,7 +25,7 @@ class SeatLayoutWidget extends StatelessWidget {
   final VehicleType vehicleType;
   final SeatLayoutMode mode;
   final Set<String> occupiedSeatIds;
-  final String? selectedSeatId;
+  final Set<String> selectedSeatIds;
   final ValueChanged<String>? onSeatTap;
 
   const SeatLayoutWidget({
@@ -33,7 +33,7 @@ class SeatLayoutWidget extends StatelessWidget {
     required this.vehicleType,
     required this.mode,
     this.occupiedSeatIds = const {},
-    this.selectedSeatId,
+    this.selectedSeatIds = const {},
     this.onSeatTap,
   });
 
@@ -61,7 +61,7 @@ class SeatLayoutWidget extends StatelessWidget {
       SeatStatus status;
       if (config.initialStatus == SeatStatus.driver) {
         status = SeatStatus.driver;
-      } else if (mode == SeatLayoutMode.selection && config.id == selectedSeatId) {
+      } else if (mode == SeatLayoutMode.selection && selectedSeatIds.contains(config.id)) {
         status = SeatStatus.selected;
       } else if (mode == SeatLayoutMode.selection && occupiedSeatIds.contains(config.id)) {
         status = SeatStatus.occupied;

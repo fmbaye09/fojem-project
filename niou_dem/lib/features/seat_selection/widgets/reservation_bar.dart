@@ -18,7 +18,7 @@ class ReservationBar extends StatelessWidget {
   Widget build(BuildContext context) {
     return Consumer<SeatSelectionProvider>(
       builder: (context, provider, _) {
-        final hasSelection = provider.selectedSeat != null;
+        final hasSelection = provider.hasSelection;
 
         return Container(
           decoration: BoxDecoration(
@@ -72,7 +72,7 @@ class ReservationBar extends StatelessWidget {
                     child: _ConfirmButton(
                       label: hasSelection
                           ? 'Confirmer – ${provider.formattedPrice}'
-                          : 'Confirmer la place',
+                          : 'Choisir une place',
                       onTap: hasSelection ? onConfirm : null,
                     ),
                   ),

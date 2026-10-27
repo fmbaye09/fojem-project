@@ -177,6 +177,11 @@ class Trip {
       estimatedDuration: estimatedDuration,
       seatsTotal: vehicle?.totalSeats ?? seatsAvailable,
       availableSeats: seatsAvailable,
+      // Renvoyé par `GET /trips/{id}` : sièges déjà pris (demandes en
+      // attente comprises), à griser sur le plan du véhicule.
+      occupiedSeatIds: [
+        for (final seat in (map['occupied_seats'] as List? ?? const [])) '$seat',
+      ],
       pricePerSeat: double.tryParse('${map['price_per_seat'] ?? ''}') ?? 0,
       status: _statusFromApi(map['status'] as String?),
       vehicleType: vehicle?.type ?? VehicleType.septPlaces,

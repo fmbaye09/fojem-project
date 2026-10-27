@@ -23,7 +23,7 @@ class Booking extends Model
     public const STATUS_NO_SHOW = 'no_show';
 
     protected $fillable = [
-        'trip_id', 'ride_request_id', 'passenger_id', 'seat_count', 'has_heavy_luggage', 'status',
+        'trip_id', 'ride_request_id', 'passenger_id', 'seat_count', 'seat_numbers', 'has_heavy_luggage', 'status',
         'departure_code', 'price_charged', 'confirmed_at', 'started_at', 'completed_at',
     ];
 
@@ -33,6 +33,7 @@ class Booking extends Model
     {
         return [
             'price_charged' => 'decimal:2',
+            'seat_numbers' => 'array',
             'has_heavy_luggage' => 'boolean',
             'confirmed_at' => 'datetime',
             'started_at' => 'datetime',
@@ -45,6 +46,35 @@ class Booking extends Model
         return $this->relationLoaded('luggagePhotos')
             ? $this->getRelation('luggagePhotos')
             : $this->luggagePhotos()->get();
+    }
+
+    /**
+     * Statuses during which a booking keeps its seats on the vehicle plan.
+     * A pending request already holds its seats so two passengers can't
+     * pick the same one while the driver decides.
+     */
+    public const SEAT_HOLDING_STATUSES = [
+        self::STATUS_PENDING_DRIVER,
+        self::STATUS_CONFIRMED,
+        self::STATUS_COMPLETED,
+    ];
+
+    /**
+     * Seat ids currently held on a trip, across all passengers.
+     *
+     * @return list<string>
+     */
+    public static function occupiedSeatNumbers(string $tripId): array
+    {
+        return static::where('trip_id', $tripId)
+            ->whereIn('status', self::SEAT_HOLDING_STATUSES)
+            ->whereNotNull('seat_numbers')
+            ->pluck('seat_numbers')
+            ->flatten()
+            ->map(fn ($seat) => (string) $seat)
+            ->unique()
+            ->values()
+            ->all();
     }
 
     public function setPickupPoint(float $lat, float $lng): static

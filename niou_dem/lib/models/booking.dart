@@ -25,7 +25,12 @@ class Booking {
   final String id;
   final String tripId;
   final String passengerId;
+  /// Nombre de places réservées, sous forme de texte (`seat_count`).
   final String seatId;
+
+  /// Sièges choisis sur le plan du véhicule ; vide pour les anciennes
+  /// réservations faites sans plan.
+  final List<String> seatNumbers;
   final double price;
   final BookingStatus status;
   final DateTime bookedAt;
@@ -43,6 +48,7 @@ class Booking {
     required this.tripId,
     required this.passengerId,
     required this.seatId,
+    this.seatNumbers = const [],
     required this.price,
     required this.status,
     required this.bookedAt,
@@ -56,6 +62,15 @@ class Booking {
   });
 
   int get seatsBooked => int.tryParse(seatId) ?? 1;
+
+  /// « Place #3 », « Places #1, 3 », ou « 2 places » sans numéros connus.
+  String get seatLabel {
+    if (seatNumbers.isEmpty) {
+      return seatsBooked > 1 ? '$seatsBooked places' : '1 place';
+    }
+    final numbers = seatNumbers.join(', ');
+    return seatNumbers.length > 1 ? 'Places #$numbers' : 'Place #$numbers';
+  }
   double get totalPrice => price;
   bool get isBoarded => startedAt != null;
 
@@ -111,6 +126,9 @@ class Booking {
       tripId: map['trip_id'] as String? ?? '',
       passengerId: map['passenger_id'] as String? ?? '',
       seatId: '${map['seat_count'] ?? 1}',
+      seatNumbers: [
+        for (final seat in (map['seat_numbers'] as List? ?? const [])) '$seat',
+      ],
       price: double.tryParse('${map['price_charged']}') ?? 0,
       status: _statusFromApi(map['status'] as String?),
       bookedAt: DateTime.tryParse(map['created_at'] as String? ?? '') ?? DateTime.now(),
@@ -136,6 +154,7 @@ class Booking {
       tripId: tripId,
       passengerId: passengerId,
       seatId: seatId,
+      seatNumbers: seatNumbers,
       price: price,
       status: status ?? this.status,
       bookedAt: bookedAt,

@@ -21,7 +21,9 @@ class ApiClient {
 
   /// Appelé quand une requête authentifiée reçoit un 401 (token expiré/
   /// révoqué) — brancher sur AppProvider.signOut() + redirection connexion.
-  void Function()? onUnauthorized;
+  /// Statique : chaque repository crée sa propre instance, le callback doit
+  /// donc être partagé par toutes pour qu'un 401 n'importe où déconnecte.
+  static void Function()? onUnauthorized;
 
   ApiClient({Dio? dio, TokenStorage? tokenStorage})
       : _dio = dio ??

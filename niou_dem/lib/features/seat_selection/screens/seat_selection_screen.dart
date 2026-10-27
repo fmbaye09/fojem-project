@@ -91,12 +91,19 @@ class _SeatSelectionContent extends StatelessWidget {
                     return SeatLayoutWidget(
                       vehicleType: provider.vehicleType,
                       mode: SeatLayoutMode.selection,
-                      selectedSeatId: provider.selectedSeat?.config.id,
+                      selectedSeatIds: provider.selectedSeatIds,
                       occupiedSeatIds: provider.seats
                           .where((s) => s.isOccupied)
                           .map((s) => s.config.id)
                           .toSet(),
-                      onSeatTap: provider.toggleSeat,
+                      onSeatTap: (seatId) {
+                        final refusal = provider.toggleSeat(seatId);
+                        if (refusal != null) {
+                          ScaffoldMessenger.of(context)
+                            ..hideCurrentSnackBar()
+                            ..showSnackBar(SnackBar(content: Text(refusal)));
+                        }
+                      },
                     );
                   },
                 ),
@@ -149,19 +156,19 @@ class _SeatSelectionContent extends StatelessWidget {
 
   void _onConfirm(BuildContext context) {
     final provider = context.read<SeatSelectionProvider>();
-    final selected = provider.selectedSeat;
-    if (selected == null) return;
+    if (!provider.hasSelection) return;
+    final seatIds = provider.selectedSeats.map((s) => s.config.id).join(',');
 
     showModalBottomSheet<void>(
       context: context,
       backgroundColor: Colors.transparent,
       builder: (_) => _ConfirmationSheet(
-        seatLabel: selected.config.label,
+        selectionLabel: provider.selectionLabel,
         price: provider.formattedPrice,
         onConfirmed: () {
           Navigator.of(context).pop();
           context.push(
-            '/booking/confirm?tripId=$tripId&seatId=${selected.config.id}',
+            '/booking/confirm?tripId=$tripId&seats=${Uri.encodeComponent(seatIds)}',
           );
         },
       ),
@@ -240,8 +247,11 @@ class _SubtitleBanner extends StatelessWidget {
           color: AppColors.surface,
           padding: const EdgeInsets.fromLTRB(20, 10, 20, 12),
           child: Text(
-            'Veuillez sélectionner votre place '
-            '(${provider.availableCount}/${provider.totalPassengerSeats} disponibles)',
+            provider.availableCount > 1
+                ? 'Choisissez jusqu\'à ${provider.availableCount} places '
+                    '(${provider.availableCount}/${provider.totalPassengerSeats} disponibles)'
+                : 'Choisissez votre place '
+                    '(${provider.availableCount}/${provider.totalPassengerSeats} disponible)',
             style: GoogleFonts.inter(
               fontSize: 13.5,
               fontWeight: FontWeight.w400,
@@ -257,12 +267,12 @@ class _SubtitleBanner extends StatelessWidget {
 
 // ── Bottom sheet de confirmation ───────────────────────────────────────────
 class _ConfirmationSheet extends StatelessWidget {
-  final String seatLabel;
+  final String selectionLabel;
   final String price;
   final VoidCallback onConfirmed;
 
   const _ConfirmationSheet({
-    required this.seatLabel,
+    required this.selectionLabel,
     required this.price,
     required this.onConfirmed,
   });
@@ -300,7 +310,8 @@ class _ConfirmationSheet extends StatelessWidget {
           ),
           const SizedBox(height: 16),
           Text(
-            'Confirmer la place #$seatLabel ?',
+            'Confirmer : $selectionLabel ?',
+            textAlign: TextAlign.center,
             style: GoogleFonts.inter(
               fontSize: 18,
               fontWeight: FontWeight.w700,

@@ -31,6 +31,8 @@ class PushNotificationService {
   final NotificationRepository _repository = NotificationRepository();
 
   bool _initialized = false;
+  bool _initialMessageHandled = false;
+  final List<StreamSubscription<dynamic>> _subscriptions = [];
   Timer? _pollerTimer;
   final Set<String> _notifiedIds = {};
 
@@ -81,22 +83,25 @@ class PushNotificationService {
       }
 
       // Écouter le renouvellement du token
-      _messaging.onTokenRefresh.listen((newToken) {
+      _subscriptions.add(_messaging.onTokenRefresh.listen((newToken) {
         if (kDebugMode) debugPrint('[Push] Token FCM renouvelé');
         _repository.registerFcmToken(newToken);
-      });
+      }));
     } catch (e) {
       if (kDebugMode) debugPrint('[Push] Erreur token FCM: $e');
     }
 
     // 4. Écouter les messages FCM en foreground
-    FirebaseMessaging.onMessage.listen(_handleForegroundMessage);
+    _subscriptions.add(FirebaseMessaging.onMessage.listen(_handleForegroundMessage));
 
     // 5. Écouter les taps sur notifications FCM
-    FirebaseMessaging.onMessageOpenedApp.listen(_handleNotificationTap);
+    _subscriptions.add(FirebaseMessaging.onMessageOpenedApp.listen(_handleNotificationTap));
 
-    // 6. Vérifier si l'app a été lancée par un tap sur notif FCM
-    final initialMessage = await _messaging.getInitialMessage();
+    // 6. Vérifier si l'app a été lancée par un tap sur notif FCM — une seule
+    // fois par lancement, sinon une reconnexion rejouerait cette notification.
+    final initialMessage =
+        _initialMessageHandled ? null : await _messaging.getInitialMessage();
+    _initialMessageHandled = true;
     if (initialMessage != null) {
       _handleNotificationTap(initialMessage);
     }
@@ -246,6 +251,12 @@ class PushNotificationService {
     _pollerTimer = null;
     _notifiedIds.clear();
     _initialized = false;
-    onNotificationTap = null;
+    // Désabonne les flux FCM pour qu'un nouveau login ne les double pas.
+    // `onNotificationTap` est conservé : il est posé une seule fois au
+    // lancement de l'app et doit survivre à une déconnexion/reconnexion.
+    for (final sub in _subscriptions) {
+      sub.cancel();
+    }
+    _subscriptions.clear();
   }
 }
