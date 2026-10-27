@@ -171,7 +171,7 @@ class _BookingSuccessScreenState extends State<BookingSuccessScreen>
               child: Column(
                 children: [
                   FojemButton.primary(
-                    label: 'Voir mes trajets',
+                    label: 'Voir mes réservations',
                     onPressed: () => context.go('/my-trips'),
                   ),
                   const SizedBox(height: AppSpacing.sm),
@@ -301,7 +301,8 @@ class _TripSummaryCard extends StatelessWidget {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Text('Montant à régler au chauffeur', style: AppTextStyles.bodySemibold),
+              Expanded(child: Text('Montant à régler au chauffeur', style: AppTextStyles.bodySemibold)),
+              const SizedBox(width: AppSpacing.sm),
               PriceDisplay(amount: booking.price),
             ],
           ),
@@ -322,10 +323,14 @@ class _Row extends StatelessWidget {
     return Padding(
       padding: const EdgeInsets.only(bottom: AppSpacing.sm),
       child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(label, style: AppTextStyles.body.copyWith(color: AppColors.textSecondary)),
-          Text(value, style: AppTextStyles.bodySemibold),
+          const SizedBox(width: AppSpacing.md),
+          // Les adresses longues passent à la ligne au lieu de déborder.
+          Expanded(
+            child: Text(value, textAlign: TextAlign.end, style: AppTextStyles.bodySemibold),
+          ),
         ],
       ),
     );
