@@ -13,6 +13,7 @@ use App\Services\MatchingService;
 use App\Services\NotificationService;
 use App\Services\TripCancellationService;
 use App\Services\TripLifecycleService;
+use App\Services\TripProgressService;
 use App\Services\TripStopPlanner;
 use App\Services\WalletService;
 use Carbon\CarbonImmutable;
@@ -136,6 +137,7 @@ class TripController extends Controller
 
         $trip = Trip::withLatLng()->with('vehicle', 'driverProfile.user')->findOrFail($trip->id);
         $trip->setAttribute('occupied_seats', Booking::occupiedSeatNumbers($trip->id));
+        $trip->setAttribute('live', app(TripProgressService::class)->live($trip));
 
         return response()->json(['trip' => $trip]);
     }
@@ -308,6 +310,8 @@ class TripController extends Controller
             'current_lat' => $trip->current_lat ?? ($originCoords ? (float) $originCoords->lat : null),
             'current_lng' => $trip->current_lng ?? ($originCoords ? (float) $originCoords->lng : null),
             'location_updated_at' => now(),
+            // The driver leaves from the departure point.
+            'last_passed_stop_position' => 0,
         ]);
 
         // Notifier les passagers avec une réservation confirmée
@@ -332,7 +336,7 @@ class TripController extends Controller
     }
 
     /** Driver updates live GPS position during an active trip. */
-    public function updateLocation(Request $request, Trip $trip)
+    public function updateLocation(Request $request, Trip $trip, TripProgressService $progress)
     {
         $driver = $request->user()->driver;
 
@@ -353,11 +357,16 @@ class TripController extends Controller
             'location_updated_at' => now(),
         ]);
 
+        if ($trip->status === Trip::STATUS_IN_PROGRESS) {
+            $progress->recordPosition($trip, (float) $validated['lat'], (float) $validated['lng']);
+        }
+
         return response()->json([
             'current_lat' => $trip->current_lat,
             'current_lng' => $trip->current_lng,
             'current_heading' => $trip->current_heading,
             'location_updated_at' => $trip->location_updated_at?->toIso8601String(),
+            'live' => $progress->live($trip),
         ]);
     }
 

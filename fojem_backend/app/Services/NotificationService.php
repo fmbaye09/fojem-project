@@ -306,10 +306,11 @@ class NotificationService
                     'body'  => $body,
                 ],
                 'data' => $fcmData,
+                // No channel_id: each app (passenger / driver) declares its
+                // own default channel in its manifest, and Android uses it.
                 'android' => [
                     'priority' => 'HIGH',
                     'notification' => [
-                        'channel_id' => 'fojem_notifications',
                         'sound' => 'default',
                     ],
                 ],

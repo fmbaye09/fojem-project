@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api\Admin;
 use App\Http\Controllers\Controller;
 use App\Models\Booking;
 use App\Models\Trip;
+use App\Models\TripStop;
 use App\Services\AuditLogger;
 use App\Services\TripCancellationService;
 use Illuminate\Http\Request;
@@ -82,9 +83,20 @@ class TripController extends Controller
                 'women_only' => (bool) $trip->women_only,
                 'toll_fees' => $trip->toll_fees !== null ? (string) $trip->toll_fees : null,
                 'location_updated_at' => $trip->location_updated_at?->toIso8601String(),
+                'last_passed_stop_position' => $trip->last_passed_stop_position,
+                'stops' => $trip->stops->map(fn (TripStop $s) => [
+                    'id' => $s->id,
+                    'position' => $s->position,
+                    'name' => $s->name,
+                    'address' => $s->address,
+                    'scheduled_at' => $s->scheduled_at?->toIso8601String(),
+                    'price_from_origin' => (string) $s->price_from_origin,
+                ])->values(),
                 'bookings' => $trip->bookings->map(fn (Booking $b) => [
                     'id' => $b->id,
                     'status' => $b->status,
+                    'boarding_stop' => $b->boardingStop?->name,
+                    'alighting_stop' => $b->alightingStop?->name,
                     'seat_count' => (int) $b->seat_count,
                     'seat_numbers' => $b->seat_numbers ?? [],
                     'price_charged' => (string) $b->price_charged,

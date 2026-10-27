@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\Notification;
+use App\Models\User;
 use Illuminate\Http\Request;
 
 class NotificationController extends Controller
@@ -68,7 +69,15 @@ class NotificationController extends Controller
     {
         $request->validate(['fcm_token' => 'required|string|max:512']);
 
-        $request->user()->update(['fcm_token' => $request->input('fcm_token')]);
+        $token = $request->input('fcm_token');
+
+        // One device = one account: a phone that switches account must stop
+        // receiving the previous account's pushes.
+        User::where('fcm_token', $token)
+            ->where('id', '!=', $request->user()->id)
+            ->update(['fcm_token' => null]);
+
+        $request->user()->update(['fcm_token' => $token]);
 
         return response()->json(['message' => 'Token enregistré.']);
     }

@@ -26,6 +26,7 @@ class Trip extends Model
         'recurrence_rule', 'status', 'closed_by', 'women_only',
         'origin_name', 'destination_name',
         'current_lat', 'current_lng', 'current_heading', 'location_updated_at', 'waypoints',
+        'last_passed_stop_position',
     ];
 
     protected $appends = [
@@ -52,6 +53,7 @@ class Trip extends Model
             'current_lat' => 'float',
             'current_lng' => 'float',
             'current_heading' => 'float',
+            'last_passed_stop_position' => 'integer',
             'waypoints' => 'array',
         ];
     }

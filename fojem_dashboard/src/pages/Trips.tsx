@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Route as RouteIcon, ArrowRight, Users, Luggage, Car } from "lucide-react";
+import { Route as RouteIcon, ArrowRight, Users, Luggage, Car, MapPin } from "lucide-react";
 import { useApi } from "../lib/useApi";
 import { apiFetch, ApiError } from "../lib/api";
 import type { AdminTrip, AdminTripDetail, Paginated } from "../types/api";
@@ -13,7 +13,7 @@ import { EmptyState } from "../components/ui/EmptyState";
 import { ErrorState } from "../components/ui/ErrorState";
 import { Pagination } from "../components/ui/Pagination";
 import { Modal } from "../components/ui/Modal";
-import { formatDateTime, formatXof } from "../lib/utils";
+import { formatDateTime, formatTime, formatXof } from "../lib/utils";
 import { useAuthStore } from "../store/useAuthStore";
 import {
   BOOKING_STATUS_LABEL,
@@ -150,6 +150,39 @@ function TripDetailModal({
             </div>
           </dl>
 
+          {trip.stops.length > 0 && (
+            <div>
+              <h3 className="text-sm font-semibold text-ink-primary flex items-center gap-2 mb-2">
+                <MapPin size={15} /> Arrêts ({trip.stops.length})
+              </h3>
+              <ol className="border border-line rounded-sm divide-y divide-line">
+                {trip.stops.map((stop) => {
+                  const passed =
+                    trip.status === "in_progress" &&
+                    trip.last_passed_stop_position !== null &&
+                    stop.position <= trip.last_passed_stop_position;
+                  return (
+                    <li key={stop.id} className="flex items-start gap-3 px-3 py-2 text-sm">
+                      <span className="w-12 shrink-0 font-medium text-ink-primary">
+                        {stop.scheduled_at ? formatTime(stop.scheduled_at) : "—"}
+                      </span>
+                      <div className="flex-1 min-w-0">
+                        <div className="text-ink-primary">{stop.name}</div>
+                        {stop.address && stop.address !== stop.name && (
+                          <div className="text-xs text-ink-muted truncate">{stop.address}</div>
+                        )}
+                      </div>
+                      <span className="text-xs text-ink-secondary whitespace-nowrap">
+                        {stop.position === 0 ? "Départ" : formatXof(stop.price_from_origin)}
+                      </span>
+                      {passed && <Badge tone="success">Franchi</Badge>}
+                    </li>
+                  );
+                })}
+              </ol>
+            </div>
+          )}
+
           <div>
             <h3 className="text-sm font-semibold text-ink-primary flex items-center gap-2 mb-2">
               <Users size={15} /> Passagers ({trip.bookings.length})
@@ -162,6 +195,7 @@ function TripDetailModal({
                   <thead>
                     <tr className="text-left text-xs text-ink-muted border-b border-line">
                       <th className="px-3 py-2 font-medium">Passager</th>
+                      <th className="px-3 py-2 font-medium">Tronçon</th>
                       <th className="px-3 py-2 font-medium">Places</th>
                       <th className="px-3 py-2 font-medium">Montant</th>
                       <th className="px-3 py-2 font-medium">Statut</th>
@@ -175,6 +209,9 @@ function TripDetailModal({
                           {b.passenger?.phone_number && (
                             <div className="text-xs text-ink-muted">{b.passenger.phone_number}</div>
                           )}
+                        </td>
+                        <td className="px-3 py-2 text-ink-secondary whitespace-nowrap">
+                          {b.boarding_stop && b.alighting_stop ? `${b.boarding_stop} → ${b.alighting_stop}` : "Trajet complet"}
                         </td>
                         <td className="px-3 py-2 text-ink-secondary">
                           {b.seat_numbers.length > 0 ? `n° ${b.seat_numbers.join(", ")}` : b.seat_count}

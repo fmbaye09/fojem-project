@@ -22,3 +22,7 @@ export function formatDateTime(iso: string): string {
     minute: "2-digit",
   }).format(new Date(iso));
 }
+
+export function formatTime(iso: string): string {
+  return new Intl.DateTimeFormat("fr-FR", { hour: "2-digit", minute: "2-digit" }).format(new Date(iso));
+}

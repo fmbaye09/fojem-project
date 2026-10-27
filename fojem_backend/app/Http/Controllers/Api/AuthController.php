@@ -109,6 +109,9 @@ class AuthController extends Controller
 
         $token?->delete();
 
+        // The device no longer belongs to this account: stop its pushes.
+        $request->user()->update(['fcm_token' => null]);
+
         return response()->json(['message' => 'Deconnecte.']);
     }
 

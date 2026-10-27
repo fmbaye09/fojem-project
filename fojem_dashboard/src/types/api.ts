@@ -337,9 +337,21 @@ export interface AdminTrip {
   vehicle: { brand: string | null; model: string | null; plate_number: string; seat_count: number } | null;
 }
 
+export interface AdminTripStop {
+  id: string;
+  position: number;
+  name: string;
+  address: string | null;
+  scheduled_at: string | null;
+  price_from_origin: string;
+}
+
 export interface AdminTripBooking {
   id: string;
   status: BookingStatus;
+  /** Noms des arrêts de montée / descente du passager. */
+  boarding_stop: string | null;
+  alighting_stop: string | null;
   seat_count: number;
   seat_numbers: string[];
   price_charged: string;
@@ -357,5 +369,8 @@ export interface AdminTripDetail extends AdminTrip {
   women_only: boolean;
   toll_fees: string | null;
   location_updated_at: string | null;
+  /** Dernier arrêt atteint par le chauffeur pendant le trajet (0 = départ). */
+  last_passed_stop_position: number | null;
+  stops: AdminTripStop[];
   bookings: AdminTripBooking[];
 }
