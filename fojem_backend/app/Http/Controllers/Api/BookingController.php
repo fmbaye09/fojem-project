@@ -70,10 +70,28 @@ class BookingController extends Controller
 
         $hasHeavyLuggage = $request->boolean('has_heavy_luggage');
 
+        // Passengers board and leave at the driver's meeting points. Without
+        // explicit stops (older app versions) the booking spans the whole trip.
+        $stops = $trip->ensureStops()->stops;
+        $boarding = $request->filled('boarding_stop_id')
+            ? $stops->firstWhere('id', $request->input('boarding_stop_id'))
+            : $stops->first();
+        $alighting = $request->filled('alighting_stop_id')
+            ? $stops->firstWhere('id', $request->input('alighting_stop_id'))
+            : $stops->last();
+
+        if (! $boarding || ! $alighting || $boarding->position >= $alighting->position) {
+            throw ValidationException::withMessages([
+                'alighting_stop_id' => 'Choisissez un arrêt de montée situé avant votre arrêt de descente, sur ce trajet.',
+            ]);
+        }
+
+        $segmentPrice = bcsub((string) $alighting->price_from_origin, (string) $boarding->price_from_origin, 2);
+
         // The seat conflict check and the insert run under a lock on the
         // trip, so two passengers tapping the same seat at once can't both
         // get it.
-        $booking = DB::transaction(function () use ($request, $trip, $seatNumbers, $seatCount, $hasHeavyLuggage) {
+        $booking = DB::transaction(function () use ($request, $trip, $seatNumbers, $seatCount, $hasHeavyLuggage, $boarding, $alighting, $segmentPrice) {
             Trip::whereKey($trip->id)->lockForUpdate()->first();
 
             if ($seatNumbers !== null) {
@@ -89,6 +107,8 @@ class BookingController extends Controller
 
             $booking = new Booking([
                 'trip_id' => $trip->id,
+                'boarding_stop_id' => $boarding->id,
+                'alighting_stop_id' => $alighting->id,
                 'ride_request_id' => $request->input('ride_request_id'),
                 'passenger_id' => $request->user()->id,
                 'seat_count' => $seatCount,
@@ -96,10 +116,11 @@ class BookingController extends Controller
                 'has_heavy_luggage' => $hasHeavyLuggage,
                 'status' => Booking::STATUS_PENDING_DRIVER,
                 'departure_code' => Booking::generateDepartureCode(),
-                'price_charged' => bcmul((string) $trip->price_per_seat, (string) $seatCount, 2),
+                'price_charged' => bcmul($segmentPrice, (string) $seatCount, 2),
             ]);
 
-            $booking->setPickupPoint((float) $request->input('pickup_lat'), (float) $request->input('pickup_lng'));
+            // The passenger is picked up at the boarding stop.
+            $booking->setPickupPoint($boarding->lat, $boarding->lng);
             $booking->save();
 
             return $booking;
@@ -133,7 +154,9 @@ class BookingController extends Controller
             $this->notifications->bookingNew($driverUser, [
                 'booking_id'        => $booking->id,
                 'trip_id'           => $trip->id,
-                'trip_label'        => ($trip->origin_name ?? 'Départ') . ' → ' . ($trip->destination_name ?? 'Arrivée'),
+                // The passenger's own segment: the driver needs to know
+                // where they board.
+                'trip_label'        => "{$boarding->name} → {$alighting->name}",
                 'passenger_name'    => $request->user()->full_name,
                 'has_heavy_luggage' => $hasHeavyLuggage,
             ]);

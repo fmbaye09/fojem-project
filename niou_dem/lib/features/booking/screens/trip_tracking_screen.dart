@@ -12,6 +12,7 @@ import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_text_styles.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/widgets/driver_avatar.dart';
+import '../../../core/widgets/meeting_point_card.dart';
 import '../../../core/widgets/status_chip.dart';
 import '../../../models/booking.dart';
 import '../../../models/trip.dart';
@@ -176,6 +177,14 @@ class _TripTrackingScreenState extends State<TripTrackingScreen> {
               if (_booking != null) ...[
                 _QrTicketCard(booking: _booking!, trip: _trip!),
                 const SizedBox(height: AppSpacing.lg),
+                // Où retrouver le chauffeur, tant que le passager n'est pas à bord.
+                if (_booking!.boardingStop != null &&
+                    !_booking!.isBoarded &&
+                    (_booking!.status == BookingStatus.pending ||
+                        _booking!.status == BookingStatus.confirmed)) ...[
+                  MeetingPointCard(stop: _booking!.boardingStop!),
+                  const SizedBox(height: AppSpacing.lg),
+                ],
               ],
               _LiveTrackingMap(trip: _trip!),
               const SizedBox(height: AppSpacing.lg),

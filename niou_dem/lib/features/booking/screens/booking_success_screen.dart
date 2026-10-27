@@ -273,15 +273,19 @@ class _TripSummaryCard extends StatelessWidget {
           const SizedBox(height: AppSpacing.md),
           _Row(
             label: 'Trajet',
-            value: '${trip.departure} → ${trip.arrival}',
+            value: '${booking.boardingStop?.name ?? trip.departure} → '
+                '${booking.alightingStop?.name ?? trip.arrival}',
           ),
           _Row(
             label: 'Date',
-            value: dateFormat.format(trip.departureTime),
+            value: dateFormat.format(booking.boardingStop?.scheduledAt ?? trip.departureTime),
           ),
           _Row(
-            label: 'Départ',
-            value: timeFormat.format(trip.departureTime),
+            label: 'Rendez-vous',
+            value: [
+              timeFormat.format(booking.boardingStop?.scheduledAt ?? trip.departureTime),
+              booking.boardingStop?.displayAddress ?? trip.departureAddress,
+            ].join(' · '),
           ),
           _Row(
             label: 'Chauffeur',

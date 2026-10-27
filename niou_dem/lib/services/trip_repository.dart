@@ -28,11 +28,14 @@ class TripRepository {
 
   TripRepository({ApiClient? client}) : _client = client ?? ApiClient.instance;
 
-  /// Recherche publique avec suggestions de repli si aucun trajet exact n'est trouvé.
+  /// Recherche publique : trajets dont un point de rendez-vous est à moins
+  /// de [radiusM] mètres de [origin] et un point suivant à moins de [radiusM]
+  /// de [destination] (chaque résultat porte son `match`), avec suggestions
+  /// de repli si aucun trajet ne correspond.
   Future<TripSearchResult> searchWithSuggestions({
     required GeoLocation origin,
     required GeoLocation destination,
-    int radiusM = 50000,
+    int radiusM = 15000,
     bool womenOnly = false,
   }) async {
     final response = await _client.get('/trips/search', query: {
@@ -61,12 +64,11 @@ class TripRepository {
     return TripSearchResult(trips: trips, suggestions: suggestions);
   }
 
-  /// Recherche publique : trajets ouverts dont l'origine ET la destination
-  /// sont toutes deux à moins de [radiusM] mètres des points demandés.
+  /// Comme [searchWithSuggestions], sans les suggestions.
   Future<List<Trip>> search({
     required GeoLocation origin,
     required GeoLocation destination,
-    int radiusM = 50000,
+    int radiusM = 15000,
     bool womenOnly = false,
   }) async {
     final result = await searchWithSuggestions(

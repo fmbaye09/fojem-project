@@ -1,4 +1,5 @@
 import 'trip.dart';
+import 'trip_stop.dart';
 
 enum BookingStatus { pending, confirmed, refused, cancelled, completed }
 
@@ -41,6 +42,10 @@ class Booking {
   final bool hasHeavyLuggage;
   final List<String> luggagePhotoUrls;
 
+  /// Où le passager monte et descend (arrêts du trajet).
+  final TripStop? boardingStop;
+  final TripStop? alightingStop;
+
   final Trip? trip;
 
   const Booking({
@@ -59,6 +64,8 @@ class Booking {
     this.hasHeavyLuggage = false,
     this.luggagePhotoUrls = const [],
     this.startedAt,
+    this.boardingStop,
+    this.alightingStop,
     this.trip,
   });
 
@@ -124,6 +131,12 @@ class Booking {
       hasHeavyLuggage: hasHeavy,
       luggagePhotoUrls: photosList,
       startedAt: DateTime.tryParse(json['started_at'] as String? ?? ''),
+      boardingStop: json['boarding_stop'] is Map<String, dynamic>
+          ? TripStop.fromJson(json['boarding_stop'] as Map<String, dynamic>)
+          : null,
+      alightingStop: json['alighting_stop'] is Map<String, dynamic>
+          ? TripStop.fromJson(json['alighting_stop'] as Map<String, dynamic>)
+          : null,
       trip: trip,
     );
   }
@@ -151,6 +164,8 @@ class Booking {
       hasHeavyLuggage: hasHeavyLuggage ?? this.hasHeavyLuggage,
       luggagePhotoUrls: luggagePhotoUrls ?? this.luggagePhotoUrls,
       startedAt: startedAt ?? this.startedAt,
+      boardingStop: boardingStop,
+      alightingStop: alightingStop,
       trip: trip ?? this.trip,
     );
   }

@@ -10,6 +10,7 @@ import '../../../core/widgets/driver_avatar.dart';
 import '../../../core/widgets/fojem_logo.dart';
 import '../../../core/widgets/trip_card.dart' show formatDayLabel;
 import '../../../core/widgets/fojem_button.dart';
+import '../../../core/widgets/stop_segment.dart';
 import '../../../models/booking.dart';
 import '../../../models/trip.dart';
 import '../../../services/booking_repository.dart';
@@ -333,6 +334,12 @@ class _RequestCardState extends State<_RequestCard> {
             ],
           ),
           const SizedBox(height: 14),
+          StopSegment(
+            boarding: widget.booking.boardingStop,
+            alighting: widget.booking.alightingStop,
+          ),
+          if (widget.booking.boardingStop != null || widget.booking.alightingStop != null)
+            const SizedBox(height: 12),
           Row(
             children: [
               const Icon(Icons.event_seat_outlined, size: 18, color: AppColors.textSecondary),

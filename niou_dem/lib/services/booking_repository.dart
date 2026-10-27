@@ -25,26 +25,23 @@ class BookingRepository {
     required List<String> seatIds,
     bool hasHeavyLuggage = false,
     List<File> luggagePhotos = const [],
-    double? pickupLat,
-    double? pickupLng,
+    // Points de rendez-vous du chauffeur où le passager monte et descend ;
+    // sans eux, le backend réserve le trajet complet.
+    String? boardingStopId,
+    String? alightingStopId,
   }) async {
     final trip = await _tripRepository.fetch(tripId);
-    final resolvedLat = pickupLat ?? trip?.origin.lat;
-    final resolvedLng = pickupLng ?? trip?.origin.lng;
-    // Sans trajet ni point choisi, on refuse plutôt que d'envoyer un point
-    // de prise en charge fictif en (0, 0).
-    if (resolvedLat == null || resolvedLng == null) {
-      throw const ApiException(
-          'Impossible de charger le trajet. Vérifiez votre connexion et réessayez.');
-    }
+    final stops = <String, dynamic>{
+      if (boardingStopId != null) 'boarding_stop_id': boardingStopId,
+      if (alightingStopId != null) 'alighting_stop_id': alightingStopId,
+    };
 
     dynamic requestData;
     if (hasHeavyLuggage && luggagePhotos.isNotEmpty) {
       final formDataMap = <String, dynamic>{
         'trip_id': tripId,
         'seat_numbers[]': seatIds,
-        'pickup_lat': resolvedLat,
-        'pickup_lng': resolvedLng,
+        ...stops,
         'has_heavy_luggage': 1,
       };
 
@@ -59,8 +56,7 @@ class BookingRepository {
       requestData = {
         'trip_id': tripId,
         'seat_numbers': seatIds,
-        'pickup_lat': resolvedLat,
-        'pickup_lng': resolvedLng,
+        ...stops,
         'has_heavy_luggage': hasHeavyLuggage ? 1 : 0,
       };
     }

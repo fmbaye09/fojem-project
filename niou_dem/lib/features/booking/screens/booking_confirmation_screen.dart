@@ -3,13 +3,13 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
-import '../../../core/geo/geo_location.dart';
+
 import '../../../core/network/api_exception.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_text_styles.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/widgets/fojem_button.dart';
-import '../../../core/widgets/location_picker_screen.dart';
+import '../../../core/widgets/meeting_point_card.dart';
 import '../../../core/widgets/price_display.dart';
 import '../../../models/trip.dart';
 import '../../../providers/app_provider.dart';
@@ -22,10 +22,17 @@ class BookingConfirmationScreen extends StatefulWidget {
   /// Sièges choisis sur le plan du véhicule (au moins un).
   final List<String> seatIds;
 
+  /// Arrêts de montée et de descente (points de rendez-vous du chauffeur) ;
+  /// à défaut, le trajet complet.
+  final String? boardingStopId;
+  final String? alightingStopId;
+
   const BookingConfirmationScreen({
     super.key,
     required this.tripId,
     required this.seatIds,
+    this.boardingStopId,
+    this.alightingStopId,
   });
 
   @override
@@ -39,7 +46,6 @@ class _BookingConfirmationScreenState
   bool _isLoading = true;
   bool _isConfirming = false;
   bool _hasHeavyLuggage = false;
-  GeoLocation? _customPickup;
   final List<File> _luggagePhotos = [];
   final ImagePicker _picker = ImagePicker();
 
@@ -58,20 +64,16 @@ class _BookingConfirmationScreenState
     });
   }
 
-  Future<void> _pickPickupLocation() async {
-    final trip = _trip;
-    if (trip == null) return;
-    final picked = await Navigator.of(context).push<GeoLocation>(
-      MaterialPageRoute(
-        builder: (_) => LocationPickerScreen(
-          title: 'Point de prise en charge',
-          initial: _customPickup ?? trip.origin,
-        ),
-      ),
-    );
-    if (picked == null || !mounted) return;
-    setState(() => _customPickup = picked);
-  }
+  TripSegment get _segment => _trip!.segment(
+        boardingStopId: widget.boardingStopId,
+        alightingStopId: widget.alightingStopId,
+      );
+
+  /// `&board=…&alight=…` pour revenir au plan des sièges sans perdre le tronçon.
+  String get _segmentQuery => [
+        if (widget.boardingStopId != null) '&board=${widget.boardingStopId}',
+        if (widget.alightingStopId != null) '&alight=${widget.alightingStopId}',
+      ].join();
 
   Future<void> _pickPhoto(ImageSource source) async {
     try {
@@ -166,8 +168,8 @@ class _BookingConfirmationScreenState
         seatIds: widget.seatIds,
         hasHeavyLuggage: _hasHeavyLuggage,
         luggagePhotos: _luggagePhotos,
-        pickupLat: _customPickup?.lat,
-        pickupLng: _customPickup?.lng,
+        boardingStopId: _segment.boarding?.id,
+        alightingStopId: _segment.alighting?.id,
       );
       if (!mounted) return;
       context.go('/booking/success?bookingId=${booking.id}');
@@ -183,7 +185,7 @@ class _BookingConfirmationScreenState
       // Place prise entre-temps par un autre passager : retour au plan,
       // rechargé avec les sièges à jour.
       if (e is ApiException && (e.fieldErrors?.containsKey('seat_numbers') ?? false)) {
-        context.pushReplacement('/seat-selection?tripId=${trip.id}');
+        context.pushReplacement('/seat-selection?tripId=${trip.id}$_segmentQuery');
       }
     }
   }
@@ -204,6 +206,7 @@ class _BookingConfirmationScreenState
       );
     }
     final trip = _trip!;
+    final segment = _segment;
     final user = context.watch<AppProvider>().user;
 
     if (widget.seatIds.isEmpty) {
@@ -215,7 +218,7 @@ class _BookingConfirmationScreenState
             padding: const EdgeInsets.all(AppSpacing.lg),
             child: FojemButton.primary(
               label: 'Choisir une place',
-              onPressed: () => context.pushReplacement('/seat-selection?tripId=${trip.id}'),
+              onPressed: () => context.pushReplacement('/seat-selection?tripId=${trip.id}$_segmentQuery'),
             ),
           ),
         ),
@@ -239,16 +242,12 @@ class _BookingConfirmationScreenState
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  _TripSummaryCard(trip: trip),
+                  _TripSummaryCard(trip: trip, segment: segment),
                   const SizedBox(height: AppSpacing.lg),
-                  Text('Point de prise en charge', style: AppTextStyles.title2),
-                  const SizedBox(height: AppSpacing.sm),
-                  _PickupLocationCard(
-                    defaultAddress: trip.departure,
-                    customPickup: _customPickup,
-                    onPickOnMap: _pickPickupLocation,
-                  ),
-                  const SizedBox(height: AppSpacing.lg),
+                  if (segment.boarding != null) ...[
+                    MeetingPointCard(stop: segment.boarding!),
+                    const SizedBox(height: AppSpacing.lg),
+                  ],
                   Text(
                     widget.seatIds.length > 1 ? 'Vos places' : 'Votre place',
                     style: AppTextStyles.title2,
@@ -281,7 +280,7 @@ class _BookingConfirmationScreenState
                   ),
                   const SizedBox(height: AppSpacing.lg),
                   _PriceSummary(
-                    pricePerSeat: trip.pricePerSeat,
+                    pricePerSeat: segment.pricePerSeat,
                     seatCount: widget.seatIds.length,
                   ),
                 ],
@@ -289,7 +288,7 @@ class _BookingConfirmationScreenState
             ),
           ),
           _ConfirmBar(
-            total: trip.pricePerSeat * widget.seatIds.length,
+            total: segment.pricePerSeat * widget.seatIds.length,
             isLoading: _isConfirming,
             onConfirm: _confirm,
           ),
@@ -299,56 +298,11 @@ class _BookingConfirmationScreenState
   }
 }
 
-class _PickupLocationCard extends StatelessWidget {
-  final String defaultAddress;
-  final GeoLocation? customPickup;
-  final VoidCallback onPickOnMap;
-
-  const _PickupLocationCard({
-    required this.defaultAddress,
-    required this.customPickup,
-    required this.onPickOnMap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      decoration: AppColors.cardDecoration,
-      child: ListTile(
-        leading: Container(
-          width: 40,
-          height: 40,
-          decoration: BoxDecoration(
-            color: AppColors.primarySurface,
-            borderRadius: BorderRadius.circular(10),
-          ),
-          child: const Icon(Icons.my_location_rounded, color: AppColors.primary, size: 20),
-        ),
-        title: Text(
-          customPickup != null ? customPickup!.address : defaultAddress,
-          maxLines: 2,
-          overflow: TextOverflow.ellipsis,
-          style: AppTextStyles.bodySemibold,
-        ),
-        subtitle: Text(
-          customPickup != null
-              ? 'Point GPS personnalisé sélectionné'
-              : 'Touchez pour affiner votre point de rencontre sur la carte / GPS',
-          style: AppTextStyles.caption.copyWith(
-            color: customPickup != null ? AppColors.primary : AppColors.textSecondary,
-          ),
-        ),
-        trailing: const Icon(Icons.map_outlined, color: AppColors.primary),
-        onTap: onPickOnMap,
-      ),
-    );
-  }
-}
-
 class _TripSummaryCard extends StatelessWidget {
   final Trip trip;
+  final TripSegment segment;
 
-  const _TripSummaryCard({required this.trip});
+  const _TripSummaryCard({required this.trip, required this.segment});
 
   @override
   Widget build(BuildContext context) {
@@ -365,8 +319,8 @@ class _TripSummaryCard extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('De', style: AppTextStyles.caption),
-                Text(trip.departure, style: AppTextStyles.bodyLargeSemibold),
+                Text('Montée', style: AppTextStyles.caption),
+                Text(segment.boarding?.name ?? trip.departure, style: AppTextStyles.bodyLargeSemibold),
               ],
             ),
           ),
@@ -384,9 +338,9 @@ class _TripSummaryCard extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.end,
               children: [
-                Text('À', style: AppTextStyles.caption),
+                Text('Descente', style: AppTextStyles.caption),
                 Text(
-                  trip.arrival,
+                  segment.alighting?.name ?? trip.arrival,
                   style: AppTextStyles.bodyLargeSemibold,
                   textAlign: TextAlign.end,
                 ),

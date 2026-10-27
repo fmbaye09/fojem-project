@@ -333,13 +333,13 @@ class _BookingCard extends StatelessWidget {
                     children: [
                       Expanded(
                         child: Text(
-                          trip.departure,
+                          booking.boardingStop?.name ?? trip.departure,
                           style: AppTextStyles.bodyLargeSemibold.copyWith(fontSize: 15),
                         ),
                       ),
                       Expanded(
                         child: Text(
-                          trip.arrival,
+                          booking.alightingStop?.name ?? trip.arrival,
                           textAlign: TextAlign.right,
                           style: AppTextStyles.bodyLargeSemibold.copyWith(fontSize: 15),
                         ),
@@ -365,11 +365,12 @@ class _BookingCard extends StatelessWidget {
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(
-                              '${timeFormat.format(trip.departureTime)} → ${timeFormat.format(trip.departureTime.add(trip.estimatedDuration))}',
+                              '${timeFormat.format(booking.boardingStop?.scheduledAt ?? trip.departureTime)} → '
+                              '${timeFormat.format(booking.alightingStop?.scheduledAt ?? trip.departureTime.add(trip.estimatedDuration))}',
                               style: AppTextStyles.bodySemibold.copyWith(fontSize: 14),
                             ),
                             Text(
-                              dateFormat.format(trip.departureTime),
+                              dateFormat.format(booking.boardingStop?.scheduledAt ?? trip.departureTime),
                               style: AppTextStyles.caption.copyWith(color: AppColors.textSecondary),
                             ),
                           ],

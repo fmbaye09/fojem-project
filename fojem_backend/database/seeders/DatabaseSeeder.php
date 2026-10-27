@@ -133,6 +133,7 @@ class DatabaseSeeder extends Seeder
             $trip->setOriginPoint(14.6937, -17.4441); // Plateau, Dakar
             $trip->setDestinationPoint(14.7358, -17.4900); // Ouakam, Dakar
             $trip->save();
+            $trip->ensureStops();
         }
 
         $passengerUser = User::firstOrCreate(

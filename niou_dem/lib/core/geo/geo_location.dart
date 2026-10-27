@@ -7,7 +7,19 @@ class GeoLocation {
   final double lng;
   final String address;
 
-  const GeoLocation({required this.lat, required this.lng, required this.address});
+  /// Ville / quartier du point (« Rufisque »), quand le géocodage le fournit :
+  /// sert de libellé court, l'adresse complète restant affichée en détail.
+  final String? locality;
+
+  const GeoLocation({required this.lat, required this.lng, required this.address, this.locality});
+
+  /// Libellé court : la localité si connue, sinon le premier élément de
+  /// l'adresse (« Gare routière, Thiès, … » → « Gare routière »).
+  String get shortLabel {
+    if (locality != null && locality!.trim().isNotEmpty) return locality!.trim();
+    final first = address.split(',').first.trim();
+    return first.isEmpty ? address : first;
+  }
 
   factory GeoLocation.fromMap(Map<String, dynamic> map) {
     return GeoLocation(

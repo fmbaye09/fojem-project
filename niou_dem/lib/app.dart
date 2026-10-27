@@ -96,7 +96,11 @@ GoRouter _buildRouter(AppProvider appProvider) => GoRouter(
       path: '/trip/:id',
       builder: (_, state) {
         final tripId = state.pathParameters['id']!;
-        return TripDetailScreen(tripId: tripId);
+        return TripDetailScreen(
+          tripId: tripId,
+          boardingStopId: state.uri.queryParameters['board'],
+          alightingStopId: state.uri.queryParameters['alight'],
+        );
       },
     ),
     GoRoute(
@@ -107,7 +111,12 @@ GoRouter _buildRouter(AppProvider appProvider) => GoRouter(
             .split(',')
             .where((s) => s.isNotEmpty)
             .toList();
-        return BookingConfirmationScreen(tripId: tripId, seatIds: seats);
+        return BookingConfirmationScreen(
+          tripId: tripId,
+          seatIds: seats,
+          boardingStopId: state.uri.queryParameters['board'],
+          alightingStopId: state.uri.queryParameters['alight'],
+        );
       },
     ),
     GoRoute(
@@ -158,7 +167,11 @@ GoRouter _buildRouter(AppProvider appProvider) => GoRouter(
       path: '/seat-selection',
       builder: (_, state) {
         final tripId = state.uri.queryParameters['tripId'];
-        return SeatSelectionScreen(tripId: tripId);
+        return SeatSelectionScreen(
+          tripId: tripId,
+          boardingStopId: state.uri.queryParameters['board'],
+          alightingStopId: state.uri.queryParameters['alight'],
+        );
       },
     ),
     GoRoute(

@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:go_router/go_router.dart';
+import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../../core/network/api_exception.dart';
@@ -13,6 +14,7 @@ import '../../../core/widgets/trip_card.dart' show formatDayLabel, formatFcfa;
 import '../../../core/widgets/fojem_button.dart';
 import '../../../models/booking.dart';
 import '../../../models/trip.dart';
+import '../../../models/trip_stop.dart';
 import '../../../models/vehicle.dart';
 import '../../../providers/app_provider.dart';
 import '../../../services/booking_repository.dart';
@@ -470,6 +472,26 @@ class _TripManageScreenState extends State<TripManageScreen> {
                                 icon: Icons.person_search_rounded,
                                 text: 'Aucun passager confirmé pour l\'instant',
                               )
+                            else if (_trip!.stops.length >= 2)
+                              for (final stop in _trip!.stops)
+                                _StopSection(
+                                  stop: stop,
+                                  isFirst: stop.position == 0,
+                                  isLast: stop.position == _trip!.stops.last.position,
+                                  boarding: [
+                                    for (final b in _confirmed)
+                                      if (b.boardingStop?.id == stop.id ||
+                                          (b.boardingStop == null && stop.position == 0))
+                                        b,
+                                  ],
+                                  alighting: [
+                                    for (final b in _confirmed)
+                                      if (b.alightingStop?.id == stop.id ||
+                                          (b.alightingStop == null && stop.position == _trip!.stops.last.position))
+                                        b,
+                                  ],
+                                  tripId: widget.tripId,
+                                )
                             else
                               ..._confirmed.map((b) => Padding(
                                     padding: const EdgeInsets.only(bottom: AppSpacing.sm),
@@ -1185,6 +1207,124 @@ class _SmallActionButton extends StatelessWidget {
                 style: AppTextStyles.bodySemibold.copyWith(fontSize: 12, color: AppColors.primary)),
           ],
         ),
+      ),
+    );
+  }
+}
+
+/// Un point de rendez-vous du trajet : heure, adresse, accès à l'itinéraire,
+/// passagers qui montent (avec leurs actions) et qui descendent.
+class _StopSection extends StatelessWidget {
+  final TripStop stop;
+  final bool isFirst;
+  final bool isLast;
+  final List<Booking> boarding;
+  final List<Booking> alighting;
+  final String tripId;
+
+  const _StopSection({
+    required this.stop,
+    required this.isFirst,
+    required this.isLast,
+    required this.boarding,
+    required this.alighting,
+    required this.tripId,
+  });
+
+  Future<void> _openDirections() async {
+    final uri = Uri.parse(
+      'https://www.google.com/maps/dir/?api=1&destination=${stop.lat},${stop.lng}&travelmode=driving',
+    );
+    await launchUrl(uri, mode: LaunchMode.externalApplication);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final time = stop.scheduledAt != null ? DateFormat('HH:mm').format(stop.scheduledAt!) : '';
+    final boardingSeats = boarding.fold<int>(0, (sum, b) => sum + b.seatsBooked);
+    final summary = [
+      if (boarding.isNotEmpty) '$boardingSeats à faire monter',
+      if (alighting.isNotEmpty) '${alighting.length} à déposer',
+    ].join(' · ');
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: AppSpacing.sm),
+      padding: const EdgeInsets.all(14),
+      decoration: AppColors.softCardDecoration,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Icon(
+                isFirst
+                    ? Icons.adjust_rounded
+                    : isLast
+                        ? Icons.location_on_rounded
+                        : Icons.radio_button_checked_rounded,
+                size: 22,
+                color: AppColors.primary,
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      [if (time.isNotEmpty) time, stop.name].join(' · '),
+                      style: AppTextStyles.bodyLargeSemibold,
+                    ),
+                    if (stop.address != null && stop.address!.isNotEmpty && stop.address != stop.name)
+                      Text(
+                        stop.address!,
+                        style: AppTextStyles.caption.copyWith(color: AppColors.textSecondary),
+                      ),
+                    const SizedBox(height: 2),
+                    Text(
+                      summary.isEmpty ? 'Aucun passager à cet arrêt' : summary,
+                      style: AppTextStyles.caption.copyWith(
+                        color: summary.isEmpty ? AppColors.textMuted : AppColors.primary,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              IconButton(
+                onPressed: _openDirections,
+                tooltip: 'Itinéraire vers ce point',
+                icon: const Icon(Icons.directions_rounded, color: AppColors.primary),
+              ),
+            ],
+          ),
+          if (boarding.isNotEmpty) ...[
+            const SizedBox(height: 10),
+            for (final b in boarding)
+              Padding(
+                padding: const EdgeInsets.only(bottom: AppSpacing.sm),
+                child: _PassengerTile(booking: b, tripId: tripId),
+              ),
+          ],
+          if (alighting.isNotEmpty) ...[
+            const SizedBox(height: 6),
+            Wrap(
+              spacing: 6,
+              runSpacing: 6,
+              children: [
+                for (final b in alighting)
+                  Chip(
+                    avatar: const Icon(Icons.logout_rounded, size: 16, color: AppColors.textSecondary),
+                    label: Text(
+                      b.passengerName.isEmpty ? 'Passager' : b.passengerName,
+                      style: AppTextStyles.caption,
+                    ),
+                    visualDensity: VisualDensity.compact,
+                  ),
+              ],
+            ),
+          ],
+        ],
       ),
     );
   }

@@ -10,7 +10,9 @@ import '../../../core/widgets/star_rating.dart';
 import '../../../core/widgets/status_chip.dart';
 import '../../../core/widgets/price_display.dart';
 import '../../../core/widgets/fojem_button.dart';
+import '../../../core/widgets/meeting_point_card.dart';
 import '../../../models/trip.dart';
+import '../../../models/trip_stop.dart';
 import '../../../models/driver.dart';
 import '../../../models/booking.dart';
 import '../../../providers/app_provider.dart';
@@ -21,7 +23,16 @@ import '../../../services/booking_repository.dart';
 class TripDetailScreen extends StatefulWidget {
   final String tripId;
 
-  const TripDetailScreen({super.key, required this.tripId});
+  /// Arrêts proposés par la recherche ; sinon le trajet complet.
+  final String? boardingStopId;
+  final String? alightingStopId;
+
+  const TripDetailScreen({
+    super.key,
+    required this.tripId,
+    this.boardingStopId,
+    this.alightingStopId,
+  });
 
   @override
   State<TripDetailScreen> createState() => _TripDetailScreenState();
@@ -31,6 +42,8 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
   Trip? _trip;
   Booking? _existingBooking;
   bool _isLoading = true;
+  late String? _boardId = widget.boardingStopId;
+  late String? _alightId = widget.alightingStopId;
 
   @override
   void initState() {
@@ -38,9 +51,68 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
     _loadTrip();
   }
 
+  TripSegment get _segment =>
+      _trip!.segment(boardingStopId: _boardId, alightingStopId: _alightId);
+
+  /// Le passager change d'arrêt de montée ou de descente : la montée doit
+  /// rester avant la descente.
+  Future<void> _chooseStop(TripStop stop) async {
+    final seg = _segment;
+    final canBoard = seg.alighting == null || stop.position < seg.alighting!.position;
+    final canAlight = seg.boarding == null || stop.position > seg.boarding!.position;
+    final choice = await showModalBottomSheet<String>(
+      context: context,
+      backgroundColor: AppColors.surface,
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              title: Text(stop.name, style: AppTextStyles.bodyLargeSemibold),
+              subtitle: Text(stop.displayAddress),
+            ),
+            const Divider(height: 1, color: AppColors.border),
+            ListTile(
+              enabled: canBoard,
+              leading: const Icon(Icons.login_rounded, color: AppColors.primary),
+              title: const Text('Monter ici'),
+              onTap: () => Navigator.pop(ctx, 'board'),
+            ),
+            ListTile(
+              enabled: canAlight,
+              leading: const Icon(Icons.logout_rounded, color: AppColors.primary),
+              title: const Text('Descendre ici'),
+              onTap: () => Navigator.pop(ctx, 'alight'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (choice == null || !mounted) return;
+    setState(() {
+      if (choice == 'board') {
+        _boardId = stop.id;
+        _alightId ??= seg.alighting?.id;
+      } else {
+        _alightId = stop.id;
+        _boardId ??= seg.boarding?.id;
+      }
+    });
+  }
+
+  void _book() {
+    final seg = _segment;
+    final params = [
+      'tripId=${_trip!.id}',
+      if (seg.boarding != null) 'board=${seg.boarding!.id}',
+      if (seg.alighting != null) 'alight=${seg.alighting!.id}',
+    ].join('&');
+    context.push('/seat-selection?$params');
+  }
+
   Future<void> _loadTrip() async {
-    final trip = await TripRepository().fetch(widget.tripId);
     final userId = context.read<AppProvider>().user?.id;
+    final trip = await TripRepository().fetch(widget.tripId);
     Booking? existing;
     if (userId != null) {
       existing = await BookingRepository().fetchActiveForTrip(
@@ -87,10 +159,10 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
               ? const _TripNotFound()
               : _TripContent(
                   trip: _trip!,
+                  segment: _segment,
                   existingBooking: _existingBooking,
-                  onBook: () => context.push(
-                    '/seat-selection?tripId=${_trip!.id}',
-                  ),
+                  onStopTap: _chooseStop,
+                  onBook: _book,
                 ),
     );
   }
@@ -112,12 +184,16 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
 
 class _TripContent extends StatelessWidget {
   final Trip trip;
+  final TripSegment segment;
   final Booking? existingBooking;
+  final ValueChanged<TripStop> onStopTap;
   final VoidCallback onBook;
 
   const _TripContent({
     required this.trip,
+    required this.segment,
     this.existingBooking,
+    required this.onStopTap,
     required this.onBook,
   });
 
@@ -130,7 +206,7 @@ class _TripContent extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                _RouteHeader(trip: trip),
+                _RouteHeader(trip: trip, segment: segment),
                 const SizedBox(height: AppSpacing.lg),
                 Padding(
                   padding:
@@ -138,15 +214,22 @@ class _TripContent extends StatelessWidget {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      if (trip.waypointLocations.isNotEmpty) ...[
+                      if (segment.boarding != null) ...[
+                        MeetingPointCard(stop: segment.boarding!),
+                        const SizedBox(height: AppSpacing.lg),
+                      ],
+                      if (trip.stops.length >= 2) ...[
+                        _StopsTimeline(trip: trip, segment: segment, onStopTap: onStopTap),
+                        const SizedBox(height: AppSpacing.lg),
+                      ] else if (trip.waypointLocations.isNotEmpty) ...[
                         _RouteTimeline(trip: trip),
                         const SizedBox(height: AppSpacing.lg),
                       ],
                       _DriverSection(driver: trip.driver!),
                       const SizedBox(height: AppSpacing.lg),
-                      _TripDetailsSection(trip: trip),
+                      _TripDetailsSection(trip: trip, segment: segment),
                       const SizedBox(height: AppSpacing.lg),
-                      _PriceSection(trip: trip),
+                      _PriceSection(segment: segment),
                       const SizedBox(height: AppSpacing.lg),
                       if (trip.driver!.reviews.isNotEmpty) ...[
                         _ReviewsSection(driver: trip.driver!),
@@ -161,6 +244,7 @@ class _TripContent extends StatelessWidget {
         ),
         _BookingBar(
           trip: trip,
+          segment: segment,
           existingBooking: existingBooking,
           onBook: onBook,
         ),
@@ -204,6 +288,60 @@ class _RouteTimeline extends StatelessWidget {
               time: timeFormat.format(trip.departureTime.add(Duration(minutes: (step * i).round()))),
               isFirst: stops[i].isFirst,
               isLast: stops[i].isLast,
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Les points de rendez-vous du trajet avec leurs heures publiées. Le
+/// tronçon du passager est mis en avant ; toucher un arrêt permet d'y
+/// monter ou d'y descendre.
+class _StopsTimeline extends StatelessWidget {
+  final Trip trip;
+  final TripSegment segment;
+  final ValueChanged<TripStop> onStopTap;
+
+  const _StopsTimeline({required this.trip, required this.segment, required this.onStopTap});
+
+  @override
+  Widget build(BuildContext context) {
+    final timeFormat = DateFormat('HH:mm');
+    final boardPos = segment.boarding?.position ?? 0;
+    final alightPos = segment.alighting?.position ?? trip.stops.last.position;
+    return Container(
+      width: double.infinity,
+      padding: AppSpacing.cardPadding,
+      decoration: AppColors.cardDecoration,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('Arrêts du trajet', style: AppTextStyles.title2),
+          const SizedBox(height: 2),
+          Text(
+            'Touchez un arrêt pour y monter ou y descendre.',
+            style: AppTextStyles.caption.copyWith(color: AppColors.textMuted),
+          ),
+          const SizedBox(height: AppSpacing.md),
+          for (final stop in trip.stops)
+            InkWell(
+              onTap: () => onStopTap(stop),
+              child: Opacity(
+                // Hors de son tronçon : visible mais estompé.
+                opacity: stop.position >= boardPos && stop.position <= alightPos ? 1 : 0.45,
+                child: _TimelineRow(
+                  label: stop.name,
+                  time: [
+                    if (stop.scheduledAt != null) timeFormat.format(stop.scheduledAt!),
+                    if (stop.position == boardPos) 'Vous montez',
+                    if (stop.position == alightPos) 'Vous descendez',
+                    if (stop.displayAddress != stop.name) stop.displayAddress,
+                  ].join(' · '),
+                  isFirst: stop.position == trip.stops.first.position,
+                  isLast: stop.position == trip.stops.last.position,
+                ),
+              ),
             ),
         ],
       ),
@@ -273,14 +411,27 @@ class _TimelineRow extends StatelessWidget {
 
 class _RouteHeader extends StatelessWidget {
   final Trip trip;
+  final TripSegment segment;
 
-  const _RouteHeader({required this.trip});
+  const _RouteHeader({required this.trip, required this.segment});
 
   @override
   Widget build(BuildContext context) {
     final timeFormat = DateFormat('HH:mm');
     final dateFormat = DateFormat('EEE d MMM', 'fr_FR');
-    final arrival = trip.departureTime.add(trip.estimatedDuration);
+    // Le tronçon du passager, pas le trajet complet du chauffeur.
+    final departureTime = segment.boarding?.scheduledAt ?? trip.departureTime;
+    final arrival = segment.alighting?.scheduledAt ?? trip.departureTime.add(trip.estimatedDuration);
+    final departureName = segment.boarding?.name ?? trip.departure;
+    final departureAddress = segment.boarding?.displayAddress ?? trip.departureAddress;
+    final arrivalName = segment.alighting?.name ?? trip.arrival;
+    final arrivalAddress = segment.alighting?.displayAddress ?? trip.arrivalAddress;
+    final duration = arrival.difference(departureTime);
+    final durationLabel = duration.inMinutes <= 0
+        ? trip.durationLabel
+        : duration.inHours == 0
+            ? '${duration.inMinutes}min'
+            : '${duration.inHours}h${(duration.inMinutes % 60).toString().padLeft(2, '0')}';
 
     return Container(
       color: AppColors.surface,
@@ -294,15 +445,15 @@ class _RouteHeader extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      timeFormat.format(trip.departureTime),
+                      timeFormat.format(departureTime),
                       style: AppTextStyles.title1.copyWith(fontSize: 28),
                     ),
                     Text(
-                      trip.departure,
+                      departureName,
                       style: AppTextStyles.bodyLargeSemibold,
                     ),
                     Text(
-                      trip.departureAddress,
+                      departureAddress,
                       style: AppTextStyles.caption,
                       maxLines: 2,
                     ),
@@ -326,7 +477,7 @@ class _RouteHeader extends StatelessWidget {
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    trip.durationLabel,
+                    durationLabel,
                     style: AppTextStyles.caption,
                   ),
                 ],
@@ -340,12 +491,12 @@ class _RouteHeader extends StatelessWidget {
                       style: AppTextStyles.title1.copyWith(fontSize: 28),
                     ),
                     Text(
-                      trip.arrival,
+                      arrivalName,
                       style: AppTextStyles.bodyLargeSemibold,
                       textAlign: TextAlign.end,
                     ),
                     Text(
-                      trip.arrivalAddress,
+                      arrivalAddress,
                       style: AppTextStyles.caption,
                       textAlign: TextAlign.end,
                       maxLines: 2,
@@ -361,7 +512,7 @@ class _RouteHeader extends StatelessWidget {
               const StatusChip(variant: StatusChipVariant.confirmed),
               const SizedBox(width: AppSpacing.sm),
               Text(
-                dateFormat.format(trip.departureTime),
+                dateFormat.format(departureTime),
                 style: AppTextStyles.body.copyWith(
                   color: AppColors.textSecondary,
                 ),
@@ -499,8 +650,9 @@ class _DriverSection extends StatelessWidget {
 
 class _TripDetailsSection extends StatelessWidget {
   final Trip trip;
+  final TripSegment segment;
 
-  const _TripDetailsSection({required this.trip});
+  const _TripDetailsSection({required this.trip, required this.segment});
 
   @override
   Widget build(BuildContext context) {
@@ -515,14 +667,14 @@ class _TripDetailsSection extends StatelessWidget {
             children: [
               _DetailRow(
                 icon: Icons.location_on_outlined,
-                label: 'Point de départ',
-                value: trip.departureAddress,
+                label: 'Vous montez à',
+                value: segment.boarding?.displayAddress ?? trip.departureAddress,
               ),
               const Divider(height: 1, color: AppColors.border, indent: 52),
               _DetailRow(
                 icon: Icons.flag_outlined,
-                label: 'Point d\'arrivée',
-                value: trip.arrivalAddress,
+                label: 'Vous descendez à',
+                value: segment.alighting?.displayAddress ?? trip.arrivalAddress,
               ),
               const Divider(height: 1, color: AppColors.border, indent: 52),
               _DetailRow(
@@ -589,9 +741,9 @@ class _DetailRow extends StatelessWidget {
 }
 
 class _PriceSection extends StatelessWidget {
-  final Trip trip;
+  final TripSegment segment;
 
-  const _PriceSection({required this.trip});
+  const _PriceSection({required this.segment});
 
   @override
   Widget build(BuildContext context) {
@@ -608,8 +760,15 @@ class _PriceSection extends StatelessWidget {
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  Text('Prix par place', style: AppTextStyles.body),
-                  PriceDisplay(amount: trip.pricePerSeat),
+                  Expanded(
+                    child: Text(
+                      segment.boarding != null && segment.alighting != null
+                          ? 'Prix par place · ${segment.boarding!.name} → ${segment.alighting!.name}'
+                          : 'Prix par place',
+                      style: AppTextStyles.body,
+                    ),
+                  ),
+                  PriceDisplay(amount: segment.pricePerSeat),
                 ],
               ),
               const SizedBox(height: AppSpacing.sm),
@@ -707,11 +866,13 @@ class _ReviewCard extends StatelessWidget {
 
 class _BookingBar extends StatelessWidget {
   final Trip trip;
+  final TripSegment segment;
   final Booking? existingBooking;
   final VoidCallback onBook;
 
   const _BookingBar({
     required this.trip,
+    required this.segment,
     this.existingBooking,
     required this.onBook,
   });
@@ -746,7 +907,7 @@ class _BookingBar extends StatelessWidget {
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   Text('Prix par place', style: AppTextStyles.caption),
-                  PriceDisplay(amount: trip.pricePerSeat, isLarge: true),
+                  PriceDisplay(amount: segment.pricePerSeat, isLarge: true),
                   if (!trip.isFull && trip.availableSeats <= 3 && existingBooking == null)
                     Padding(
                       padding: const EdgeInsets.only(top: 2),

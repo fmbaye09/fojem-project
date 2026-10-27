@@ -29,6 +29,7 @@ class OsmMapService implements MapService {
       'countrycodes': 'sn',
       'viewbox': _senegalViewbox,
       'bounded': '1',
+      'addressdetails': '1',
     });
 
     final response = await http.get(uri, headers: {'User-Agent': _userAgent});
@@ -37,10 +38,10 @@ class OsmMapService implements MapService {
     final results = jsonDecode(response.body) as List;
     return results.map((r) {
       final map = r as Map<String, dynamic>;
-      return GeoLocation(
+      return _fromNominatim(
+        map,
         lat: double.parse(map['lat'] as String),
         lng: double.parse(map['lon'] as String),
-        address: map['display_name'] as String,
       );
     }).toList();
   }
@@ -51,6 +52,7 @@ class OsmMapService implements MapService {
       'lat': '$lat',
       'lon': '$lng',
       'format': 'jsonv2',
+      'addressdetails': '1',
     });
 
     final response = await http.get(uri, headers: {'User-Agent': _userAgent});
@@ -58,19 +60,47 @@ class OsmMapService implements MapService {
       return GeoLocation(lat: lat, lng: lng, address: '$lat, $lng');
     }
 
-    final map = jsonDecode(response.body) as Map<String, dynamic>;
+    return _fromNominatim(jsonDecode(response.body) as Map<String, dynamic>, lat: lat, lng: lng);
+  }
+
+  /// Adresse lisible (« Gare routière, Avenue Lamine Guèye, Thiès ») et
+  /// localité, plutôt que le `display_name` complet qui empile quartier,
+  /// région, code postal et pays.
+  GeoLocation _fromNominatim(Map<String, dynamic> map, {required double lat, required double lng}) {
+    final details = (map['address'] as Map?)?.cast<String, dynamic>() ?? const {};
+    String? pick(List<String> keys) {
+      for (final key in keys) {
+        final value = details[key];
+        if (value is String && value.trim().isNotEmpty) return value.trim();
+      }
+      return null;
+    }
+
+    final locality = pick(['city', 'town', 'village', 'municipality', 'suburb', 'county']);
+    final place = (map['name'] as String?)?.trim();
+    final road = pick(['road', 'pedestrian', 'neighbourhood', 'suburb']);
+    final parts = <String>[];
+    for (final part in [place, road, locality]) {
+      if (part != null && part.isNotEmpty && !parts.contains(part)) parts.add(part);
+    }
+
     return GeoLocation(
       lat: lat,
       lng: lng,
-      address: map['display_name'] as String? ?? '$lat, $lng',
+      address: parts.isNotEmpty ? parts.join(', ') : (map['display_name'] as String? ?? '$lat, $lng'),
+      locality: locality,
     );
   }
 
   @override
-  Future<RouteResult?> getRoute(GeoLocation from, GeoLocation to) async {
+  Future<RouteResult?> getRoute(GeoLocation from, GeoLocation to) => getRouteThrough([from, to]);
+
+  @override
+  Future<RouteResult?> getRouteThrough(List<GeoLocation> points) async {
+    if (points.length < 2) return null;
+    final coordinates = points.map((p) => '${p.lng},${p.lat}').join(';');
     final uri = Uri.parse(
-      '$_osrmBase/route/v1/driving/${from.lng},${from.lat};${to.lng},${to.lat}'
-      '?overview=full&geometries=geojson',
+      '$_osrmBase/route/v1/driving/$coordinates?overview=full&geometries=geojson',
     );
 
     final response = await http.get(uri, headers: {'User-Agent': _userAgent});
@@ -85,11 +115,19 @@ class OsmMapService implements MapService {
     final polyline = coords
         .map((c) => GeoLocation(lat: (c[1] as num).toDouble(), lng: (c[0] as num).toDouble(), address: ''))
         .toList();
+    final legs = [
+      for (final leg in (route['legs'] as List? ?? const []))
+        RouteLeg(
+          distanceKm: ((leg as Map<String, dynamic>)['distance'] as num).toDouble() / 1000,
+          duration: Duration(seconds: (leg['duration'] as num).round()),
+        ),
+    ];
 
     return RouteResult(
       polyline: polyline,
       distanceKm: (route['distance'] as num).toDouble() / 1000,
       duration: Duration(seconds: (route['duration'] as num).round()),
+      legs: legs,
     );
   }
 }

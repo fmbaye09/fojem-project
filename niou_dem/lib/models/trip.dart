@@ -1,6 +1,7 @@
 import '../core/geo/geo_location.dart';
 import '../core/geo/senegal_city_coordinates.dart';
 import 'driver.dart';
+import 'trip_stop.dart';
 import 'vehicle.dart';
 
 enum TripStatus { upcoming, inProgress, completed, cancelled }
@@ -61,6 +62,12 @@ class Trip {
   final double? currentHeading;
   final DateTime? locationUpdatedAt;
 
+  /// Points de rendez-vous, départ en premier, arrivée en dernier.
+  final List<TripStop> stops;
+
+  /// Renseigné pour un résultat de recherche : arrêts proposés au passager.
+  final TripMatch? match;
+
   final List<String> occupiedSeatIds;
   final Driver? driver;
 
@@ -87,6 +94,8 @@ class Trip {
     this.currentLng,
     this.currentHeading,
     this.locationUpdatedAt,
+    this.stops = const [],
+    this.match,
     this.occupiedSeatIds = const [],
     this.driver,
   });
@@ -101,7 +110,35 @@ class Trip {
 
   bool get isFull => availableSeats == 0;
 
-  List<GeoLocation> get path => [origin, ...waypointLocations, destination];
+  List<GeoLocation> get path => stops.length >= 2
+      ? [for (final s in stops) s.location]
+      : [origin, ...waypointLocations, destination];
+
+  TripStop? stopById(String? id) {
+    if (id == null || id.isEmpty) return null;
+    for (final s in stops) {
+      if (s.id == id) return s;
+    }
+    return null;
+  }
+
+  /// Tronçon du passager : arrêts demandés, sinon ceux proposés par la
+  /// recherche, sinon le trajet complet.
+  TripSegment segment({String? boardingStopId, String? alightingStopId}) {
+    final boarding = stopById(boardingStopId) ??
+        match?.boardingStop ??
+        (stops.isNotEmpty ? stops.first : null);
+    final alighting = stopById(alightingStopId) ??
+        match?.alightingStop ??
+        (stops.isNotEmpty ? stops.last : null);
+    return TripSegment(
+      boarding: boarding,
+      alighting: alighting,
+      pricePerSeat: boarding != null && alighting != null
+          ? alighting.priceFromOrigin - boarding.priceFromOrigin
+          : pricePerSeat,
+    );
+  }
 
   factory Trip.fromApi(Map<String, dynamic> map) {
     final originLat = double.tryParse('${map['origin_lat'] ?? ''}');
@@ -157,8 +194,15 @@ class Trip {
         ? Driver.fromApi(driverProfileJson, vehicle: vehicle)
         : null;
 
+    // Durée : heures des arrêts publiées par le chauffeur (calculées sur la
+    // route) ; à défaut, estimation à vol d'oiseau.
+    final stops = TripStop.listFromJson(map['stops']);
+    final firstTime = stops.isNotEmpty ? stops.first.scheduledAt : null;
+    final lastTime = stops.length >= 2 ? stops.last.scheduledAt : null;
     final distanceKm = origin.distanceKm(destination);
-    final estimatedDuration = Duration(minutes: (distanceKm / 40 * 60).round().clamp(5, 24 * 60));
+    final estimatedDuration = (firstTime != null && lastTime != null && lastTime.isAfter(firstTime))
+        ? lastTime.difference(firstTime)
+        : Duration(minutes: (distanceKm * 1.25 / 60 * 60).round().clamp(5, 24 * 60));
 
     final seatsAvailable = int.tryParse('${map['seats_available'] ?? ''}') ?? 0;
 
@@ -168,12 +212,18 @@ class Trip {
       vehicleId: vehicleJson?['id'] as String? ?? map['vehicle_id'] as String? ?? '',
       departure: departureCity,
       arrival: arrivalCity,
-      departureAddress: departureCity,
-      arrivalAddress: arrivalCity,
+      departureAddress: stops.isNotEmpty ? stops.first.displayAddress : departureCity,
+      arrivalAddress: stops.length >= 2 ? stops.last.displayAddress : arrivalCity,
       origin: origin,
       destination: destination,
-      waypointLocations: waypoints,
-      departureTime: DateTime.tryParse(map['scheduled_at'] as String? ?? '') ?? DateTime.now(),
+      waypointLocations: stops.length > 2
+          ? [for (final s in stops.sublist(1, stops.length - 1)) s.location]
+          : waypoints,
+      departureTime: (DateTime.tryParse(map['scheduled_at'] as String? ?? '') ?? DateTime.now()).toLocal(),
+      stops: stops,
+      match: map['match'] is Map<String, dynamic>
+          ? TripMatch.fromJson(map['match'] as Map<String, dynamic>)
+          : null,
       estimatedDuration: estimatedDuration,
       seatsTotal: vehicle?.totalSeats ?? seatsAvailable,
       availableSeats: seatsAvailable,
@@ -229,6 +279,68 @@ class Trip {
       locationUpdatedAt: locationUpdatedAt ?? this.locationUpdatedAt,
       occupiedSeatIds: occupiedSeatIds ?? this.occupiedSeatIds,
       driver: driver ?? this.driver,
+      stops: stops,
+      match: match,
     );
   }
+}
+
+/// Arrêts proposés au passager par la recherche, et à quelle distance ils
+/// sont de son point de départ et de sa destination.
+class TripMatch {
+  final TripStop? boardingStop;
+  final TripStop? alightingStop;
+  final int boardingDistanceM;
+  final int alightingDistanceM;
+  final double segmentPrice;
+
+  const TripMatch({
+    required this.boardingStop,
+    required this.alightingStop,
+    required this.boardingDistanceM,
+    required this.alightingDistanceM,
+    required this.segmentPrice,
+  });
+
+  factory TripMatch.fromJson(Map<String, dynamic> json) {
+    TripStop? stop(Object? raw) => raw is Map<String, dynamic> ? TripStop.fromJson(raw) : null;
+    return TripMatch(
+      boardingStop: stop(json['boarding_stop']),
+      alightingStop: stop(json['alighting_stop']),
+      boardingDistanceM: int.tryParse('${json['boarding_distance_m'] ?? 0}') ?? 0,
+      alightingDistanceM: int.tryParse('${json['alighting_distance_m'] ?? 0}') ?? 0,
+      segmentPrice: double.tryParse('${json['segment_price'] ?? 0}') ?? 0,
+    );
+  }
+}
+
+/// Le tronçon que le passager réserve : où il monte, où il descend, et le
+/// prix par place correspondant.
+class TripSegment {
+  final TripStop? boarding;
+  final TripStop? alighting;
+  final double pricePerSeat;
+
+  const TripSegment({required this.boarding, required this.alighting, required this.pricePerSeat});
+}
+
+/// Heure à laquelle le passager monte (arrêt proposé par la recherche),
+/// sinon l'heure de départ du trajet.
+DateTime boardingTime(Trip trip) => trip.match?.boardingStop?.scheduledAt ?? trip.departureTime;
+
+/// Route du détail d'un trajet, avec le tronçon proposé par la recherche
+/// pour que le passager réserve directement entre ses deux arrêts.
+String tripDetailLocation(Trip trip) {
+  final board = trip.match?.boardingStop?.id;
+  final alight = trip.match?.alightingStop?.id;
+  if (board == null || alight == null) return '/trip/${trip.id}';
+  return '/trip/${trip.id}?board=$board&alight=$alight';
+}
+
+/// « à 1,2 km », « à 300 m », « sur place ».
+String formatDistanceFromYou(int meters) {
+  if (meters < 150) return 'sur place';
+  if (meters < 1000) return 'à ${(meters / 50).round() * 50} m';
+  final km = meters / 1000;
+  return 'à ${km < 10 ? km.toStringAsFixed(1).replaceAll('.', ',') : km.round()} km';
 }

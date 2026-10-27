@@ -7,7 +7,8 @@ import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_text_styles.dart';
 import '../../../core/widgets/bottom_nav_bar.dart';
-import '../../../core/widgets/city_selector.dart';
+import '../../../core/geo/geo_location.dart';
+import '../../../core/widgets/location_picker_screen.dart';
 import '../../../core/widgets/fojem_logo.dart';
 import '../../../core/widgets/notification_bell.dart';
 import '../../../core/widgets/trip_card.dart';
@@ -52,8 +53,8 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Future<void> _loadNearby({bool silent = false}) async {
     final search = context.read<SearchProvider>();
-    final origin = coordinatesForCity(search.departure ?? 'Dakar');
-    final destination = coordinatesForCity(search.arrival ?? 'Thiès');
+    final origin = search.origin ?? coordinatesForCity('Dakar');
+    final destination = search.destination ?? coordinatesForCity('Thiès');
 
     final userId = context.read<AppProvider>().user?.id;
     Booking? activeBooking;
@@ -142,7 +143,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 children: [
                   Expanded(
                     child: Text(
-                      'Trajets près de vous',
+                      'Prochains départs',
                       style: AppTextStyles.title1
                           .copyWith(fontSize: 20, fontWeight: FontWeight.w700),
                     ),
@@ -191,7 +192,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 for (final trip in _nearby) ...[
                   TripCard(
                     trip: trip,
-                    onTap: () => context.push('/trip/${trip.id}'),
+                    onTap: () => context.push(tripDetailLocation(trip)),
                   ),
                   const SizedBox(height: 14),
                 ],
@@ -232,16 +233,21 @@ const double _cityRowHeight = 72;
 class _SearchCard extends StatelessWidget {
   const _SearchCard();
 
-  Future<void> _pickCity(BuildContext context,
+  /// Adresse, quartier, gare ou position GPS : la recherche trouve les
+  /// points de rendez-vous des chauffeurs proches de ce lieu.
+  Future<void> _pickPlace(BuildContext context,
       {required bool isDeparture}) async {
     final search = context.read<SearchProvider>();
-    final city = await showCitySelector(
-      context,
-      title: isDeparture ? 'Ville de départ' : 'Ville d’arrivée',
-      excludeCity: isDeparture ? search.arrival : search.departure,
+    final picked = await Navigator.of(context).push<GeoLocation>(
+      MaterialPageRoute(
+        builder: (_) => LocationPickerScreen(
+          title: isDeparture ? 'D’où partez-vous ?' : 'Où allez-vous ?',
+          initial: isDeparture ? search.origin : search.destination,
+        ),
+      ),
     );
-    if (city == null) return;
-    isDeparture ? search.setDeparture(city) : search.setArrival(city);
+    if (picked == null) return;
+    isDeparture ? search.setOrigin(picked) : search.setDestination(picked);
   }
 
   Future<void> _pickDate(BuildContext context) async {
@@ -278,14 +284,14 @@ class _SearchCard extends StatelessWidget {
                       label: 'Départ',
                       city: search.departure,
                       placeholder: 'D’où partez-vous ?',
-                      onTap: () => _pickCity(context, isDeparture: true),
+                      onTap: () => _pickPlace(context, isDeparture: true),
                     ),
                     const _Divider(indent: 16 + _railWidth + 12),
                     _CityRow(
                       label: 'Arrivée',
                       city: search.arrival,
                       placeholder: 'Où allez-vous ?',
-                      onTap: () => _pickCity(context, isDeparture: false),
+                      onTap: () => _pickPlace(context, isDeparture: false),
                     ),
                   ],
                 ),

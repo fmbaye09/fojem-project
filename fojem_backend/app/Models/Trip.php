@@ -33,6 +33,9 @@ class Trip extends Model
         'destination_name',
     ];
 
+    /** Every client needs the meeting points wherever a trip is shown. */
+    protected $with = ['stops'];
+
     protected function casts(): array
     {
         return [
@@ -135,6 +138,43 @@ class Trip extends Model
     public function bookings(): HasMany
     {
         return $this->hasMany(Booking::class);
+    }
+
+    /** Meeting points in route order (departure first, arrival last). */
+    public function stops(): HasMany
+    {
+        return $this->hasMany(TripStop::class)->orderBy('position');
+    }
+
+    /**
+     * Trips published through the API always come with stops. Trips
+     * inserted directly (seeders, tests, imports) get departure → waypoints
+     * → arrival stops derived from their own columns.
+     */
+    public function ensureStops(): static
+    {
+        if ($this->stops()->exists()) {
+            return $this;
+        }
+
+        $coords = Trip::withLatLng()->withoutGlobalScopes()->without('stops')->findOrFail($this->id);
+        $planner = app(\App\Services\TripStopPlanner::class);
+        $stops = $planner->plan(
+            $planner->fromLegacyFields([
+                'origin_name' => $this->origin_name,
+                'origin_lat' => $coords->origin_lat,
+                'origin_lng' => $coords->origin_lng,
+                'waypoints' => $this->waypoints ?? [],
+                'destination_name' => $this->destination_name,
+                'destination_lat' => $coords->destination_lat,
+                'destination_lng' => $coords->destination_lng,
+            ]),
+            \Carbon\CarbonImmutable::parse($this->scheduled_at ?? $this->created_at ?? now()),
+            (float) $this->price_per_seat,
+        );
+        $this->stops()->createMany($stops);
+
+        return $this->load('stops');
     }
 
     public function matchingScores(): HasMany

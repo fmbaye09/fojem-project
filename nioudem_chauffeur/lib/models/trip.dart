@@ -1,5 +1,6 @@
 import '../core/geo/geo_location.dart';
 import '../core/geo/senegal_city_coordinates.dart';
+import 'trip_stop.dart';
 import 'vehicle.dart';
 
 enum TripStatus { upcoming, inProgress, completed, cancelled }
@@ -44,6 +45,9 @@ class Trip {
   final double? currentHeading;
   final DateTime? locationUpdatedAt;
 
+  /// Points de rendez-vous, départ en premier, arrivée en dernier.
+  final List<TripStop> stops;
+
   const Trip({
     required this.id,
     required this.driverId,
@@ -67,6 +71,7 @@ class Trip {
     this.currentLng,
     this.currentHeading,
     this.locationUpdatedAt,
+    this.stops = const [],
   });
 
   String get durationLabel {
@@ -166,21 +171,33 @@ class Trip {
     final seatsAvailable = int.tryParse('${json['seats_available'] ?? 0}') ?? 0;
     final cachedSeatsTotal = cached?['seatsTotal'] as int?;
 
+    // Les arrêts renvoyés par le backend font foi (adresses précises,
+    // heures) ; le cache local ne sert plus qu'aux anciens trajets.
+    final stops = TripStop.listFromJson(json['stops']);
+    final firstStop = stops.isNotEmpty ? stops.first : null;
+    final lastStop = stops.length >= 2 ? stops.last : null;
+    final stopsDuration = (firstStop?.scheduledAt != null && lastStop?.scheduledAt != null)
+        ? lastStop!.scheduledAt!.difference(firstStop!.scheduledAt!)
+        : null;
+
     return Trip(
       id: id,
       driverId: json['driver_id'] as String? ?? '',
       vehicleId: json['vehicle_id'] as String? ?? '',
       departure: departure,
       arrival: arrival,
-      departureAddress: cached?['departureAddress'] as String? ?? departure,
-      arrivalAddress: cached?['arrivalAddress'] as String? ?? arrival,
+      departureAddress: firstStop?.displayAddress ?? cached?['departureAddress'] as String? ?? departure,
+      arrivalAddress: lastStop?.displayAddress ?? cached?['arrivalAddress'] as String? ?? arrival,
       origin: origin,
       destination: destination,
-      waypointLocations: waypoints,
-      departureTime: DateTime.tryParse(json['scheduled_at'] as String? ?? '') ?? DateTime.now(),
-      estimatedDuration: cached?['estimatedMinutes'] != null
-          ? Duration(minutes: cached!['estimatedMinutes'] as int)
-          : Duration.zero,
+      waypointLocations: stops.length > 2
+          ? [for (final s in stops.sublist(1, stops.length - 1)) s.location]
+          : waypoints,
+      departureTime: (DateTime.tryParse(json['scheduled_at'] as String? ?? '') ?? DateTime.now()).toLocal(),
+      estimatedDuration: stopsDuration ??
+          (cached?['estimatedMinutes'] != null
+              ? Duration(minutes: cached!['estimatedMinutes'] as int)
+              : Duration.zero),
       seatsTotal: cachedSeatsTotal ?? seatsAvailable,
       availableSeats: seatsAvailable,
       pricePerSeat: double.tryParse('${json['price_per_seat'] ?? 0}') ?? 0,
@@ -194,6 +211,7 @@ class Trip {
       currentLng: currentLng,
       currentHeading: currentHeading,
       locationUpdatedAt: locationUpdatedAt,
+      stops: stops,
     );
   }
 
@@ -228,6 +246,7 @@ class Trip {
       currentLng: currentLng ?? this.currentLng,
       currentHeading: currentHeading ?? this.currentHeading,
       locationUpdatedAt: locationUpdatedAt ?? this.locationUpdatedAt,
+      stops: stops,
     );
   }
 }

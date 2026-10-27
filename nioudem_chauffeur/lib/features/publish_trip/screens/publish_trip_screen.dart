@@ -1,13 +1,14 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_map/flutter_map.dart';
 import 'package:go_router/go_router.dart';
+import 'package:intl/intl.dart';
+import 'package:latlong2/latlong.dart' as ll;
 import 'package:provider/provider.dart';
 import '../../../core/geo/geo_location.dart';
-import '../../../core/geo/senegal_city_coordinates.dart';
 import '../../../core/network/api_exception.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_text_styles.dart';
-import '../../../core/widgets/city_selector.dart';
 import '../../../core/widgets/location_picker_screen.dart';
 import '../../../core/widgets/option_sheet.dart';
 import '../../../core/widgets/trip_card.dart' show formatDayLabel, formatFcfa;
@@ -15,13 +16,20 @@ import '../../../core/widgets/fojem_button.dart';
 import '../../../core/widgets/fojem_text_field.dart';
 import '../../../models/vehicle.dart';
 import '../../../providers/app_provider.dart';
+import '../../../services/map/map_service.dart';
+import '../../../services/map/osm_map_service.dart';
 import '../../../services/trip_repository.dart';
 import '../../../services/vehicle_repository.dart';
+import '../stop_plan.dart';
 
 /// Publication de trajet chauffeur, en 3 étapes (design/screens/
-/// fojem_publish_trip.png pour l'étape 1) : détails du trajet (avec sélection
-/// hybride ville + point exact carte/GPS), points de passage & informations pour
-/// les passagers, puis récapitulatif + publication.
+/// fojem_publish_trip.png pour l'étape 1), sur le modèle BlaBlaCar : le
+/// chauffeur fixe des points de rendez-vous précis (départ, arrêts, arrivée)
+/// où les passagers viennent le retrouver.
+///  1. Itinéraire : points de rendez-vous, date, heure, places, prix, véhicule.
+///  2. Arrêts & horaires : tracé sur la carte, heure et prix de chaque point
+///     calculés depuis l'itinéraire routier, prix ajustables.
+///  3. Récapitulatif + publication.
 class PublishTripScreen extends StatefulWidget {
   const PublishTripScreen({super.key});
 
@@ -30,13 +38,13 @@ class PublishTripScreen extends StatefulWidget {
 }
 
 class _PublishTripScreenState extends State<PublishTripScreen> {
+  final MapService _mapService = OsmMapService();
   int _step = 0;
 
   // Étape 1
-  String? _departure;
-  String? _arrival;
-  GeoLocation? _customOrigin;
-  GeoLocation? _customDestination;
+  GeoLocation? _origin;
+  GeoLocation? _destination;
+  final List<GeoLocation> _intermediate = [];
   DateTime _date = DateTime.now();
   TimeOfDay _time = const TimeOfDay(hour: 8, minute: 30);
   int _seats = 3;
@@ -46,7 +54,10 @@ class _PublishTripScreenState extends State<PublishTripScreen> {
   bool _isLoadingVehicle = true;
 
   // Étape 2
-  final List<String> _waypoints = [];
+  RouteResult? _route;
+  String? _routeKey;
+  bool _isLoadingRoute = false;
+  final Map<int, double> _priceOverrides = {};
   final _notesController = TextEditingController();
 
   bool _isPublishing = false;
@@ -104,15 +115,47 @@ class _PublishTripScreenState extends State<PublishTripScreen> {
     super.dispose();
   }
 
-  bool get _step1Valid =>
-      _departure != null &&
-      _arrival != null &&
-      _departure != _arrival &&
-      _vehicle != null &&
-      (double.tryParse(_priceController.text.replaceAll(' ', '')) ?? 0) > 0;
+  double get _fullPrice => double.tryParse(_priceController.text.replaceAll(' ', '')) ?? 0;
+
+  DateTime get _departureAt => DateTime(_date.year, _date.month, _date.day, _time.hour, _time.minute);
+
+  /// Départ → arrêts → arrivée, dans l'ordre de la route.
+  List<GeoLocation> get _points => [
+        if (_origin != null) _origin!,
+        ..._intermediate,
+        if (_destination != null) _destination!,
+      ];
+
+  /// Raison qui empêche de passer à l'étape suivante, ou `null`.
+  String? get _step1Problem {
+    if (_origin == null) return 'Choisissez votre point de départ.';
+    if (_destination == null) return 'Choisissez votre point d’arrivée.';
+    if (_origin!.distanceKm(_destination!) < 1) {
+      return 'Le départ et l’arrivée sont trop proches.';
+    }
+    if (_vehicle == null) return 'Ajoutez votre véhicule.';
+    if (_fullPrice <= 0) return 'Indiquez le prix par place.';
+    if (!_departureAt.isAfter(DateTime.now())) return 'L’heure de départ est déjà passée.';
+    return null;
+  }
+
+  List<PlannedStop> get _plannedStops => planStops(
+        points: _points,
+        legs: _route?.legs ?? const [],
+        departure: _departureAt,
+        fullPrice: _fullPrice,
+        priceOverrides: _priceOverrides,
+      );
 
   void _goNext() {
-    if (_step == 0 && !_step1Valid) return;
+    if (_step == 0) {
+      final problem = _step1Problem;
+      if (problem != null) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(problem)));
+        return;
+      }
+      _loadRoute();
+    }
     if (_step < 2) setState(() => _step++);
   }
 
@@ -124,44 +167,42 @@ class _PublishTripScreenState extends State<PublishTripScreen> {
     }
   }
 
+  /// Itinéraire routier passant par tous les points ; rechargé seulement si
+  /// les points ont changé. En cas d'échec, les heures et prix sont estimés
+  /// (même calcul que le backend).
+  Future<void> _loadRoute() async {
+    final points = _points;
+    final key = points.map((p) => '${p.lat},${p.lng}').join('|');
+    if (key == _routeKey && _route != null) return;
+    setState(() {
+      _routeKey = key;
+      _route = null;
+      _isLoadingRoute = true;
+      _priceOverrides.clear();
+    });
+    RouteResult? route;
+    try {
+      route = await _mapService.getRouteThrough(points).timeout(const Duration(seconds: 12));
+    } catch (_) {
+      route = null;
+    }
+    if (!mounted || key != _routeKey) return;
+    setState(() {
+      _route = route;
+      _isLoadingRoute = false;
+    });
+  }
+
   Future<void> _publish() async {
-    final driverId = context.read<AppProvider>().user?.id;
     final vehicle = _vehicle;
-    if (driverId == null || vehicle == null || !_step1Valid) return;
+    if (vehicle == null || _step1Problem != null) return;
 
     setState(() => _isPublishing = true);
-    final departureTime = DateTime(
-      _date.year,
-      _date.month,
-      _date.day,
-      _time.hour,
-      _time.minute,
-    );
-    final origin = _customOrigin ?? coordinatesForCity(_departure!);
-    final destination = _customDestination ?? coordinatesForCity(_arrival!);
-    final distanceKm = origin.distanceKm(destination);
-    final estimatedMinutes = (distanceKm / 70 * 60).round().clamp(15, 600);
-    final price = double.tryParse(_priceController.text.replaceAll(' ', '')) ?? 0;
-
     try {
       await TripRepository().create(
-        driverId: driverId,
         vehicleId: vehicle.id,
-        departure: _departure!,
-        arrival: _arrival!,
-        departureAddress: _customOrigin?.address.isNotEmpty == true
-            ? _customOrigin!.address
-            : _departure!,
-        arrivalAddress: _customDestination?.address.isNotEmpty == true
-            ? _customDestination!.address
-            : _arrival!,
-        origin: origin,
-        destination: destination,
-        waypoints: _waypoints.map(coordinatesForCity).toList(),
-        departureTime: departureTime,
-        estimatedDuration: Duration(minutes: estimatedMinutes),
+        stops: _plannedStops,
         seatsTotal: _seats,
-        pricePerSeat: price,
         vehicleType: vehicle.type,
         notes: _notesController.text.trim().isEmpty ? null : _notesController.text.trim(),
       );
@@ -183,7 +224,7 @@ class _PublishTripScreenState extends State<PublishTripScreen> {
     }
   }
 
-  static const _stepTitles = ['Détails du trajet', 'Points de passage', 'Récapitulatif'];
+  static const _stepTitles = ['Itinéraire', 'Arrêts & horaires', 'Récapitulatif'];
 
   @override
   Widget build(BuildContext context) {
@@ -262,43 +303,37 @@ class _PublishTripScreenState extends State<PublishTripScreen> {
                 padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
                 child: switch (_step) {
                   0 => _StepOne(
-                      departure: _departure,
-                      arrival: _arrival,
-                      customOrigin: _customOrigin,
-                      customDestination: _customDestination,
+                      origin: _origin,
+                      destination: _destination,
+                      intermediate: _intermediate,
                       date: _date,
                       time: _time,
                       seats: _seats,
-                      maxSeats: _vehicle?.totalSeats ?? 15,
                       priceController: _priceController,
                       vehicle: _vehicle,
                       isLoadingVehicle: _isLoadingVehicle,
-                      onDeparture: () => _pickCity(isDeparture: true),
-                      onArrival: () => _pickCity(isDeparture: false),
-                      onRefineOriginOnMap: () => _refineOnMap(isDeparture: true),
-                      onRefineDestinationOnMap: () => _refineOnMap(isDeparture: false),
+                      onPickOrigin: () => _pickPoint(_PointSlot.origin),
+                      onPickDestination: () => _pickPoint(_PointSlot.destination),
+                      onAddStop: () => _pickPoint(_PointSlot.intermediate),
+                      onEditStop: (i) => _pickPoint(_PointSlot.intermediate, index: i),
+                      onRemoveStop: (i) => setState(() => _intermediate.removeAt(i)),
                       onDate: _pickDate,
                       onTime: _pickTime,
                       onSeats: _pickSeats,
+                      onPriceChanged: () => setState(() {}),
                       onAddVehicle: _editVehicle,
                       onChangeVehicle: _vehicles.length > 1 ? _selectVehicle : null,
                     ),
                   1 => _StepTwo(
-                      waypoints: _waypoints,
-                      onAddWaypoint: _addWaypoint,
-                      onRemoveWaypoint: (i) => setState(() => _waypoints.removeAt(i)),
+                      stops: _plannedStops,
+                      route: _route,
+                      isLoadingRoute: _isLoadingRoute,
+                      onEditPrice: _editStopPrice,
                       notesController: _notesController,
                     ),
                   _ => _StepThree(
-                      departure: _departure!,
-                      arrival: _arrival!,
-                      customOrigin: _customOrigin,
-                      customDestination: _customDestination,
-                      waypoints: _waypoints,
-                      date: _date,
-                      time: _time,
+                      stops: _plannedStops,
                       seats: _seats,
-                      price: double.tryParse(_priceController.text.replaceAll(' ', '')) ?? 0,
                       vehicle: _vehicle,
                       notes: _notesController.text.trim(),
                     ),
@@ -311,7 +346,7 @@ class _PublishTripScreenState extends State<PublishTripScreen> {
                   ? FojemButton.primary(
                       label: 'Continuer',
                       suffixIcon: Icons.arrow_forward_rounded,
-                      onPressed: _step == 0 && !_step1Valid ? null : _goNext,
+                      onPressed: _step == 1 && _isLoadingRoute ? null : _goNext,
                     )
                   : FojemButton.primary(
                       label: 'Publier le trajet',
@@ -326,63 +361,100 @@ class _PublishTripScreenState extends State<PublishTripScreen> {
     );
   }
 
-  Future<void> _pickCity({required bool isDeparture}) async {
-    final city = await showCitySelector(
-      context,
-      title: isDeparture ? 'Ville de départ' : 'Ville d’arrivée',
-      excludeCity: isDeparture ? _arrival : _departure,
-    );
-    if (city == null) return;
-    setState(() {
-      if (isDeparture) {
-        _departure = city;
-        _customOrigin = null;
-      } else {
-        _arrival = city;
-        _customDestination = null;
-      }
-    });
-  }
-
-  Future<void> _refineOnMap({required bool isDeparture}) async {
-    final city = isDeparture ? _departure : _arrival;
-    final current = isDeparture
-        ? (_customOrigin ?? (city != null ? coordinatesForCity(city) : null))
-        : (_customDestination ?? (city != null ? coordinatesForCity(city) : null));
+  Future<void> _pickPoint(_PointSlot slot, {int? index}) async {
+    final current = switch (slot) {
+      _PointSlot.origin => _origin,
+      _PointSlot.destination => _destination,
+      _PointSlot.intermediate => index != null ? _intermediate[index] : null,
+    };
     final picked = await Navigator.push<GeoLocation>(
       context,
       MaterialPageRoute(
         builder: (_) => LocationPickerScreen(
-          title: isDeparture ? 'Point exact de départ' : 'Point exact d’arrivée',
+          title: switch (slot) {
+            _PointSlot.origin => 'Point de départ',
+            _PointSlot.destination => 'Point d’arrivée',
+            _PointSlot.intermediate => 'Arrêt sur la route',
+          },
           initial: current,
         ),
       ),
     );
     if (picked == null || !mounted) return;
     setState(() {
-      if (isDeparture) {
-        _customOrigin = picked;
-        _departure ??= picked.address.split(',').first.trim();
-      } else {
-        _customDestination = picked;
-        _arrival ??= picked.address.split(',').first.trim();
+      switch (slot) {
+        case _PointSlot.origin:
+          _origin = picked;
+        case _PointSlot.destination:
+          _destination = picked;
+        case _PointSlot.intermediate:
+          if (index != null) {
+            _intermediate[index] = picked;
+          } else {
+            _intermediate.add(picked);
+          }
+      }
+      if (_origin != null) {
+        final ordered = orderAlongRoute(_origin!, _intermediate);
+        _intermediate
+          ..clear()
+          ..addAll(ordered);
       }
     });
   }
 
-  Future<void> _addWaypoint() async {
-    final exclude = [
-      if (_departure != null) _departure!,
-      if (_arrival != null) _arrival!,
-      ..._waypoints,
-    ];
-    final city = await showCitySelector(
-      context,
-      title: 'Ajouter une étape',
-      excludeCity: exclude.isEmpty ? null : exclude.first,
+  Future<void> _editStopPrice(int index) async {
+    final stops = _plannedStops;
+    final stop = stops[index];
+    final min = stops[index - 1].priceFromOrigin;
+    final max = stops[index + 1].priceFromOrigin;
+    final controller = TextEditingController(text: stop.priceFromOrigin.round().toString());
+    final value = await showDialog<double>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text('Prix ${stops.first.location.shortLabel} → ${stop.location.shortLabel}'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Entre ${formatFcfa(min)} et ${formatFcfa(max)} par place. '
+              'Les passagers qui montent ou descendent ici paient la différence entre deux arrêts.',
+              style: AppTextStyles.caption.copyWith(color: AppColors.textSecondary),
+            ),
+            const SizedBox(height: 12),
+            FojemTextField(
+              controller: controller,
+              hint: '${stop.priceFromOrigin.round()}',
+              keyboardType: TextInputType.number,
+              suffix: const Padding(
+                padding: EdgeInsets.only(right: AppSpacing.md),
+                child: Text('FCFA', style: TextStyle(color: AppColors.textSecondary)),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Annuler'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, double.tryParse(controller.text.replaceAll(' ', ''))),
+            child: const Text('Valider'),
+          ),
+        ],
+      ),
     );
-    if (city == null || exclude.contains(city)) return;
-    setState(() => _waypoints.add(city));
+    controller.dispose();
+    if (value == null || !mounted) return;
+    if (value < min || value > max) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text('Le prix doit être compris entre ${formatFcfa(min)} et ${formatFcfa(max)}.'),
+      ));
+      return;
+    }
+    setState(() => _priceOverrides[index] = value);
   }
 
   Future<void> _pickDate() async {
@@ -418,6 +490,555 @@ class _PublishTripScreenState extends State<PublishTripScreen> {
     await context.push('/driver/vehicle');
     if (!mounted) return;
     await _loadVehicle();
+  }
+}
+
+enum _PointSlot { origin, destination, intermediate }
+
+// ─── Étape 1 : itinéraire ──────────────────────────────────────────────────
+
+class _StepOne extends StatelessWidget {
+  final GeoLocation? origin;
+  final GeoLocation? destination;
+  final List<GeoLocation> intermediate;
+  final DateTime date;
+  final TimeOfDay time;
+  final int seats;
+  final TextEditingController priceController;
+  final Vehicle? vehicle;
+  final bool isLoadingVehicle;
+  final VoidCallback onPickOrigin;
+  final VoidCallback onPickDestination;
+  final VoidCallback onAddStop;
+  final ValueChanged<int> onEditStop;
+  final ValueChanged<int> onRemoveStop;
+  final VoidCallback onDate;
+  final VoidCallback onTime;
+  final VoidCallback onSeats;
+  final VoidCallback onPriceChanged;
+  final VoidCallback onAddVehicle;
+  final VoidCallback? onChangeVehicle;
+
+  const _StepOne({
+    required this.origin,
+    required this.destination,
+    required this.intermediate,
+    required this.date,
+    required this.time,
+    required this.seats,
+    required this.priceController,
+    required this.vehicle,
+    required this.isLoadingVehicle,
+    required this.onPickOrigin,
+    required this.onPickDestination,
+    required this.onAddStop,
+    required this.onEditStop,
+    required this.onRemoveStop,
+    required this.onDate,
+    required this.onTime,
+    required this.onSeats,
+    required this.onPriceChanged,
+    required this.onAddVehicle,
+    required this.onChangeVehicle,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'Indiquez des points de rendez-vous précis (gare routière, station, rond-point) : '
+          'vos passagers viendront vous y retrouver.',
+          style: AppTextStyles.body.copyWith(color: AppColors.textSecondary, fontSize: 13.5),
+        ),
+        const SizedBox(height: 14),
+        Container(
+          decoration: AppColors.softCardDecoration,
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+          child: Column(
+            children: [
+              _PointRow(
+                label: 'Départ',
+                point: origin,
+                placeholder: 'D’où partez-vous ?',
+                icon: Icons.adjust_rounded,
+                onTap: onPickOrigin,
+              ),
+              for (var i = 0; i < intermediate.length; i++) ...[
+                const Divider(height: 1, color: AppColors.border),
+                _PointRow(
+                  label: 'Arrêt ${i + 1}',
+                  point: intermediate[i],
+                  placeholder: '',
+                  icon: Icons.radio_button_checked_rounded,
+                  onTap: () => onEditStop(i),
+                  onRemove: () => onRemoveStop(i),
+                ),
+              ],
+              const Divider(height: 1, color: AppColors.border),
+              _PointRow(
+                label: 'Arrivée',
+                point: destination,
+                placeholder: 'Où allez-vous ?',
+                icon: Icons.location_on_rounded,
+                onTap: onPickDestination,
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 10),
+        InkWell(
+          onTap: onAddStop,
+          borderRadius: BorderRadius.circular(AppSpacing.borderRadiusMd),
+          child: Container(
+            height: 52,
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            decoration: BoxDecoration(
+              border: Border.all(color: AppColors.border),
+              borderRadius: BorderRadius.circular(AppSpacing.borderRadiusMd),
+            ),
+            child: Row(
+              children: [
+                const Icon(Icons.add_location_alt_outlined, size: 20, color: AppColors.primary),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text('Ajouter un arrêt sur la route',
+                      style: AppTextStyles.bodySemibold.copyWith(color: AppColors.primary)),
+                ),
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          'Chaque arrêt permet à des passagers de monter ou descendre en route.',
+          style: AppTextStyles.caption.copyWith(color: AppColors.textMuted),
+        ),
+        const SizedBox(height: 20),
+        Text('Date', style: AppTextStyles.bodySemibold),
+        const SizedBox(height: 8),
+        _FieldRow(
+          icon: Icons.calendar_month_rounded,
+          text: formatDayLabel(date),
+          onTap: onDate,
+        ),
+        const SizedBox(height: 16),
+        Text('Heure de départ', style: AppTextStyles.bodySemibold),
+        const SizedBox(height: 8),
+        _FieldRow(
+          icon: Icons.access_time_rounded,
+          text: time.format(context),
+          onTap: onTime,
+        ),
+        const SizedBox(height: 16),
+        Text('Places disponibles', style: AppTextStyles.bodySemibold),
+        const SizedBox(height: 8),
+        _FieldRow(
+          icon: Icons.event_seat_rounded,
+          text: '$seats place${seats > 1 ? 's' : ''}',
+          onTap: onSeats,
+        ),
+        const SizedBox(height: 16),
+        Text('Prix par place (trajet complet)', style: AppTextStyles.bodySemibold),
+        const SizedBox(height: 8),
+        FojemTextField(
+          controller: priceController,
+          hint: '2000',
+          keyboardType: TextInputType.number,
+          onChanged: (_) => onPriceChanged(),
+          suffix: const Padding(
+            padding: EdgeInsets.only(right: AppSpacing.md),
+            child: Text('FCFA', style: TextStyle(color: AppColors.textSecondary)),
+          ),
+        ),
+        if (intermediate.isNotEmpty) ...[
+          const SizedBox(height: 4),
+          Text(
+            'Le prix des tronçons entre arrêts est calculé à l’étape suivante.',
+            style: AppTextStyles.caption.copyWith(color: AppColors.textMuted),
+          ),
+        ],
+        const SizedBox(height: 16),
+        Text('Véhicule', style: AppTextStyles.bodySemibold),
+        const SizedBox(height: 8),
+        if (isLoadingVehicle)
+          const _FieldRow(icon: Icons.directions_car_outlined, text: 'Chargement…', onTap: null)
+        else if (vehicle == null)
+          _FieldRow(
+            icon: Icons.directions_car_outlined,
+            text: 'Ajouter mon véhicule',
+            onTap: onAddVehicle,
+          )
+        else
+          _VehicleSummaryCard(vehicle: vehicle!, onChange: onChangeVehicle),
+      ],
+    );
+  }
+}
+
+/// Ligne « point de rendez-vous » : libellé court + adresse précise.
+class _PointRow extends StatelessWidget {
+  final String label;
+  final GeoLocation? point;
+  final String placeholder;
+  final IconData icon;
+  final VoidCallback onTap;
+  final VoidCallback? onRemove;
+
+  const _PointRow({
+    required this.label,
+    required this.point,
+    required this.placeholder,
+    required this.icon,
+    required this.onTap,
+    this.onRemove,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 10),
+        child: Row(
+          children: [
+            Icon(icon, size: 22, color: AppColors.primary),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(label,
+                      style: AppTextStyles.body.copyWith(color: AppColors.textSecondary, fontSize: 13)),
+                  const SizedBox(height: 2),
+                  Text(
+                    point?.shortLabel ?? placeholder,
+                    style: point == null
+                        ? AppTextStyles.bodyLargeSemibold.copyWith(color: AppColors.textMuted)
+                        : AppTextStyles.bodyLargeSemibold,
+                  ),
+                  if (point != null && point!.address != point!.shortLabel) ...[
+                    const SizedBox(height: 2),
+                    Text(
+                      point!.address,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: AppTextStyles.caption.copyWith(color: AppColors.textSecondary),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+            if (onRemove != null)
+              IconButton(
+                onPressed: onRemove,
+                tooltip: 'Retirer cet arrêt',
+                icon: const Icon(Icons.close_rounded, size: 18, color: AppColors.textMuted),
+              )
+            else
+              const Icon(Icons.chevron_right_rounded, color: AppColors.textMuted),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ─── Étape 2 : arrêts & horaires ───────────────────────────────────────────
+
+class _StepTwo extends StatelessWidget {
+  final List<PlannedStop> stops;
+  final RouteResult? route;
+  final bool isLoadingRoute;
+  final ValueChanged<int> onEditPrice;
+  final TextEditingController notesController;
+
+  const _StepTwo({
+    required this.stops,
+    required this.route,
+    required this.isLoadingRoute,
+    required this.onEditPrice,
+    required this.notesController,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final timeFormat = DateFormat('HH:mm');
+    final last = stops.length - 1;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _RoutePreview(stops: stops, route: route, isLoading: isLoadingRoute),
+        const SizedBox(height: 10),
+        if (isLoadingRoute)
+          Text('Calcul de l’itinéraire…',
+              style: AppTextStyles.caption.copyWith(color: AppColors.textMuted))
+        else if (route != null)
+          Text(
+            '${route!.distanceKm.round()} km · arrivée prévue à ${timeFormat.format(stops.last.scheduledAt)}',
+            style: AppTextStyles.bodySemibold,
+          )
+        else
+          Text(
+            'Itinéraire routier indisponible : horaires et prix estimés à partir des distances. '
+            'Vérifiez-les avant de publier.',
+            style: AppTextStyles.caption.copyWith(color: AppColors.danger),
+          ),
+        const SizedBox(height: 16),
+        Container(
+          decoration: AppColors.softCardDecoration,
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+          child: Column(
+            children: [
+              for (var i = 0; i < stops.length; i++) ...[
+                if (i > 0) const Divider(height: 1, color: AppColors.border),
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 10),
+                  child: Row(
+                    children: [
+                      SizedBox(
+                        width: 48,
+                        child: Text(timeFormat.format(stops[i].scheduledAt),
+                            style: AppTextStyles.bodySemibold),
+                      ),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(stops[i].location.shortLabel, style: AppTextStyles.bodyLargeSemibold),
+                            Text(
+                              stops[i].location.address,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: AppTextStyles.caption.copyWith(color: AppColors.textSecondary),
+                            ),
+                          ],
+                        ),
+                      ),
+                      if (i > 0)
+                        InkWell(
+                          onTap: i < last ? () => onEditPrice(i) : null,
+                          borderRadius: BorderRadius.circular(AppSpacing.borderRadiusSm),
+                          child: Padding(
+                            padding: const EdgeInsets.all(6),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.end,
+                              children: [
+                                Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Text(formatFcfa(stops[i].priceFromOrigin),
+                                        style: AppTextStyles.bodySemibold.copyWith(color: AppColors.primary)),
+                                    if (i < last) ...[
+                                      const SizedBox(width: 4),
+                                      const Icon(Icons.edit_outlined, size: 14, color: AppColors.primary),
+                                    ],
+                                  ],
+                                ),
+                                Text(
+                                  i == last
+                                      ? 'trajet complet'
+                                      : stops[i].priceEdited
+                                          ? 'depuis le départ · ajusté'
+                                          : 'depuis le départ',
+                                  style: AppTextStyles.caption.copyWith(color: AppColors.textMuted, fontSize: 11),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
+        if (stops.length > 2) ...[
+          const SizedBox(height: 6),
+          Text(
+            'Prix calculés au prorata de la distance. Touchez un prix pour l’ajuster.',
+            style: AppTextStyles.caption.copyWith(color: AppColors.textMuted),
+          ),
+        ],
+        const SizedBox(height: 24),
+        Text('Informations pour les passagers', style: AppTextStyles.bodySemibold),
+        const SizedBox(height: 8),
+        FojemTextField(
+          controller: notesController,
+          hint: 'Repère pour vous trouver, bagages, préférences…',
+          maxLines: 4,
+        ),
+      ],
+    );
+  }
+}
+
+/// Carte du tracé avec les points de rendez-vous numérotés.
+class _RoutePreview extends StatelessWidget {
+  final List<PlannedStop> stops;
+  final RouteResult? route;
+  final bool isLoading;
+
+  const _RoutePreview({required this.stops, required this.route, required this.isLoading});
+
+  @override
+  Widget build(BuildContext context) {
+    final points = [for (final s in stops) ll.LatLng(s.location.lat, s.location.lng)];
+    final line = route != null && route!.polyline.length >= 2
+        ? [for (final p in route!.polyline) ll.LatLng(p.lat, p.lng)]
+        : points;
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(AppSpacing.borderRadiusMd),
+      child: SizedBox(
+        height: 220,
+        child: Stack(
+          children: [
+            FlutterMap(
+              // Recrée la carte quand le tracé arrive, pour recadrer dessus.
+              key: ValueKey('${route?.distanceKm}-${points.length}'),
+              options: MapOptions(
+                initialCameraFit: CameraFit.bounds(
+                  bounds: LatLngBounds.fromPoints(line.length >= 2 ? line : points),
+                  padding: const EdgeInsets.all(28),
+                ),
+                interactionOptions: const InteractionOptions(
+                  flags: InteractiveFlag.pinchZoom | InteractiveFlag.drag,
+                ),
+              ),
+              children: [
+                TileLayer(
+                  urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                  userAgentPackageName: 'sn.fojem.chauffeur',
+                ),
+                PolylineLayer(polylines: [
+                  Polyline(points: line, strokeWidth: 4, color: AppColors.primary),
+                ]),
+                MarkerLayer(markers: [
+                  for (var i = 0; i < points.length; i++)
+                    Marker(
+                      point: points[i],
+                      width: 26,
+                      height: 26,
+                      child: Container(
+                        alignment: Alignment.center,
+                        decoration: BoxDecoration(
+                          color: i == 0 || i == points.length - 1 ? AppColors.primary : Colors.white,
+                          shape: BoxShape.circle,
+                          border: Border.all(color: AppColors.primary, width: 2),
+                        ),
+                        child: Text(
+                          '${i + 1}',
+                          style: TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w700,
+                            color: i == 0 || i == points.length - 1 ? Colors.white : AppColors.primary,
+                          ),
+                        ),
+                      ),
+                    ),
+                ]),
+              ],
+            ),
+            if (isLoading)
+              const Positioned.fill(
+                child: ColoredBox(
+                  color: Color(0x66FFFFFF),
+                  child: Center(child: CircularProgressIndicator(color: AppColors.primary)),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ─── Étape 3 : récapitulatif ────────────────────────────────────────────────
+
+class _StepThree extends StatelessWidget {
+  final List<PlannedStop> stops;
+  final int seats;
+  final Vehicle? vehicle;
+  final String notes;
+
+  const _StepThree({
+    required this.stops,
+    required this.seats,
+    required this.vehicle,
+    required this.notes,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final timeFormat = DateFormat('HH:mm');
+    final first = stops.first;
+    final last = stops.last;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          decoration: AppColors.softCardDecoration,
+          padding: const EdgeInsets.all(18),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Expanded(
+                      child: Text(first.location.shortLabel,
+                          style: AppTextStyles.title1.copyWith(fontSize: 19))),
+                  const Padding(
+                    padding: EdgeInsets.symmetric(horizontal: 8),
+                    child: Icon(Icons.arrow_forward_rounded, size: 18, color: AppColors.primary),
+                  ),
+                  Expanded(
+                    child: Text(last.location.shortLabel,
+                        textAlign: TextAlign.right,
+                        style: AppTextStyles.title1.copyWith(fontSize: 19)),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              for (final stop in stops)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 6),
+                  child: Text(
+                    '${timeFormat.format(stop.scheduledAt)}  ·  ${stop.location.address}',
+                    style: AppTextStyles.caption.copyWith(color: AppColors.textSecondary),
+                  ),
+                ),
+              const SizedBox(height: 8),
+              const Divider(height: 1, color: AppColors.border),
+              const SizedBox(height: 14),
+              _SummaryRow(icon: Icons.calendar_month_rounded, text: formatDayLabel(first.scheduledAt)),
+              const SizedBox(height: 10),
+              _SummaryRow(
+                  icon: Icons.event_seat_rounded, text: '$seats place${seats > 1 ? 's' : ''}'),
+              const SizedBox(height: 10),
+              _SummaryRow(
+                icon: Icons.directions_car_outlined,
+                text: vehicle == null ? 'Véhicule non défini' : '${vehicle!.brand} ${vehicle!.model}',
+              ),
+              const SizedBox(height: 10),
+              _SummaryRow(
+                icon: Icons.payments_outlined,
+                text: '${formatFcfa(last.priceFromOrigin)} / place (trajet complet)',
+              ),
+              if (notes.isNotEmpty) ...[
+                const SizedBox(height: 14),
+                const Divider(height: 1, color: AppColors.border),
+                const SizedBox(height: 14),
+                Text('Informations passagers', style: AppTextStyles.bodySemibold),
+                const SizedBox(height: 4),
+                Text(notes, style: AppTextStyles.body.copyWith(color: AppColors.textSecondary)),
+              ],
+            ],
+          ),
+        ),
+      ],
+    );
   }
 }
 
@@ -513,130 +1134,6 @@ class _Dot extends StatelessWidget {
   }
 }
 
-// ─── Étape 1 : détails du trajet ───────────────────────────────────────────
-
-class _StepOne extends StatelessWidget {
-  final String? departure;
-  final String? arrival;
-  final GeoLocation? customOrigin;
-  final GeoLocation? customDestination;
-  final DateTime date;
-  final TimeOfDay time;
-  final int seats;
-  final int maxSeats;
-  final TextEditingController priceController;
-  final Vehicle? vehicle;
-  final bool isLoadingVehicle;
-  final VoidCallback onDeparture;
-  final VoidCallback onArrival;
-  final VoidCallback onRefineOriginOnMap;
-  final VoidCallback onRefineDestinationOnMap;
-  final VoidCallback onDate;
-  final VoidCallback onTime;
-  final VoidCallback onSeats;
-  final VoidCallback onAddVehicle;
-  final VoidCallback? onChangeVehicle;
-
-  const _StepOne({
-    required this.departure,
-    required this.arrival,
-    required this.customOrigin,
-    required this.customDestination,
-    required this.date,
-    required this.time,
-    required this.seats,
-    required this.maxSeats,
-    required this.priceController,
-    required this.vehicle,
-    required this.isLoadingVehicle,
-    required this.onDeparture,
-    required this.onArrival,
-    required this.onRefineOriginOnMap,
-    required this.onRefineDestinationOnMap,
-    required this.onDate,
-    required this.onTime,
-    required this.onSeats,
-    required this.onAddVehicle,
-    required this.onChangeVehicle,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        _FieldCard(
-          label: 'Départ',
-          value: departure,
-          subtitle: customOrigin?.address,
-          placeholder: 'D’où partez-vous ?',
-          icon: Icons.adjust_rounded,
-          onTap: onDeparture,
-          onMapTap: onRefineOriginOnMap,
-        ),
-        const SizedBox(height: 12),
-        _FieldCard(
-          label: 'Arrivée',
-          value: arrival,
-          subtitle: customDestination?.address,
-          placeholder: 'Où allez-vous ?',
-          icon: Icons.location_on_rounded,
-          onTap: onArrival,
-          onMapTap: onRefineDestinationOnMap,
-        ),
-        const SizedBox(height: 20),
-        Text('Date', style: AppTextStyles.bodySemibold),
-        const SizedBox(height: 8),
-        _FieldRow(
-          icon: Icons.calendar_month_rounded,
-          text: formatDayLabel(date),
-          onTap: onDate,
-        ),
-        const SizedBox(height: 16),
-        Text('Heure de départ', style: AppTextStyles.bodySemibold),
-        const SizedBox(height: 8),
-        _FieldRow(
-          icon: Icons.access_time_rounded,
-          text: time.format(context),
-          onTap: onTime,
-        ),
-        const SizedBox(height: 16),
-        Text('Places disponibles', style: AppTextStyles.bodySemibold),
-        const SizedBox(height: 8),
-        _FieldRow(
-          icon: Icons.event_seat_rounded,
-          text: '$seats place${seats > 1 ? 's' : ''}',
-          onTap: onSeats,
-        ),
-        const SizedBox(height: 16),
-        Text('Prix par place', style: AppTextStyles.bodySemibold),
-        const SizedBox(height: 8),
-        FojemTextField(
-          controller: priceController,
-          hint: '2000',
-          keyboardType: TextInputType.number,
-          suffix: const Padding(
-            padding: EdgeInsets.only(right: AppSpacing.md),
-            child: Text('FCFA', style: TextStyle(color: AppColors.textSecondary)),
-          ),
-        ),
-        const SizedBox(height: 16),
-        Text('Véhicule', style: AppTextStyles.bodySemibold),
-        const SizedBox(height: 8),
-        if (isLoadingVehicle)
-          const _FieldRow(icon: Icons.directions_car_outlined, text: 'Chargement…', onTap: null)
-        else if (vehicle == null)
-          _FieldRow(
-            icon: Icons.directions_car_outlined,
-            text: 'Ajouter mon véhicule',
-            onTap: onAddVehicle,
-          )
-        else
-          _VehicleSummaryCard(vehicle: vehicle!, onChange: onChangeVehicle),
-      ],
-    );
-  }
-}
 
 class _VehicleSummaryCard extends StatelessWidget {
   final Vehicle vehicle;
@@ -817,7 +1314,7 @@ class _NoVehicleBanner extends StatelessWidget {
       decoration: BoxDecoration(
         color: AppColors.dangerSurface,
         borderRadius: BorderRadius.circular(AppSpacing.borderRadiusMd),
-        border: Border.all(color: AppColors.danger.withOpacity(0.25)),
+        border: Border.all(color: AppColors.danger.withValues(alpha: 0.25)),
       ),
       child: Row(
         children: [
@@ -849,102 +1346,6 @@ class _NoVehicleBanner extends StatelessWidget {
   }
 }
 
-class _FieldCard extends StatelessWidget {
-  final String label;
-  final String? value;
-  final String? subtitle;
-  final String placeholder;
-  final IconData icon;
-  final VoidCallback onTap;
-  final VoidCallback onMapTap;
-
-  const _FieldCard({
-    required this.label,
-    required this.value,
-    this.subtitle,
-    required this.placeholder,
-    required this.icon,
-    required this.onTap,
-    required this.onMapTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      decoration: AppColors.softCardDecoration,
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-      child: Column(
-        children: [
-          InkWell(
-            onTap: onTap,
-            borderRadius: BorderRadius.circular(AppSpacing.borderRadiusMd),
-            child: Row(
-              children: [
-                Icon(icon, size: 22, color: AppColors.primary),
-                const SizedBox(width: 14),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(label,
-                          style: AppTextStyles.body
-                              .copyWith(color: AppColors.textSecondary, fontSize: 13)),
-                      const SizedBox(height: 2),
-                      Text(
-                        value ?? placeholder,
-                        style: value == null
-                            ? AppTextStyles.bodyLargeSemibold.copyWith(color: AppColors.textMuted)
-                            : AppTextStyles.bodyLargeSemibold,
-                      ),
-                      if (subtitle != null && subtitle!.isNotEmpty) ...[
-                        const SizedBox(height: 2),
-                        Text(
-                          '📍 $subtitle',
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: AppTextStyles.caption.copyWith(color: AppColors.primary),
-                        ),
-                      ],
-                    ],
-                  ),
-                ),
-                const Icon(Icons.keyboard_arrow_down_rounded, color: AppColors.textPrimary),
-              ],
-            ),
-          ),
-          const SizedBox(height: 8),
-          const Divider(height: 1, color: AppColors.border),
-          const SizedBox(height: 6),
-          InkWell(
-            onTap: onMapTap,
-            borderRadius: BorderRadius.circular(AppSpacing.borderRadiusSm),
-            child: Padding(
-              padding: const EdgeInsets.symmetric(vertical: 4),
-              child: Row(
-                children: [
-                  const Icon(Icons.map_outlined, size: 16, color: AppColors.primary),
-                  const SizedBox(width: 6),
-                  Expanded(
-                    child: Text(
-                      subtitle != null
-                          ? 'Modifier le point exact sur la carte / GPS'
-                          : 'Préciser le point exact sur la carte ou par GPS',
-                      style: AppTextStyles.caption.copyWith(
-                        color: AppColors.primary,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ),
-                  const Icon(Icons.chevron_right_rounded, size: 16, color: AppColors.primary),
-                ],
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
 
 class _FieldRow extends StatelessWidget {
   final IconData icon;
@@ -980,184 +1381,6 @@ class _FieldRow extends StatelessWidget {
   }
 }
 
-// ─── Étape 2 : points de passage & informations ────────────────────────────
-
-class _StepTwo extends StatelessWidget {
-  final List<String> waypoints;
-  final VoidCallback onAddWaypoint;
-  final ValueChanged<int> onRemoveWaypoint;
-  final TextEditingController notesController;
-
-  const _StepTwo({
-    required this.waypoints,
-    required this.onAddWaypoint,
-    required this.onRemoveWaypoint,
-    required this.notesController,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text('Étapes intermédiaires', style: AppTextStyles.bodySemibold),
-        const SizedBox(height: 6),
-        Text(
-          'Les villes que vous traversez permettent au système de matching de vous proposer des passagers sur votre route.',
-          style: AppTextStyles.body.copyWith(color: AppColors.textSecondary, fontSize: 13.5),
-        ),
-        const SizedBox(height: 14),
-        for (var i = 0; i < waypoints.length; i++) ...[
-          Container(
-            decoration: AppColors.softCardDecoration,
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-            margin: const EdgeInsets.only(bottom: 10),
-            child: Row(
-              children: [
-                const Icon(Icons.alt_route_rounded, size: 20, color: AppColors.primary),
-                const SizedBox(width: 12),
-                Expanded(child: Text(waypoints[i], style: AppTextStyles.bodyLargeSemibold)),
-                InkWell(
-                  onTap: () => onRemoveWaypoint(i),
-                  child: const Icon(Icons.close_rounded, size: 18, color: AppColors.textMuted),
-                ),
-              ],
-            ),
-          ),
-        ],
-        InkWell(
-          onTap: onAddWaypoint,
-          borderRadius: BorderRadius.circular(AppSpacing.borderRadiusMd),
-          child: Container(
-            height: 52,
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            decoration: BoxDecoration(
-              border: Border.all(color: AppColors.primary, style: BorderStyle.solid),
-              borderRadius: BorderRadius.circular(AppSpacing.borderRadiusMd),
-            ),
-            child: Row(
-              children: [
-                const Icon(Icons.add_rounded, size: 20, color: AppColors.primary),
-                const SizedBox(width: 10),
-                Text('Ajouter une étape',
-                    style: AppTextStyles.bodySemibold.copyWith(color: AppColors.primary)),
-              ],
-            ),
-          ),
-        ),
-        const SizedBox(height: 24),
-        Text('Informations pour les passagers', style: AppTextStyles.bodySemibold),
-        const SizedBox(height: 8),
-        FojemTextField(
-          controller: notesController,
-          hint: 'Point de rendez-vous précis, bagages, préférences…',
-          maxLines: 4,
-        ),
-      ],
-    );
-  }
-}
-
-// ─── Étape 3 : récapitulatif ────────────────────────────────────────────────
-
-class _StepThree extends StatelessWidget {
-  final String departure;
-  final String arrival;
-  final GeoLocation? customOrigin;
-  final GeoLocation? customDestination;
-  final List<String> waypoints;
-  final DateTime date;
-  final TimeOfDay time;
-  final int seats;
-  final double price;
-  final Vehicle? vehicle;
-  final String notes;
-
-  const _StepThree({
-    required this.departure,
-    required this.arrival,
-    this.customOrigin,
-    this.customDestination,
-    required this.waypoints,
-    required this.date,
-    required this.time,
-    required this.seats,
-    required this.price,
-    required this.vehicle,
-    required this.notes,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Container(
-          decoration: AppColors.softCardDecoration,
-          padding: const EdgeInsets.all(18),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  Expanded(child: Text(departure, style: AppTextStyles.title1.copyWith(fontSize: 19))),
-                  const Padding(
-                    padding: EdgeInsets.symmetric(horizontal: 8),
-                    child: Icon(Icons.arrow_forward_rounded, size: 18, color: AppColors.primary),
-                  ),
-                  Expanded(
-                    child: Text(arrival,
-                        textAlign: TextAlign.right,
-                        style: AppTextStyles.title1.copyWith(fontSize: 19)),
-                  ),
-                ],
-              ),
-              if (customOrigin != null) ...[
-                const SizedBox(height: 6),
-                Text('Départ précis : ${customOrigin!.address}',
-                    style: AppTextStyles.caption.copyWith(color: AppColors.textSecondary)),
-              ],
-              if (customDestination != null) ...[
-                const SizedBox(height: 4),
-                Text('Arrivée précise : ${customDestination!.address}',
-                    style: AppTextStyles.caption.copyWith(color: AppColors.textSecondary)),
-              ],
-              if (waypoints.isNotEmpty) ...[
-                const SizedBox(height: 8),
-                Text('Via ${waypoints.join(', ')}',
-                    style: AppTextStyles.caption.copyWith(color: AppColors.primary, fontWeight: FontWeight.w600)),
-              ],
-              const SizedBox(height: 14),
-              const Divider(height: 1, color: AppColors.border),
-              const SizedBox(height: 14),
-              _SummaryRow(icon: Icons.calendar_month_rounded, text: formatDayLabel(date)),
-              const SizedBox(height: 10),
-              _SummaryRow(icon: Icons.access_time_rounded, text: time.format(context)),
-              const SizedBox(height: 10),
-              _SummaryRow(
-                  icon: Icons.event_seat_rounded, text: '$seats place${seats > 1 ? 's' : ''}'),
-              const SizedBox(height: 10),
-              _SummaryRow(
-                icon: Icons.directions_car_outlined,
-                text: vehicle == null ? 'Véhicule non défini' : '${vehicle!.brand} ${vehicle!.model}',
-              ),
-              const SizedBox(height: 10),
-              _SummaryRow(icon: Icons.payments_outlined, text: '${formatFcfa(price)} / place'),
-              if (notes.isNotEmpty) ...[
-                const SizedBox(height: 14),
-                const Divider(height: 1, color: AppColors.border),
-                const SizedBox(height: 14),
-                Text('Informations passagers', style: AppTextStyles.bodySemibold),
-                const SizedBox(height: 4),
-                Text(notes, style: AppTextStyles.body.copyWith(color: AppColors.textSecondary)),
-              ],
-            ],
-          ),
-        ),
-      ],
-    );
-  }
-}
 
 class _SummaryRow extends StatelessWidget {
   final IconData icon;

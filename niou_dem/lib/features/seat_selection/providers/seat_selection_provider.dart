@@ -13,10 +13,11 @@ class SeatSelectionProvider extends ChangeNotifier {
   final int maxSelectable;
   final List<SeatState> _seats;
 
-  factory SeatSelectionProvider.forTrip(Trip trip) {
+  /// [pricePerSeat] : prix du tronçon réservé (par défaut, trajet complet).
+  factory SeatSelectionProvider.forTrip(Trip trip, {double? pricePerSeat}) {
     return SeatSelectionProvider._(
       vehicleType: trip.vehicleType,
-      pricePerSeat: trip.pricePerSeat,
+      pricePerSeat: pricePerSeat ?? trip.pricePerSeat,
       maxSelectable: trip.availableSeats,
       occupiedSeatIds: trip.occupiedSeatIds.toSet(),
     );

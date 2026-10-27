@@ -18,8 +18,12 @@ class SearchTripsRequest extends FormRequest
             'origin_lng' => ['required', 'numeric', 'between:-180,180'],
             'destination_lat' => ['required', 'numeric', 'between:-90,90'],
             'destination_lng' => ['required', 'numeric', 'between:-180,180'],
+            // Max distance between the passenger's point and a meeting point.
             'radius_m' => ['sometimes', 'integer', 'min:500', 'max:50000'],
             'women_only' => ['sometimes', 'boolean'],
+            // Day of boarding (Y-m-d) and seats needed.
+            'date' => ['sometimes', 'nullable', 'date_format:Y-m-d'],
+            'seats' => ['sometimes', 'integer', 'min:1', 'max:8'],
         ];
     }
 }

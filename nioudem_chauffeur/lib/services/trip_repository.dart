@@ -1,6 +1,6 @@
-import '../core/geo/geo_location.dart';
 import '../core/network/api_client.dart';
 import '../core/network/api_exception.dart';
+import '../features/publish_trip/stop_plan.dart';
 import '../models/trip.dart';
 import '../models/vehicle.dart';
 import 'trip_display_cache.dart';
@@ -13,58 +13,41 @@ class TripRepository {
       : _client = client ?? ApiClient(),
         _displayCache = displayCache ?? TripDisplayCache();
 
+  /// Publie un trajet et ses points de rendez-vous ([stops] : départ en
+  /// premier, arrivée en dernier, avec heures et prix calculés).
   Future<Trip> create({
-    required String driverId,
     required String vehicleId,
-    required String departure,
-    required String arrival,
-    required String departureAddress,
-    required String arrivalAddress,
-    required GeoLocation origin,
-    required GeoLocation destination,
-    required List<GeoLocation> waypoints,
-    required DateTime departureTime,
-    required Duration estimatedDuration,
+    required List<PlannedStop> stops,
     required int seatsTotal,
-    required double pricePerSeat,
     required VehicleType vehicleType,
     String? notes,
   }) async {
+    final first = stops.first;
+    final last = stops.last;
     final body = await _client.post('/trips', data: {
       'vehicle_id': vehicleId,
-      'origin_lat': origin.lat,
-      'origin_lng': origin.lng,
-      'destination_lat': destination.lat,
-      'destination_lng': destination.lng,
-      'origin_name': departure,
-      'destination_name': arrival,
       'departure_type': 'scheduled',
-      'scheduled_at': departureTime.toUtc().toIso8601String(),
-      'price_per_seat': pricePerSeat,
+      'scheduled_at': first.scheduledAt.toUtc().toIso8601String(),
+      'price_per_seat': last.priceFromOrigin,
       'seats_available': seatsTotal,
-      if (waypoints.isNotEmpty)
-        'waypoints': waypoints
-            .map((w) => {
-                  'name': w.address,
-                  'lat': w.lat,
-                  'lng': w.lng,
-                })
-            .toList(),
+      'stops': [for (final s in stops) s.toApi()],
     });
 
     final json = body['trip'] as Map<String, dynamic>;
     final id = json['id'] as String;
 
+    // Données que le backend ne stocke pas encore (places totales, type de
+    // véhicule, notes) : conservées localement pour l'affichage.
     await _displayCache.save(
       id,
-      departure: departure,
-      arrival: arrival,
-      departureAddress: departureAddress,
-      arrivalAddress: arrivalAddress,
-      origin: origin,
-      destination: destination,
+      departure: first.location.shortLabel,
+      arrival: last.location.shortLabel,
+      departureAddress: first.location.address,
+      arrivalAddress: last.location.address,
+      origin: first.location,
+      destination: last.location,
       seatsTotal: seatsTotal,
-      estimatedMinutes: estimatedDuration.inMinutes,
+      estimatedMinutes: last.scheduledAt.difference(first.scheduledAt).inMinutes,
       vehicleType: vehicleType,
       notes: notes,
     );

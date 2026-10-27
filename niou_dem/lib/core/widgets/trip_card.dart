@@ -41,7 +41,7 @@ class TripCard extends StatelessWidget {
       label: '${trip.departure} vers ${trip.arrival}, '
           '${formatDayLabel(trip.departureTime)} à '
           '${DateFormat('HH:mm').format(trip.departureTime)}, '
-          '${formatFcfa(trip.pricePerSeat)}',
+          '${formatFcfa(trip.segment().pricePerSeat)}',
       child: Material(
         color: AppColors.surface,
         borderRadius: BorderRadius.circular(AppSpacing.borderRadiusCard),
@@ -75,7 +75,7 @@ class TripCard extends StatelessWidget {
                               child: _DriverSummary(
                                   trip: trip, maxNameWidth: 200)),
                           const SizedBox(width: 12),
-                          _Price(amount: trip.pricePerSeat),
+                          _Price(amount: trip.segment().pricePerSeat),
                         ],
                       ),
                     ],
@@ -95,7 +95,7 @@ class TripCard extends StatelessWidget {
                           children: [
                             _DriverSummary(trip: trip, maxNameWidth: 108),
                             const SizedBox(height: 12),
-                            _Price(amount: trip.pricePerSeat),
+                            _Price(amount: trip.segment().pricePerSeat),
                           ],
                         ),
                       ),
@@ -132,6 +132,8 @@ class _RouteInfo extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final seg = trip.segment();
+    final boardAt = boardingTime(trip);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -140,17 +142,17 @@ class _RouteInfo extends StatelessWidget {
           alignment: Alignment.centerLeft,
           child: Row(
             children: [
-              Text(trip.departure, style: _routeTitle),
+              Text(seg.boarding?.name ?? trip.departure, style: _routeTitle),
               const _RouteArrow(),
-              Text(trip.arrival, style: _routeTitle),
+              Text(seg.alighting?.name ?? trip.arrival, style: _routeTitle),
             ],
           ),
         ),
         const SizedBox(height: 12),
         _MetaLine(
           icon: Icons.schedule_rounded,
-          text: '${formatDayLabel(trip.departureTime)} • '
-              '${DateFormat('HH:mm').format(trip.departureTime)}',
+          text: '${formatDayLabel(boardAt)} • '
+              '${DateFormat('HH:mm').format(boardAt)}',
         ),
         const SizedBox(height: 8),
         _SeatsLine(seats: trip.availableSeats, short: shortSeats),
@@ -167,7 +169,12 @@ class _ScheduleInfo extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final arrivalTime = trip.departureTime.add(trip.estimatedDuration);
+    // Le tronçon du passager : il monte et descend aux arrêts proposés.
+    final seg = trip.segment();
+    final match = trip.match;
+    final boardAt = boardingTime(trip);
+    final arrivalTime = seg.alighting?.scheduledAt ??
+        trip.departureTime.add(trip.estimatedDuration);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -178,8 +185,8 @@ class _ScheduleInfo extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               _TimeAndCity(
-                time: DateFormat('HH:mm').format(trip.departureTime),
-                city: trip.departure,
+                time: DateFormat('HH:mm').format(boardAt),
+                city: seg.boarding?.name ?? trip.departure,
               ),
               const Padding(
                 padding: EdgeInsets.only(top: 1),
@@ -187,16 +194,23 @@ class _ScheduleInfo extends StatelessWidget {
               ),
               _TimeAndCity(
                 time: DateFormat('HH:mm').format(arrivalTime),
-                city: trip.arrival,
+                city: seg.alighting?.name ?? trip.arrival,
               ),
             ],
           ),
         ),
         const SizedBox(height: 12),
-        _MetaLine(
-          icon: Icons.schedule_rounded,
-          text: 'Durée estimée ${trip.durationLabel}',
-        ),
+        if (match != null)
+          _MetaLine(
+            icon: Icons.directions_walk_rounded,
+            text: 'Montée ${formatDistanceFromYou(match.boardingDistanceM)} · '
+                'descente ${formatDistanceFromYou(match.alightingDistanceM)}',
+          )
+        else
+          _MetaLine(
+            icon: Icons.schedule_rounded,
+            text: 'Durée estimée ${trip.durationLabel}',
+          ),
         const SizedBox(height: 8),
         _SeatsLine(seats: trip.availableSeats, short: shortSeats),
       ],

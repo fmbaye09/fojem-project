@@ -3,6 +3,7 @@ import 'package:flutter_map/flutter_map.dart';
 import 'package:go_router/go_router.dart';
 import 'package:latlong2/latlong.dart' as ll;
 import 'package:provider/provider.dart';
+import '../../../core/geo/geo_location.dart';
 import '../../../core/geo/senegal_city_coordinates.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
@@ -60,6 +61,8 @@ class TripsScreen extends StatefulWidget {
 class _TripsScreenState extends State<TripsScreen> {
   final _repository = TripRepository();
 
+  late final GeoLocation _origin;
+  late final GeoLocation _destination;
   late final String _departure;
   late final String _arrival;
   late final DateTime _date;
@@ -78,8 +81,10 @@ class _TripsScreenState extends State<TripsScreen> {
   void initState() {
     super.initState();
     final search = context.read<SearchProvider>();
-    _departure = search.departure ?? 'Dakar';
-    _arrival = search.arrival ?? 'Thiès';
+    _origin = search.origin ?? coordinatesForCity('Dakar');
+    _destination = search.destination ?? coordinatesForCity('Thiès');
+    _departure = _origin.shortLabel;
+    _arrival = _destination.shortLabel;
     _date = search.date;
     _minSeats = search.passengers;
     _load();
@@ -89,18 +94,18 @@ class _TripsScreenState extends State<TripsScreen> {
   /// jour choisi côté client, avec suggestions d'alternatives si vide.
   Future<void> _load() async {
     try {
-      final desiredOrigin = coordinatesForCity(_departure);
-      final desiredDestination = coordinatesForCity(_arrival);
+      final desiredOrigin = _origin;
+      final desiredDestination = _destination;
       final searchResult = await _repository
           .searchWithSuggestions(origin: desiredOrigin, destination: desiredDestination)
           .timeout(const Duration(seconds: 15));
 
       final matched = searchResult.trips
-          .where((trip) => !trip.isFull && _isSameDay(trip.departureTime, _date))
+          .where((trip) => !trip.isFull && _isSameDay(boardingTime(trip), _date))
           .toList();
 
       final otherDays = searchResult.trips
-          .where((trip) => !trip.isFull && !_isSameDay(trip.departureTime, _date))
+          .where((trip) => !trip.isFull && !_isSameDay(boardingTime(trip), _date))
           .toList();
 
       final combinedSuggestions = [
@@ -140,15 +145,15 @@ class _TripsScreenState extends State<TripsScreen> {
   List<Trip> get _visibleTrips {
     final result = _trips
         .where((t) =>
-            _timeSlot.matches(t.departureTime) &&
-            (_maxPrice == null || t.pricePerSeat <= _maxPrice!) &&
+            _timeSlot.matches(boardingTime(t)) &&
+            (_maxPrice == null || t.segment().pricePerSeat <= _maxPrice!) &&
             t.availableSeats >= _minSeats)
         .toList();
     switch (_sort) {
       case _Sort.time:
-        result.sort((a, b) => a.departureTime.compareTo(b.departureTime));
+        result.sort((a, b) => boardingTime(a).compareTo(boardingTime(b)));
       case _Sort.price:
-        result.sort((a, b) => a.pricePerSeat.compareTo(b.pricePerSeat));
+        result.sort((a, b) => a.segment().pricePerSeat.compareTo(b.segment().pricePerSeat));
       case _Sort.rating:
         result.sort(
             (a, b) => (b.driver?.rating ?? 0).compareTo(a.driver?.rating ?? 0));
@@ -269,7 +274,7 @@ class _TripsScreenState extends State<TripsScreen> {
                 ],
               ),
               const SizedBox(height: 16),
-              _RouteMap(departure: _departure, arrival: _arrival),
+              _RouteMap(origin: _origin, destination: _destination),
               const SizedBox(height: 24),
               LayoutBuilder(
                 builder: (context, constraints) => Row(
@@ -342,7 +347,7 @@ class _TripsScreenState extends State<TripsScreen> {
                     TripCard(
                       trip: trip,
                       layout: TripCardLayout.schedule,
-                      onTap: () => context.push('/trip/${trip.id}'),
+                      onTap: () => context.push(tripDetailLocation(trip)),
                     ),
                     const SizedBox(height: 14),
                   ],
@@ -353,7 +358,7 @@ class _TripsScreenState extends State<TripsScreen> {
                   TripCard(
                     trip: trip,
                     layout: TripCardLayout.schedule,
-                    onTap: () => context.push('/trip/${trip.id}'),
+                    onTap: () => context.push(tripDetailLocation(trip)),
                   ),
                   const SizedBox(height: 14),
                 ],
@@ -576,10 +581,10 @@ class _SortMenu extends StatelessWidget {
 /// ligne droite en attendant ou si le service ne répond pas. Le bouton en
 /// haut à droite recadre sur le trajet après un déplacement.
 class _RouteMap extends StatefulWidget {
-  final String departure;
-  final String arrival;
+  final GeoLocation origin;
+  final GeoLocation destination;
 
-  const _RouteMap({required this.departure, required this.arrival});
+  const _RouteMap({required this.origin, required this.destination});
 
   @override
   State<_RouteMap> createState() => _RouteMapState();
@@ -594,8 +599,8 @@ class _RouteMapState extends State<_RouteMap> {
   @override
   void initState() {
     super.initState();
-    final o = coordinatesForCity(widget.departure);
-    final d = coordinatesForCity(widget.arrival);
+    final o = widget.origin;
+    final d = widget.destination;
     _origin = ll.LatLng(o.lat, o.lng);
     _destination = ll.LatLng(d.lat, d.lng);
     _path = [_origin, _destination];
@@ -605,8 +610,8 @@ class _RouteMapState extends State<_RouteMap> {
   Future<void> _loadRoute() async {
     try {
       final route = await OsmMapService()
-          .getRoute(coordinatesForCity(widget.departure),
-              coordinatesForCity(widget.arrival))
+          .getRoute(widget.origin,
+              widget.destination)
           .timeout(const Duration(seconds: 8));
       if (route == null || route.polyline.length < 2 || !mounted) return;
       setState(() =>
@@ -663,13 +668,13 @@ class _RouteMapState extends State<_RouteMap> {
                   point: _origin,
                   width: 110,
                   height: 64,
-                  child: _CityMarker(city: widget.departure, isOrigin: true),
+                  child: _CityMarker(city: widget.origin.shortLabel, isOrigin: true),
                 ),
                 Marker(
                   point: _destination,
                   width: 110,
                   height: 96,
-                  child: _CityMarker(city: widget.arrival, isOrigin: false),
+                  child: _CityMarker(city: widget.destination.shortLabel, isOrigin: false),
                 ),
               ]),
             ],

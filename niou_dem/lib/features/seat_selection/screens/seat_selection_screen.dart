@@ -18,7 +18,11 @@ import '../widgets/seat_layout_widget.dart';
 class SeatSelectionScreen extends StatefulWidget {
   final String? tripId;
 
-  const SeatSelectionScreen({super.key, this.tripId});
+  /// Tronçon choisi sur le détail du trajet (prix et réservation).
+  final String? boardingStopId;
+  final String? alightingStopId;
+
+  const SeatSelectionScreen({super.key, this.tripId, this.boardingStopId, this.alightingStopId});
 
   @override
   State<SeatSelectionScreen> createState() => _SeatSelectionScreenState();
@@ -60,16 +64,29 @@ class _SeatSelectionScreenState extends State<SeatSelectionScreen> {
       );
     }
 
+    final segment = _trip!.segment(
+      boardingStopId: widget.boardingStopId,
+      alightingStopId: widget.alightingStopId,
+    );
     return ChangeNotifierProvider(
-      create: (_) => SeatSelectionProvider.forTrip(_trip!),
-      child: _SeatSelectionContent(tripId: _trip!.id),
+      create: (_) => SeatSelectionProvider.forTrip(_trip!, pricePerSeat: segment.pricePerSeat),
+      child: _SeatSelectionContent(
+        tripId: _trip!.id,
+        segmentQuery: [
+          if (segment.boarding != null) 'board=${segment.boarding!.id}',
+          if (segment.alighting != null) 'alight=${segment.alighting!.id}',
+        ].join('&'),
+      ),
     );
   }
 }
 
 class _SeatSelectionContent extends StatelessWidget {
   final String tripId;
-  const _SeatSelectionContent({required this.tripId});
+
+  /// `board=…&alight=…`, relayé à l'écran de confirmation.
+  final String segmentQuery;
+  const _SeatSelectionContent({required this.tripId, required this.segmentQuery});
 
   @override
   Widget build(BuildContext context) {
@@ -168,7 +185,8 @@ class _SeatSelectionContent extends StatelessWidget {
         onConfirmed: () {
           Navigator.of(context).pop();
           context.push(
-            '/booking/confirm?tripId=$tripId&seats=${Uri.encodeComponent(seatIds)}',
+            '/booking/confirm?tripId=$tripId&seats=${Uri.encodeComponent(seatIds)}'
+            '${segmentQuery.isEmpty ? '' : '&$segmentQuery'}',
           );
         },
       ),

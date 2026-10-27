@@ -13,7 +13,9 @@ use App\Services\MatchingService;
 use App\Services\NotificationService;
 use App\Services\TripCancellationService;
 use App\Services\TripLifecycleService;
+use App\Services\TripStopPlanner;
 use App\Services\WalletService;
+use Carbon\CarbonImmutable;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
@@ -23,7 +25,7 @@ class TripController extends Controller
      * Publish a new trip. Blocked unless the authenticated user has an
      * approved driver profile - a pending/rejected driver cannot publish.
      */
-    public function store(StoreTripRequest $request, MatchingService $matching, NotificationService $notifications)
+    public function store(StoreTripRequest $request, MatchingService $matching, NotificationService $notifications, TripStopPlanner $planner)
     {
         $user = $request->user();
         $driver = $user->driver;
@@ -38,34 +40,47 @@ class TripController extends Controller
             ->where('driver_id', $driver->id)
             ->firstOrFail();
 
-        $originLat = (float) $request->input('origin_lat');
-        $originLng = (float) $request->input('origin_lng');
-        $destLat = (float) $request->input('destination_lat');
-        $destLng = (float) $request->input('destination_lng');
+        $departureAt = $request->input('departure_type') === 'scheduled'
+            ? CarbonImmutable::parse($request->input('scheduled_at'))
+            : CarbonImmutable::now();
+        $rawStops = $request->has('stops')
+            ? $request->input('stops')
+            : $planner->fromLegacyFields($request->all());
+        $stops = $planner->plan($rawStops, $departureAt, (float) $request->input('price_per_seat'));
+        $first = $stops[0];
+        $last = $stops[count($stops) - 1];
+        $intermediate = array_slice($stops, 1, -1);
 
-        $trip = new Trip([
-            'driver_id' => $driver->id,
-            'vehicle_id' => $vehicle->id,
-            'departure_type' => $request->input('departure_type'),
-            'scheduled_at' => $request->input('scheduled_at'),
-            'price_per_seat' => $request->input('price_per_seat'),
-            'toll_fees' => $request->input('toll_fees', 0),
-            'seats_available' => $request->input('seats_available'),
-            'is_recurring' => $request->boolean('is_recurring'),
-            'recurrence_rule' => $request->input('recurrence_rule'),
-            'status' => Trip::STATUS_OPEN,
-            'women_only' => $request->boolean('women_only'),
-            'origin_name' => $request->input('origin_name'),
-            'destination_name' => $request->input('destination_name'),
-            'waypoints' => $request->input('waypoints'),
-            'current_lat' => $originLat,
-            'current_lng' => $originLng,
-            'location_updated_at' => now(),
-        ]);
+        $trip = DB::transaction(function () use ($request, $driver, $vehicle, $departureAt, $stops, $first, $last, $intermediate) {
+            $trip = new Trip([
+                'driver_id' => $driver->id,
+                'vehicle_id' => $vehicle->id,
+                'departure_type' => $request->input('departure_type'),
+                'scheduled_at' => $departureAt,
+                'price_per_seat' => $request->input('price_per_seat'),
+                'toll_fees' => $request->input('toll_fees', 0),
+                'seats_available' => $request->input('seats_available'),
+                'is_recurring' => $request->boolean('is_recurring'),
+                'recurrence_rule' => $request->input('recurrence_rule'),
+                'status' => Trip::STATUS_OPEN,
+                'women_only' => $request->boolean('women_only'),
+                // Denormalised from the first/last stop for the map, admin
+                // views and older app versions that don't read `stops`.
+                'origin_name' => $first['name'],
+                'destination_name' => $last['name'],
+                'waypoints' => array_map(fn ($s) => ['name' => $s['name'], 'lat' => $s['lat'], 'lng' => $s['lng']], $intermediate) ?: null,
+                'current_lat' => $first['lat'],
+                'current_lng' => $first['lng'],
+                'location_updated_at' => now(),
+            ]);
 
-        $trip->setOriginPoint($originLat, $originLng);
-        $trip->setDestinationPoint($destLat, $destLng);
-        $trip->save();
+            $trip->setOriginPoint($first['lat'], $first['lng']);
+            $trip->setDestinationPoint($last['lat'], $last['lng']);
+            $trip->save();
+            $trip->stops()->createMany($stops);
+
+            return $trip;
+        });
 
         $freshTrip = Trip::withLatLng()->with('vehicle', 'driverProfile.user')->findOrFail($trip->id);
 
@@ -126,82 +141,41 @@ class TripController extends Controller
     }
 
     /**
-     * Public search: trips whose origin AND destination both lie within
-     * radius_m (default 5km) of the requested points, open and departing
-     * soon or now.
+     * Public search, BlaBlaCar style: the passenger travels to the driver's
+     * meeting points. A trip matches when one of its stops lies within
+     * radius_m of the passenger's departure and a LATER stop lies within
+     * radius_m of their destination. Each result carries a `match` with the
+     * best boarding/alighting pair, how far those points are from the
+     * passenger, and the segment price.
+     *
+     * When nothing matches, `suggestions` holds matches within a wider
+     * radius on any date, then any upcoming trip.
      */
     public function search(SearchTripsRequest $request)
     {
         TripLifecycleService::sync();
 
-        $radius = (int) $request->input('radius_m', 5000);
+        $radius = (int) $request->input('radius_m', 15000);
+        $criteria = [
+            'origin_lat' => (float) $request->input('origin_lat'),
+            'origin_lng' => (float) $request->input('origin_lng'),
+            'destination_lat' => (float) $request->input('destination_lat'),
+            'destination_lng' => (float) $request->input('destination_lng'),
+            'seats' => (int) $request->input('seats', 1),
+            'women_only' => $request->boolean('women_only'),
+        ];
 
-        $originLat = (float) $request->input('origin_lat');
-        $originLng = (float) $request->input('origin_lng');
-        $destLat   = (float) $request->input('destination_lat');
-        $destLng   = (float) $request->input('destination_lng');
-
-        $query = Trip::query()
-            ->withLatLng()
-            ->where('status', Trip::STATUS_OPEN)
-            ->where('seats_available', '>', 0)
-            ->near(
-                $originLat,
-                $originLng,
-                $destLat,
-                $destLng,
-                $radius
-            )
-            ->with('vehicle', 'driverProfile.user');
-
-        if ($request->boolean('women_only')) {
-            $query->where('women_only', true);
-        }
-
-        $trips = $query->orderBy('scheduled_at')->get();
-
-        // Include open trips with intermediate waypoints that match the requested path in order
-        $waypointCandidates = Trip::query()
-            ->withLatLng()
-            ->where('status', Trip::STATUS_OPEN)
-            ->where('seats_available', '>', 0)
-            ->whereNotNull('waypoints')
-            ->when($request->boolean('women_only'), fn ($q) => $q->where('women_only', true))
-            ->whereNotIn('id', $trips->pluck('id'))
-            ->with('vehicle', 'driverProfile.user')
-            ->orderBy('scheduled_at')
-            ->get()
-            ->filter(fn (Trip $t) => $t->matchesPathWithWaypoints($originLat, $originLng, $destLat, $destLng, $radius));
-
-        if ($waypointCandidates->isNotEmpty()) {
-            $trips = $trips->concat($waypointCandidates)->sortBy('scheduled_at')->values();
-        }
+        $trips = $this->matchTripsByStops($criteria + ['radius' => $radius, 'date' => $request->input('date')]);
 
         $suggestions = collect();
         if ($trips->isEmpty()) {
+            $suggestions = $this->matchTripsByStops($criteria + ['radius' => min($radius * 3, 50000), 'date' => null], 6);
 
-            // Suggestions : trajets dont l'origine OU la destination est dans un rayon élargi (35 km)
-            $wider = Trip::query()
-                ->withLatLng()
-                ->where('status', Trip::STATUS_OPEN)
-                ->where('seats_available', '>', 0)
-                ->where(function ($q) use ($originLat, $originLng, $destLat, $destLng) {
-                    $q->whereRaw('ST_DWithin(origin_geom, ST_SetSRID(ST_MakePoint(?, ?), 4326)::geography, 35000)', [$originLng, $originLat])
-                      ->orWhereRaw('ST_DWithin(destination_geom, ST_SetSRID(ST_MakePoint(?, ?), 4326)::geography, 35000)', [$destLng, $destLat]);
-                })
-                ->with('vehicle', 'driverProfile.user')
-                ->orderBy('scheduled_at')
-                ->limit(6)
-                ->get();
-
-            if ($wider->isNotEmpty()) {
-                $suggestions = $wider;
-            } else {
-                // Autres trajets disponibles à venir
+            if ($suggestions->isEmpty()) {
                 $suggestions = Trip::query()
                     ->withLatLng()
                     ->where('status', Trip::STATUS_OPEN)
-                    ->where('seats_available', '>', 0)
+                    ->where('seats_available', '>=', $criteria['seats'])
                     ->with('vehicle', 'driverProfile.user')
                     ->orderBy('scheduled_at')
                     ->limit(6)
@@ -213,6 +187,84 @@ class TripController extends Controller
             'trips' => $trips,
             'suggestions' => $suggestions,
         ]);
+    }
+
+    /**
+     * @param  array{origin_lat: float, origin_lng: float, destination_lat: float, destination_lng: float, seats: int, women_only: bool, radius: int, date: ?string}  $c
+     * @return \Illuminate\Support\Collection<int, Trip>
+     */
+    private function matchTripsByStops(array $c, ?int $limit = null)
+    {
+        $where = ["t.deleted_at IS NULL", "t.status = 'open'", 't.seats_available >= ?'];
+        $bindings = [$c['origin_lng'], $c['origin_lat'], $c['destination_lng'], $c['destination_lat'], $c['seats']];
+
+        $where[] = 'ST_DWithin(b.location_geom, o.pt, ?)';
+        $where[] = 'ST_DWithin(a.location_geom, d.pt, ?)';
+        array_push($bindings, $c['radius'], $c['radius']);
+
+        if ($c['women_only']) {
+            $where[] = 't.women_only = true';
+        }
+        if ($c['date']) {
+            // Legacy stops may lack a time: fall back to the trip's departure.
+            $where[] = 'COALESCE(b.scheduled_at, t.scheduled_at, t.created_at)::date = ?::date';
+            $bindings[] = $c['date'];
+        }
+
+        // One row per trip: the boarding/alighting pair closest to the
+        // passenger's two points, boarding strictly before alighting.
+        $rows = DB::select(
+            'SELECT DISTINCT ON (b.trip_id)
+                    b.trip_id,
+                    b.id AS boarding_stop_id,
+                    a.id AS alighting_stop_id,
+                    ST_Distance(b.location_geom, o.pt) AS boarding_distance_m,
+                    ST_Distance(a.location_geom, d.pt) AS alighting_distance_m,
+                    a.price_from_origin - b.price_from_origin AS segment_price
+               FROM trip_stops b
+               JOIN trip_stops a ON a.trip_id = b.trip_id AND a.position > b.position
+               JOIN trips t ON t.id = b.trip_id
+              CROSS JOIN (SELECT ST_SetSRID(ST_MakePoint(?, ?), 4326)::geography AS pt) o
+              CROSS JOIN (SELECT ST_SetSRID(ST_MakePoint(?, ?), 4326)::geography AS pt) d
+              WHERE ' . implode(' AND ', $where) . '
+              ORDER BY b.trip_id, ST_Distance(b.location_geom, o.pt) + ST_Distance(a.location_geom, d.pt)',
+            $bindings,
+        );
+
+        if ($rows === []) {
+            return collect();
+        }
+
+        $trips = Trip::query()
+            ->withLatLng()
+            ->with('vehicle', 'driverProfile.user')
+            ->whereIn('id', array_column($rows, 'trip_id'))
+            ->get()
+            ->keyBy('id');
+
+        $results = collect($rows)
+            ->map(function ($row) use ($trips) {
+                $trip = $trips->get($row->trip_id);
+                if (! $trip) {
+                    return null;
+                }
+                $boarding = $trip->stops->firstWhere('id', $row->boarding_stop_id);
+                $alighting = $trip->stops->firstWhere('id', $row->alighting_stop_id);
+                $trip->setAttribute('match', [
+                    'boarding_stop' => $boarding,
+                    'alighting_stop' => $alighting,
+                    'boarding_distance_m' => (int) round($row->boarding_distance_m),
+                    'alighting_distance_m' => (int) round($row->alighting_distance_m),
+                    'segment_price' => number_format((float) $row->segment_price, 2, '.', ''),
+                ]);
+
+                return $trip;
+            })
+            ->filter()
+            ->sortBy(fn (Trip $t) => $t->match['boarding_stop']?->scheduled_at ?? $t->scheduled_at)
+            ->values();
+
+        return $limit ? $results->take($limit)->values() : $results;
     }
 
     /** Driver cancels their own trip. */

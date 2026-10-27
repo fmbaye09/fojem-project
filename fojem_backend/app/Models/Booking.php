@@ -23,11 +23,15 @@ class Booking extends Model
     public const STATUS_NO_SHOW = 'no_show';
 
     protected $fillable = [
-        'trip_id', 'ride_request_id', 'passenger_id', 'seat_count', 'seat_numbers', 'has_heavy_luggage', 'status',
+        'trip_id', 'boarding_stop_id', 'alighting_stop_id', 'ride_request_id', 'passenger_id',
+        'seat_count', 'seat_numbers', 'has_heavy_luggage', 'status',
         'departure_code', 'price_charged', 'confirmed_at', 'started_at', 'completed_at',
     ];
 
     protected $appends = ['luggage_photos'];
+
+    /** Where the passenger boards and leaves: shown on every booking. */
+    protected $with = ['boardingStop', 'alightingStop'];
 
     protected function casts(): array
     {
@@ -80,6 +84,16 @@ class Booking extends Model
     public function setPickupPoint(float $lat, float $lng): static
     {
         return $this->setPointAttribute('pickup_point_geom', $lat, $lng);
+    }
+
+    public function boardingStop(): BelongsTo
+    {
+        return $this->belongsTo(TripStop::class, 'boarding_stop_id');
+    }
+
+    public function alightingStop(): BelongsTo
+    {
+        return $this->belongsTo(TripStop::class, 'alighting_stop_id');
     }
 
     public function trip(): BelongsTo
