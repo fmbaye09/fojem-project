@@ -68,6 +68,9 @@ class Trip {
   /// Renseigné pour un résultat de recherche : arrêts proposés au passager.
   final TripMatch? match;
 
+  /// Progression en direct (trajet en cours), renvoyée par le détail.
+  final TripLive? live;
+
   final List<String> occupiedSeatIds;
   final Driver? driver;
 
@@ -96,6 +99,7 @@ class Trip {
     this.locationUpdatedAt,
     this.stops = const [],
     this.match,
+    this.live,
     this.occupiedSeatIds = const [],
     this.driver,
   });
@@ -224,6 +228,9 @@ class Trip {
       match: map['match'] is Map<String, dynamic>
           ? TripMatch.fromJson(map['match'] as Map<String, dynamic>)
           : null,
+      live: map['live'] is Map<String, dynamic>
+          ? TripLive.fromJson(map['live'] as Map<String, dynamic>)
+          : null,
       estimatedDuration: estimatedDuration,
       seatsTotal: vehicle?.totalSeats ?? seatsAvailable,
       availableSeats: seatsAvailable,
@@ -281,6 +288,55 @@ class Trip {
       driver: driver ?? this.driver,
       stops: stops,
       match: match,
+      live: live,
+    );
+  }
+}
+
+/// Progression d'un trajet en cours, calculée par le serveur
+/// (`GET /trips/{id}` → `live`).
+class TripLive {
+  /// Position GPS du chauffeur reçue il y a moins de 3 min.
+  final bool locationFresh;
+
+  /// Dernier arrêt atteint par le chauffeur (0 = départ).
+  final int? lastPassedStopPosition;
+  final String? nextStopId;
+
+  /// `live` (d'après la position GPS) ou `schedule` (horaire publié, faute
+  /// de position récente).
+  final String? etaSource;
+  final int? delayMinutes;
+
+  /// Heure d'arrivée estimée à chaque arrêt restant, par id d'arrêt.
+  final Map<String, DateTime> etas;
+
+  const TripLive({
+    required this.locationFresh,
+    this.lastPassedStopPosition,
+    this.nextStopId,
+    this.etaSource,
+    this.delayMinutes,
+    this.etas = const {},
+  });
+
+  bool get isLiveEstimate => etaSource == 'live';
+
+  factory TripLive.fromJson(Map<String, dynamic> json) {
+    final etas = <String, DateTime>{};
+    for (final e in (json['etas'] as List? ?? const [])) {
+      if (e is Map<String, dynamic>) {
+        final at = DateTime.tryParse('${e['eta']}');
+        if (at != null) etas['${e['stop_id']}'] = at.toLocal();
+      }
+    }
+    return TripLive(
+      locationFresh: json['location_fresh'] == true,
+      lastPassedStopPosition: int.tryParse('${json['last_passed_stop_position'] ?? ''}'),
+      nextStopId: json['next_stop_id'] as String?,
+      etaSource: json['eta_source'] as String?,
+      delayMinutes: int.tryParse('${json['delay_minutes'] ?? ''}'),
+      etas: etas,
     );
   }
 }

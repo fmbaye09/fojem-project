@@ -7,6 +7,7 @@ import '../../models/trip_stop.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_spacing.dart';
 import '../theme/app_text_styles.dart';
+import 'glow.dart';
 
 /// Ouvre l'itinéraire vers [stop] dans Google Maps (ou l'app de navigation
 /// installée) : c'est le passager qui se rend au point de rendez-vous.
@@ -30,7 +31,7 @@ class MeetingPointCard extends StatelessWidget {
     final point = ll.LatLng(stop.lat, stop.lng);
     final time = stop.scheduledAt != null ? DateFormat('HH:mm').format(stop.scheduledAt!) : null;
     return Container(
-      decoration: AppColors.cardDecoration,
+      decoration: AppColors.softCardDecoration,
       clipBehavior: Clip.antiAlias,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -79,18 +80,11 @@ class MeetingPointCard extends StatelessWidget {
                   style: AppTextStyles.caption.copyWith(color: AppColors.textMuted),
                 ),
                 const SizedBox(height: 10),
-                SizedBox(
-                  width: double.infinity,
-                  child: OutlinedButton.icon(
-                    onPressed: () => openDirectionsTo(stop),
-                    icon: const Icon(Icons.directions_rounded, color: AppColors.primary),
-                    label: Text('M’y rendre',
-                        style: AppTextStyles.bodySemibold.copyWith(color: AppColors.primary)),
-                    style: OutlinedButton.styleFrom(
-                      side: const BorderSide(color: AppColors.primary),
-                      padding: const EdgeInsets.symmetric(vertical: 12),
-                    ),
-                  ),
+                NeuButton(
+                  label: 'M’y rendre',
+                  icon: Icons.navigation_rounded,
+                  color: AppColors.accent,
+                  onPressed: () => openDirectionsTo(stop),
                 ),
               ],
             ),

@@ -1,4 +1,5 @@
 import 'package:dio/dio.dart';
+import '../events/data_refresh.dart';
 import 'api_config.dart';
 import 'api_exception.dart';
 import 'token_storage.dart';
@@ -57,10 +58,10 @@ class ApiClient {
       _request(() => _dio.get(path, queryParameters: query));
 
   Future<Map<String, dynamic>> post(String path, {Map<String, dynamic>? data}) =>
-      _request(() => _dio.post(path, data: data));
+      _request(() => _dio.post(path, data: data), signalPath: path);
 
   Future<Map<String, dynamic>> patch(String path, {Map<String, dynamic>? data}) =>
-      _request(() => _dio.patch(path, data: data));
+      _request(() => _dio.patch(path, data: data), signalPath: path);
 
   /// Envoi `multipart/form-data` (upload de fichiers : photo de profil,
   /// documents chauffeur). Dio pose lui-même le `Content-Type` avec la
@@ -68,15 +69,21 @@ class ApiClient {
   /// une photo de quelques Mo sur réseau mobile dépasse vite les délais
   /// pensés pour du JSON.
   Future<Map<String, dynamic>> postMultipart(String path, FormData data) =>
-      _request(() => _dio.post(
-            path,
-            data: data,
-            options: Options(sendTimeout: ApiConfig.uploadTimeout),
-          ));
+      _request(
+        () => _dio.post(
+          path,
+          data: data,
+          options: Options(sendTimeout: ApiConfig.uploadTimeout),
+        ),
+        signalPath: path,
+      );
 
-  Future<Map<String, dynamic>> _request(Future<Response> Function() call) async {
+  /// [signalPath] : action d'écriture ; si elle aboutit, les écrans ouverts
+  /// se rechargent ([DataRefresh]).
+  Future<Map<String, dynamic>> _request(Future<Response> Function() call, {String? signalPath}) async {
     try {
       final response = await call();
+      if (signalPath != null) _signalChange(signalPath);
       final data = response.data;
       if (data is Map<String, dynamic>) return data;
       // Laravel paginate() renvoie un objet ; certaines routes pourraient en
@@ -86,6 +93,15 @@ class ApiClient {
     } on DioException catch (e) {
       throw _toApiException(e);
     }
+  }
+
+  /// Sauf pour les appels techniques (session, token push, notifications,
+  /// envoi de la position GPS toutes les 8 s), qui ne changent rien à
+  /// l'affichage.
+  void _signalChange(String path) {
+    const technical = ['/auth/', '/fcm-token', '/notifications', '/location'];
+    if (technical.any(path.contains)) return;
+    DataRefresh.instance.notify();
   }
 
   ApiException _toApiException(DioException e) {

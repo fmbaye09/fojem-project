@@ -1,4 +1,5 @@
 import 'package:dio/dio.dart';
+import '../events/data_refresh.dart';
 import '../storage/secure_token_storage.dart';
 import 'api_config.dart';
 import 'api_exception.dart';
@@ -65,11 +66,24 @@ class ApiClient {
   }
 
   Future<Map<String, dynamic>> post(String path, {dynamic data}) async {
-    return _unwrap(() => _dio.post(path, data: data));
+    final result = await _unwrap(() => _dio.post(path, data: data));
+    _signalChange(path);
+    return result;
   }
 
   Future<Map<String, dynamic>> patch(String path, {dynamic data}) async {
-    return _unwrap(() => _dio.patch(path, data: data));
+    final result = await _unwrap(() => _dio.patch(path, data: data));
+    _signalChange(path);
+    return result;
+  }
+
+  /// Une action a abouti : les écrans ouverts se rechargent. Sauf pour les
+  /// appels techniques (session, token push, lecture de notifications), qui
+  /// ne changent rien à l'affichage.
+  void _signalChange(String path) {
+    const technical = ['/auth/', '/fcm-token', '/notifications'];
+    if (technical.any(path.contains)) return;
+    DataRefresh.instance.notify();
   }
 
   Map<String, dynamic>? _clean(Map<String, dynamic>? query) {

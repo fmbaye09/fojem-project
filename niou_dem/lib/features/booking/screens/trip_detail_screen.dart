@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../../core/events/data_refresh.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
@@ -7,9 +8,9 @@ import '../../../core/theme/app_text_styles.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/widgets/driver_avatar.dart';
 import '../../../core/widgets/star_rating.dart';
-import '../../../core/widgets/status_chip.dart';
+import '../../../core/widgets/glow.dart';
 import '../../../core/widgets/price_display.dart';
-import '../../../core/widgets/fojem_button.dart';
+import '../../../core/widgets/trip_card.dart' show formatFcfa;
 import '../../../core/widgets/meeting_point_card.dart';
 import '../../../models/trip.dart';
 import '../../../models/trip_stop.dart';
@@ -38,7 +39,10 @@ class TripDetailScreen extends StatefulWidget {
   State<TripDetailScreen> createState() => _TripDetailScreenState();
 }
 
-class _TripDetailScreenState extends State<TripDetailScreen> {
+class _TripDetailScreenState extends State<TripDetailScreen> with AutoRefresh<TripDetailScreen> {
+  @override
+  Future<void> onAutoRefresh() => _loadTrip();
+
   Trip? _trip;
   Booking? _existingBooking;
   bool _isLoading = true;
@@ -132,25 +136,6 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: AppColors.background,
-      appBar: AppBar(
-        title: const Text('Détail du trajet'),
-        leading: IconButton(
-          onPressed: () => context.pop(),
-          icon: const Icon(Icons.arrow_back),
-        ),
-        actions: [
-          if (_trip?.driver != null)
-            IconButton(
-              onPressed: () => _messageDriver(context),
-              icon: const Icon(Icons.chat_bubble_outline),
-              tooltip: 'Contacter le chauffeur',
-            ),
-          IconButton(
-            onPressed: () {},
-            icon: const Icon(Icons.share_outlined),
-          ),
-        ],
-      ),
       body: _isLoading
           ? const Center(
               child: CircularProgressIndicator(color: AppColors.primary),
@@ -160,10 +145,17 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
               : _TripContent(
                   trip: _trip!,
                   segment: _segment,
-                  existingBooking: _existingBooking,
                   onStopTap: _chooseStop,
-                  onBook: _book,
+                  onMessageDriver: _trip!.driver != null ? () => _messageDriver(context) : null,
                 ),
+      bottomNavigationBar: _trip == null
+          ? null
+          : _BookingBar(
+              trip: _trip!,
+              segment: _segment,
+              existingBooking: _existingBooking,
+              onBook: _book,
+            ),
     );
   }
 
@@ -185,69 +177,60 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
 class _TripContent extends StatelessWidget {
   final Trip trip;
   final TripSegment segment;
-  final Booking? existingBooking;
   final ValueChanged<TripStop> onStopTap;
-  final VoidCallback onBook;
+  final VoidCallback? onMessageDriver;
 
   const _TripContent({
     required this.trip,
     required this.segment,
-    this.existingBooking,
     required this.onStopTap,
-    required this.onBook,
+    required this.onMessageDriver,
   });
 
   @override
   Widget build(BuildContext context) {
-    return Column(
+    final boardAt = segment.boarding?.scheduledAt ?? trip.departureTime;
+    return BrandHeaderLayout(
+      header: BrandHeader(
+        title: 'Détail du trajet',
+        subtitle: DateFormat('EEEE d MMMM', 'fr_FR').format(boardAt),
+        onBack: () => context.canPop() ? context.pop() : context.go('/home'),
+        trailing: onMessageDriver == null
+            ? null
+            : GlassIconButton(
+                icon: Icons.chat_bubble_outline_rounded,
+                onPressed: onMessageDriver!,
+                tooltip: 'Contacter le chauffeur',
+              ),
+      ),
       children: [
-        Expanded(
-          child: SingleChildScrollView(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                _RouteHeader(trip: trip, segment: segment),
-                const SizedBox(height: AppSpacing.lg),
-                Padding(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: AppSpacing.md),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      if (segment.boarding != null) ...[
-                        MeetingPointCard(stop: segment.boarding!),
-                        const SizedBox(height: AppSpacing.lg),
-                      ],
-                      if (trip.stops.length >= 2) ...[
-                        _StopsTimeline(trip: trip, segment: segment, onStopTap: onStopTap),
-                        const SizedBox(height: AppSpacing.lg),
-                      ] else if (trip.waypointLocations.isNotEmpty) ...[
-                        _RouteTimeline(trip: trip),
-                        const SizedBox(height: AppSpacing.lg),
-                      ],
-                      _DriverSection(driver: trip.driver!),
-                      const SizedBox(height: AppSpacing.lg),
-                      _TripDetailsSection(trip: trip, segment: segment),
-                      const SizedBox(height: AppSpacing.lg),
-                      _PriceSection(segment: segment),
-                      const SizedBox(height: AppSpacing.lg),
-                      if (trip.driver!.reviews.isNotEmpty) ...[
-                        _ReviewsSection(driver: trip.driver!),
-                        const SizedBox(height: AppSpacing.lg),
-                      ],
-                    ],
-                  ),
-                ),
-              ],
-            ),
+        RiseIn(child: _RouteHeader(trip: trip, segment: segment)),
+        const SizedBox(height: AppSpacing.md),
+        if (segment.boarding != null) ...[
+          RiseIn(
+            delay: const Duration(milliseconds: 80),
+            child: MeetingPointCard(stop: segment.boarding!),
           ),
-        ),
-        _BookingBar(
-          trip: trip,
-          segment: segment,
-          existingBooking: existingBooking,
-          onBook: onBook,
-        ),
+          const SizedBox(height: AppSpacing.md),
+        ],
+        if (trip.stops.length >= 2) ...[
+          _StopsTimeline(trip: trip, segment: segment, onStopTap: onStopTap),
+          const SizedBox(height: AppSpacing.md),
+        ] else if (trip.waypointLocations.isNotEmpty) ...[
+          _RouteTimeline(trip: trip),
+          const SizedBox(height: AppSpacing.md),
+        ],
+        if (trip.driver != null) ...[
+          _DriverSection(driver: trip.driver!),
+          const SizedBox(height: AppSpacing.lg),
+        ],
+        _TripDetailsSection(trip: trip, segment: segment),
+        const SizedBox(height: AppSpacing.lg),
+        _PriceSection(segment: segment),
+        if (trip.driver?.reviews.isNotEmpty == true) ...[
+          const SizedBox(height: AppSpacing.lg),
+          _ReviewsSection(driver: trip.driver!),
+        ],
       ],
     );
   }
@@ -433,106 +416,102 @@ class _RouteHeader extends StatelessWidget {
             ? '${duration.inMinutes}min'
             : '${duration.inHours}h${(duration.inMinutes % 60).toString().padLeft(2, '0')}';
 
-    return Container(
-      color: AppColors.surface,
-      padding: const EdgeInsets.all(AppSpacing.md),
-      child: Column(
+    // Carte d'itinéraire en verre (template) : montée et descente reliées
+    // par une ligne en dégradé, heures en pastille.
+    Widget point({
+      required String name,
+      required String detail,
+      required String time,
+      required Color color,
+    }) {
+      return Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
+          Container(
+            width: 16,
+            height: 16,
+            margin: const EdgeInsets.only(top: 4),
+            decoration: BoxDecoration(
+              color: color,
+              shape: BoxShape.circle,
+              border: Border.all(color: AppColors.surface, width: 4),
+              boxShadow: const [BoxShadow(color: Color(0x2207232F), blurRadius: 4)],
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(name, style: AppTextStyles.title2),
+                Text(detail, maxLines: 2, overflow: TextOverflow.ellipsis, style: AppTextStyles.caption),
+              ],
+            ),
+          ),
+          const SizedBox(width: 8),
+          GlowPill(label: time),
+        ],
+      );
+    }
+
+    return GlassPanel(
+      radius: 28,
+      padding: const EdgeInsets.all(20),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('VOTRE TRAJET', style: AppTextStyles.label.copyWith(color: AppColors.textSecondary, letterSpacing: 1.6)),
+          const SizedBox(height: 16),
+          Stack(
             children: [
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      timeFormat.format(departureTime),
-                      style: AppTextStyles.title1.copyWith(fontSize: 28),
+              Positioned(
+                left: 7,
+                top: 14,
+                bottom: 14,
+                child: Container(
+                  width: 2,
+                  decoration: const BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.topCenter,
+                      end: Alignment.bottomCenter,
+                      colors: [AppColors.primary, AppColors.accent],
                     ),
-                    Text(
-                      departureName,
-                      style: AppTextStyles.bodyLargeSemibold,
-                    ),
-                    Text(
-                      departureAddress,
-                      style: AppTextStyles.caption,
-                      maxLines: 2,
-                    ),
-                  ],
+                  ),
                 ),
               ),
               Column(
                 children: [
-                  Container(
-                    width: 36,
-                    height: 36,
-                    decoration: const BoxDecoration(
-                      color: AppColors.primarySurface,
-                      shape: BoxShape.circle,
-                    ),
-                    child: const Icon(
-                      Icons.arrow_forward,
-                      size: 18,
-                      color: AppColors.primary,
-                    ),
+                  point(
+                    name: departureName,
+                    detail: 'Point de rendez-vous · $departureAddress',
+                    time: timeFormat.format(departureTime),
+                    color: AppColors.primary,
                   ),
-                  const SizedBox(height: 4),
-                  Text(
-                    durationLabel,
-                    style: AppTextStyles.caption,
+                  const SizedBox(height: 22),
+                  point(
+                    name: arrivalName,
+                    detail: 'Lieu de dépose · $arrivalAddress',
+                    time: timeFormat.format(arrival),
+                    color: AppColors.accent,
                   ),
                 ],
-              ),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.end,
-                  children: [
-                    Text(
-                      timeFormat.format(arrival),
-                      style: AppTextStyles.title1.copyWith(fontSize: 28),
-                    ),
-                    Text(
-                      arrivalName,
-                      style: AppTextStyles.bodyLargeSemibold,
-                      textAlign: TextAlign.end,
-                    ),
-                    Text(
-                      arrivalAddress,
-                      style: AppTextStyles.caption,
-                      textAlign: TextAlign.end,
-                      maxLines: 2,
-                    ),
-                  ],
-                ),
               ),
             ],
           ),
-          const SizedBox(height: AppSpacing.md),
+          const SizedBox(height: 16),
           Row(
             children: [
-              const StatusChip(variant: StatusChipVariant.confirmed),
-              const SizedBox(width: AppSpacing.sm),
-              Text(
-                dateFormat.format(departureTime),
-                style: AppTextStyles.body.copyWith(
-                  color: AppColors.textSecondary,
-                ),
-              ),
+              const Icon(Icons.calendar_today_rounded, size: 15, color: AppColors.textSecondary),
+              const SizedBox(width: 6),
+              Text(dateFormat.format(departureTime), style: AppTextStyles.caption),
+              const SizedBox(width: 12),
+              const Icon(Icons.timelapse_rounded, size: 15, color: AppColors.textSecondary),
+              const SizedBox(width: 6),
+              Text(durationLabel, style: AppTextStyles.caption),
               const Spacer(),
-              Row(
-                children: [
-                  const Icon(
-                    Icons.event_seat_outlined,
-                    size: 16,
-                    color: AppColors.textSecondary,
-                  ),
-                  const SizedBox(width: 4),
-                  Text(
-                    '${trip.availableSeats} place${trip.availableSeats > 1 ? 's' : ''} dispo.',
-                    style: AppTextStyles.body.copyWith(
-                      color: AppColors.textSecondary,
-                    ),
-                  ),
-                ],
+              GlowPill(
+                icon: Icons.groups_rounded,
+                label: '${trip.availableSeats} place${trip.availableSeats > 1 ? 's' : ''}',
               ),
             ],
           ),
@@ -877,73 +856,50 @@ class _BookingBar extends StatelessWidget {
     required this.onBook,
   });
 
+  /// Barre fixe du bas : prix du tronçon et réservation.
   @override
   Widget build(BuildContext context) {
-    return Container(
-      decoration: BoxDecoration(
-        color: AppColors.surface,
-        border: const Border(
-          top: BorderSide(color: AppColors.border, width: 1),
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.08),
-            blurRadius: 20,
-            offset: const Offset(0, -6),
-          ),
-        ],
-      ),
-      child: SafeArea(
-        top: false,
-        left: false,
-        right: false,
-        child: Padding(
-          padding: const EdgeInsets.all(AppSpacing.md),
+    return BottomActionBar(
           child: Row(
-            crossAxisAlignment: CrossAxisAlignment.center,
             children: [
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text('Prix par place', style: AppTextStyles.caption),
-                  PriceDisplay(amount: segment.pricePerSeat, isLarge: true),
-                  if (!trip.isFull && trip.availableSeats <= 3 && existingBooking == null)
-                    Padding(
-                      padding: const EdgeInsets.only(top: 2),
-                      child: Text(
-                        '${trip.availableSeats} place${trip.availableSeats > 1 ? 's' : ''} restante${trip.availableSeats > 1 ? 's' : ''}',
-                        style: AppTextStyles.caption.copyWith(
-                          color: AppColors.accent,
-                          fontWeight: FontWeight.w600,
-                        ),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      !trip.isFull && trip.availableSeats <= 3 && existingBooking == null
+                          ? 'Plus que ${trip.availableSeats} place${trip.availableSeats > 1 ? 's' : ''}'
+                          : 'Prix par place',
+                      style: AppTextStyles.caption.copyWith(
+                        color: trip.availableSeats <= 3 ? AppColors.accent : AppColors.textSecondary,
+                        fontWeight: FontWeight.w700,
                       ),
                     ),
-                ],
+                    Text(formatFcfa(segment.pricePerSeat),
+                        style: AppTextStyles.priceLarge.copyWith(fontSize: 21)),
+                  ],
+                ),
               ),
-              const SizedBox(width: AppSpacing.md),
-              Expanded(
-                child: existingBooking != null
-                    ? FojemButton.secondary(
-                        label: existingBooking!.status == BookingStatus.confirmed
-                            ? 'Billet & Code QR'
-                            : 'Demande en attente',
-                        prefixIcon: existingBooking!.status == BookingStatus.confirmed
-                            ? Icons.qr_code_2_rounded
-                            : Icons.hourglass_top_rounded,
-                        onPressed: () => context.push('/trip/${trip.id}/tracking'),
-                      )
-                    : FojemButton.primary(
-                        label: trip.isFull ? 'Complet' : 'Réserver ce trajet',
-                        suffixIcon:
-                            trip.isFull ? null : Icons.arrow_forward_rounded,
-                        onPressed: trip.isFull ? null : onBook,
-                      ),
-              ),
+              const SizedBox(width: 12),
+              if (existingBooking != null)
+                NeuButton(
+                  label: existingBooking!.status == BookingStatus.confirmed ? 'Mon billet' : 'En attente',
+                  icon: existingBooking!.status == BookingStatus.confirmed
+                      ? Icons.qr_code_2_rounded
+                      : Icons.hourglass_top_rounded,
+                  onPressed: () => context.push('/trip/${trip.id}/tracking'),
+                )
+              else
+                GlowButton(
+                  label: trip.isFull ? 'Complet' : 'Réserver',
+                  icon: trip.isFull ? null : Icons.arrow_forward_rounded,
+                  expanded: false,
+                  padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 15),
+                  onPressed: trip.isFull ? null : onBook,
+                ),
             ],
           ),
-        ),
-      ),
     );
   }
 }

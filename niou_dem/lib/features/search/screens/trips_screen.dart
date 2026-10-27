@@ -6,9 +6,9 @@ import 'package:provider/provider.dart';
 import '../../../core/geo/geo_location.dart';
 import '../../../core/geo/senegal_city_coordinates.dart';
 import '../../../core/theme/app_colors.dart';
-import '../../../core/theme/app_spacing.dart';
+import '../../../core/widgets/glow.dart';
+import '../../../core/widgets/notification_bell.dart';
 import '../../../core/theme/app_text_styles.dart';
-import '../../../core/widgets/bottom_nav_bar.dart';
 import '../../../core/widgets/option_sheet.dart';
 import '../../../core/widgets/trip_card.dart';
 import '../../../core/widgets/trust_banner.dart';
@@ -23,7 +23,7 @@ enum _Sort { time, price, rating }
 
 extension on _TimeSlot {
   String get label => switch (this) {
-        _TimeSlot.any => 'Heure',
+        _TimeSlot.any => 'Départ',
         _TimeSlot.morning => 'Matin',
         _TimeSlot.afternoon => 'Après-midi',
         _TimeSlot.evening => 'Soir',
@@ -45,20 +45,20 @@ extension on _Sort {
       };
 }
 
-/// Onglet Trajets — fidèle à la maquette "Dakar → Thiès" : en-tête du
-/// trajet recherché, filtres Heure / Prix / Places, carte de l'itinéraire,
-/// liste des trajets disponibles triable, bandeau de confiance.
+/// Résultats de recherche, ouverts depuis « Rechercher un trajet » sur
+/// l'accueil : en-tête du trajet recherché, rangée tri + filtres, carte de
+/// l'itinéraire, trajets disponibles, bandeau de confiance.
 ///
 /// Le trajet affiché est la dernière recherche faite depuis l'accueil
 /// ([SearchProvider]), Dakar → Thiès aujourd'hui par défaut.
-class TripsScreen extends StatefulWidget {
-  const TripsScreen({super.key});
+class SearchResultsScreen extends StatefulWidget {
+  const SearchResultsScreen({super.key});
 
   @override
-  State<TripsScreen> createState() => _TripsScreenState();
+  State<SearchResultsScreen> createState() => _TripsScreenState();
 }
 
-class _TripsScreenState extends State<TripsScreen> {
+class _TripsScreenState extends State<SearchResultsScreen> {
   final _repository = TripRepository();
 
   late final GeoLocation _origin;
@@ -167,6 +167,20 @@ class _TripsScreenState extends State<TripsScreen> {
         _minSeats = 1;
       });
 
+  Future<void> _pickSort() async {
+    final value = await showOptionSheet<_Sort>(
+      context,
+      title: 'Trier par',
+      selected: _sort,
+      options: const [
+        (_Sort.time, 'Heure de départ'),
+        (_Sort.price, 'Prix le plus bas'),
+        (_Sort.rating, 'Meilleure note'),
+      ],
+    );
+    if (value != null) setState(() => _sort = value);
+  }
+
   Future<void> _pickTimeSlot() async {
     final value = await showOptionSheet<_TimeSlot>(
       context,
@@ -226,360 +240,218 @@ class _TripsScreenState extends State<TripsScreen> {
 
     return Scaffold(
       backgroundColor: AppColors.background,
-      body: SafeArea(
-        bottom: false,
-        child: RefreshIndicator(
-          color: AppColors.primary,
-          onRefresh: _load,
-          child: ListView(
-            padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
-            children: [
-              _Header(
-                departure: _departure,
-                arrival: _arrival,
-                dateLabel: formatDayLabel(_date),
-                onBack: _back,
-              ),
-              const SizedBox(height: 20),
-              Row(
+      body: BrandHeaderLayout(
+        onRefresh: _load,
+        overlap: 0,
+        padding: EdgeInsets.zero,
+        header: BrandHeader(
+          title: '$_departure → $_arrival',
+          subtitle: formatDayLabel(_date),
+          onBack: _back,
+          trailing: const NotificationBellButton(onBrand: true),
+          overlap: 28,
+        ),
+        children: [
+          // Tri et filtres sur une seule rangée défilante, sous l'en-tête.
+          RiseIn(
+            child: SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              padding: const EdgeInsets.fromLTRB(20, 16, 20, 10),
+              clipBehavior: Clip.none,
+              child: Row(
                 children: [
-                  Expanded(
-                    child: _FilterButton(
-                      icon: Icons.schedule_rounded,
-                      label: _timeSlot.label,
-                      isActive: _timeSlot != _TimeSlot.any,
-                      onTap: _pickTimeSlot,
-                    ),
+                  _FilterChip(
+                    icon: Icons.swap_vert_rounded,
+                    label: 'Trier : ${_sort.label}',
+                    isActive: _sort != _Sort.time,
+                    onTap: _pickSort,
                   ),
                   const SizedBox(width: 10),
-                  Expanded(
-                    child: _FilterButton(
-                      icon: Icons.sell_outlined,
-                      label: _maxPrice == null
-                          ? 'Prix'
-                          : '≤ ${formatFcfa(_maxPrice!).replaceAll(' FCFA', '')}',
-                      isActive: _maxPrice != null,
-                      onTap: _pickPrice,
-                    ),
+                  _FilterChip(
+                    icon: Icons.schedule_rounded,
+                    label: _timeSlot.label,
+                    isActive: _timeSlot != _TimeSlot.any,
+                    onTap: _pickTimeSlot,
                   ),
                   const SizedBox(width: 10),
-                  Expanded(
-                    child: _FilterButton(
-                      icon: Icons.directions_car_outlined,
-                      label: _minSeats > 1 ? '$_minSeats+ places' : 'Places',
-                      isActive: _minSeats > 1,
-                      onTap: _pickSeats,
-                    ),
+                  _FilterChip(
+                    icon: Icons.sell_outlined,
+                    label: _maxPrice == null
+                        ? 'Prix max'
+                        : '≤ ${formatFcfa(_maxPrice!)}',
+                    isActive: _maxPrice != null,
+                    onTap: _pickPrice,
                   ),
-                ],
-              ),
-              const SizedBox(height: 16),
-              _RouteMap(origin: _origin, destination: _destination),
-              const SizedBox(height: 24),
-              LayoutBuilder(
-                builder: (context, constraints) => Row(
-                  children: [
-                    Expanded(
-                      child: Text('Trajets disponibles',
-                          style: AppTextStyles.title1.copyWith(
-                              fontSize: 20, fontWeight: FontWeight.w700)),
-                    ),
-                    const SizedBox(width: 8),
-                    _SortMenu(
-                      sort: _sort,
-                      compact: constraints.maxWidth < 340,
-                      onChanged: (s) => setState(() => _sort = s),
+                  const SizedBox(width: 10),
+                  _FilterChip(
+                    icon: Icons.groups_rounded,
+                    label: _minSeats > 1 ? '$_minSeats+ places' : 'Places',
+                    isActive: _minSeats > 1,
+                    onTap: _pickSeats,
+                  ),
+                  if (_hasFilters) ...[
+                    const SizedBox(width: 10),
+                    _FilterChip(
+                      icon: Icons.close_rounded,
+                      label: 'Effacer',
+                      isActive: false,
+                      showChevron: false,
+                      onTap: _clearFilters,
                     ),
                   ],
-                ),
+                ],
               ),
-              const SizedBox(height: 14),
-              if (_isLoading) ...[
-                const TripCardSkeleton(),
-                const SizedBox(height: 14),
-                const TripCardSkeleton(),
-              ] else if (_hasError)
-                _Message(
-                  title: 'Impossible de charger les trajets',
-                  body: 'Vérifiez votre connexion puis réessayez.',
-                  actionLabel: 'Réessayer',
-                  onAction: () {
-                    setState(() {
-                      _isLoading = true;
-                      _hasError = false;
-                    });
-                    _load();
-                  },
-                )
-              else if (trips.isEmpty) ...[
-                _hasFilters
-                    ? _Message(
-                        title: 'Aucun trajet avec ces filtres',
-                        body:
-                            '${_trips.length} trajet${_trips.length > 1 ? 's' : ''} '
-                            'disponible${_trips.length > 1 ? 's' : ''} sans filtre.',
-                        actionLabel: 'Effacer les filtres',
-                        onAction: _clearFilters,
-                      )
-                    : _Message(
-                        title: 'Aucun trajet direct trouvé',
-                        body:
-                            'Personne ne propose encore $_departure → $_arrival '
-                            '${formatDayLabel(_date).toLowerCase()}. Vous pouvez créer une demande de trajet ou réserver un trajet suggéré ci-dessous.',
-                        actionLabel: 'Créer une demande de trajet',
-                        onAction: () => context.push(
-                            '/ride-request/create?from=$_departure&to=$_arrival'),
-                      ),
-                if (_suggestions.isNotEmpty) ...[
-                  const SizedBox(height: 24),
-                  Row(
-                    children: [
-                      const Icon(Icons.auto_awesome, size: 20, color: AppColors.primary),
-                      const SizedBox(width: 8),
-                      Text(
-                        'Suggestions d\'autres trajets disponibles',
-                        style: AppTextStyles.title2.copyWith(fontSize: 17),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 12),
-                  for (final trip in _suggestions) ...[
-                    TripCard(
-                      trip: trip,
-                      layout: TripCardLayout.schedule,
-                      onTap: () => context.push(tripDetailLocation(trip)),
-                    ),
-                    const SizedBox(height: 14),
-                  ],
-                ],
-              ]
-              else
-                for (final trip in trips) ...[
-                  TripCard(
-                    trip: trip,
-                    layout: TripCardLayout.schedule,
-                    onTap: () => context.push(tripDetailLocation(trip)),
-                  ),
-                  const SizedBox(height: 14),
-                ],
-              const SizedBox(height: 6),
-              const TrustBanner(),
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 20),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+          const SizedBox(height: 6),
+          RiseIn(
+            delay: const Duration(milliseconds: 80),
+            child: _RouteMap(origin: _origin, destination: _destination),
+          ),
+          const SizedBox(height: 22),
+          Row(
+            children: [
+              Expanded(child: Text('Trajets disponibles', style: AppTextStyles.title2)),
+              if (!_isLoading && !_hasError)
+                Text('${trips.length} trajet${trips.length > 1 ? 's' : ''}', style: AppTextStyles.caption),
             ],
           ),
-        ),
-      ),
-      bottomNavigationBar: const TravelerBottomNavBar(current: ClientTab.trips),
-    );
-  }
-}
-
-class _Header extends StatelessWidget {
-  final String departure;
-  final String arrival;
-  final String dateLabel;
-  final VoidCallback onBack;
-
-  const _Header({
-    required this.departure,
-    required this.arrival,
-    required this.dateLabel,
-    required this.onBack,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final titleStyle =
-        AppTextStyles.display.copyWith(fontSize: 23, height: 1.15);
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        IconButton(
-          onPressed: onBack,
-          tooltip: 'Retour',
-          icon: const Icon(Icons.arrow_back_rounded,
-              size: 26, color: AppColors.textPrimary),
-          style: IconButton.styleFrom(padding: EdgeInsets.zero),
-          constraints: const BoxConstraints.tightFor(width: 48, height: 48),
-        ),
-        const SizedBox(width: 12),
-        Expanded(
-          child: Padding(
-            padding: const EdgeInsets.only(top: 6),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                FittedBox(
-                  fit: BoxFit.scaleDown,
-                  alignment: Alignment.centerLeft,
-                  child: Row(
-                    children: [
-                      Text(departure, style: titleStyle),
-                      const Padding(
-                        padding: EdgeInsets.symmetric(horizontal: 14),
-                        child: Icon(Icons.arrow_forward_rounded,
-                            size: 22, color: AppColors.primary),
-                      ),
-                      Text(arrival, style: titleStyle),
-                    ],
+          const SizedBox(height: 12),
+          if (_isLoading) ...[
+            const TripCardSkeleton(),
+            const SizedBox(height: 16),
+            const TripCardSkeleton(),
+          ] else if (_hasError)
+            _Message(
+              title: 'Impossible de charger les trajets',
+              body: 'Vérifiez votre connexion puis réessayez.',
+              actionLabel: 'Réessayer',
+              onAction: () {
+                setState(() {
+                  _isLoading = true;
+                  _hasError = false;
+                });
+                _load();
+              },
+            )
+          else if (trips.isEmpty) ...[
+            _hasFilters
+                ? _Message(
+                    title: 'Aucun trajet avec ces filtres',
+                    body: '${_trips.length} trajet${_trips.length > 1 ? 's' : ''} '
+                        'disponible${_trips.length > 1 ? 's' : ''} sans filtre.',
+                    actionLabel: 'Effacer les filtres',
+                    onAction: _clearFilters,
+                  )
+                : _Message(
+                    title: 'Aucun trajet direct trouvé',
+                    body: 'Personne ne propose encore $_departure → $_arrival '
+                        '${formatDayLabel(_date).toLowerCase()}. Créez une demande de trajet '
+                        'ou réservez un trajet suggéré ci-dessous.',
+                    actionLabel: 'Créer une demande de trajet',
+                    onAction: () => context.push('/ride-request/create?from=$_departure&to=$_arrival'),
                   ),
+            if (_suggestions.isNotEmpty) ...[
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  const Icon(Icons.auto_awesome_rounded, size: 20, color: AppColors.accent),
+                  const SizedBox(width: 8),
+                  Expanded(child: Text('Autres trajets disponibles', style: AppTextStyles.title2)),
+                ],
+              ),
+              const SizedBox(height: 12),
+              for (final trip in _suggestions) ...[
+                TripCard(
+                  trip: trip,
+                  layout: TripCardLayout.schedule,
+                  onTap: () => context.push(tripDetailLocation(trip)),
                 ),
-                const SizedBox(height: 6),
-                Row(
-                  children: [
-                    const Icon(Icons.calendar_month_outlined,
-                        size: 18, color: AppColors.textPrimary),
-                    const SizedBox(width: 8),
-                    Text(dateLabel,
-                        style: AppTextStyles.bodyLarge.copyWith(
-                            color: AppColors.textSecondary, height: 1.2)),
-                  ],
+                const SizedBox(height: 16),
+              ],
+            ],
+          ] else
+            for (var i = 0; i < trips.length; i++) ...[
+              RiseIn(
+                delay: Duration(milliseconds: 60 * i),
+                child: TripCard(
+                  trip: trips[i],
+                  layout: TripCardLayout.schedule,
+                  onTap: () => context.push(tripDetailLocation(trips[i])),
                 ),
+              ),
+              const SizedBox(height: 16),
+            ],
+          const SizedBox(height: 4),
+          const TrustBanner(),
               ],
             ),
           ),
-        ),
-        IconButton(
-          onPressed: () => context.push('/notifications'),
-          tooltip: 'Notifications',
-          icon: const Icon(Icons.notifications_none_rounded,
-              size: 26, color: AppColors.textPrimary),
-          constraints: const BoxConstraints.tightFor(width: 48, height: 48),
-        ),
-      ],
+        ],
+      ),
     );
   }
 }
 
-class _FilterButton extends StatelessWidget {
+/// Puce de tri / filtre : en relief, teintée quand active.
+class _FilterChip extends StatelessWidget {
   final IconData icon;
   final String label;
   final bool isActive;
+  final bool showChevron;
   final VoidCallback onTap;
 
-  const _FilterButton({
+  const _FilterChip({
     required this.icon,
     required this.label,
     required this.isActive,
     required this.onTap,
+    this.showChevron = true,
   });
 
   @override
   Widget build(BuildContext context) {
     final color = isActive ? AppColors.primary : AppColors.textPrimary;
-    return Material(
-      color: isActive ? AppColors.primarySurface : AppColors.surface,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(AppSpacing.borderRadiusButton),
-        side:
-            BorderSide(color: isActive ? AppColors.primary : AppColors.border),
-      ),
-      child: InkWell(
-        onTap: onTap,
-        customBorder: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(AppSpacing.borderRadiusButton),
-        ),
-        child: SizedBox(
-          height: 44,
-          child: LayoutBuilder(
-            // Sous ~110 dp de large (écrans 360 dp), l'icône cède sa place
-            // au libellé plutôt que de le tronquer.
-            builder: (context, constraints) => Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 10),
-              child: Row(
-                children: [
-                  if (constraints.maxWidth >= 110) ...[
-                    Icon(icon, size: 18, color: color),
-                    const SizedBox(width: 7),
-                  ],
-                  Expanded(
-                    child: Text(
-                      label,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: AppTextStyles.body.copyWith(
-                        fontSize: 14,
-                        color: color,
-                        fontWeight:
-                            isActive ? FontWeight.w600 : FontWeight.w400,
-                      ),
-                    ),
-                  ),
-                  Icon(Icons.keyboard_arrow_down_rounded,
-                      size: 20, color: color),
-                ],
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _SortMenu extends StatelessWidget {
-  final _Sort sort;
-  final ValueChanged<_Sort> onChanged;
-
-  /// Écrans étroits : icône de tri à la place du libellé "Trier par :".
-  final bool compact;
-
-  const _SortMenu({
-    required this.sort,
-    required this.onChanged,
-    required this.compact,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return PopupMenuButton<_Sort>(
-      initialValue: sort,
-      onSelected: onChanged,
-      tooltip: 'Trier',
-      position: PopupMenuPosition.under,
-      color: AppColors.surface,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-      itemBuilder: (_) => [
-        for (final s in _Sort.values)
-          PopupMenuItem(
-            value: s,
-            child: Text(
-              s.label,
-              style: AppTextStyles.body.copyWith(
-                fontWeight: s == sort ? FontWeight.w600 : FontWeight.w400,
-                color: s == sort ? AppColors.primary : AppColors.textPrimary,
-              ),
-            ),
-          ),
+    final content = Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(icon, size: 17, color: color),
+        const SizedBox(width: 6),
+        Text(label, style: AppTextStyles.bodySemibold.copyWith(color: color, fontSize: 13.5)),
+        if (showChevron) ...[
+          const SizedBox(width: 2),
+          Icon(Icons.keyboard_arrow_down_rounded, size: 18, color: color),
+        ],
       ],
-      child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 8),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            if (compact) ...[
-              const Icon(Icons.sort_rounded,
-                  size: 18, color: AppColors.textSecondary),
-              const SizedBox(width: 6),
-            ] else
-              Text('Trier par : ',
-                  style: AppTextStyles.body
-                      .copyWith(color: AppColors.textSecondary, fontSize: 14)),
-            Text(sort.label,
-                style: AppTextStyles.bodySemibold
-                    .copyWith(color: AppColors.primary, fontSize: 14)),
-            const SizedBox(width: 6),
-            const Icon(Icons.keyboard_arrow_down_rounded,
-                size: 20, color: AppColors.primary),
-          ],
-        ),
+    );
+    const padding = EdgeInsets.symmetric(horizontal: 14, vertical: 10);
+    return Semantics(
+      button: true,
+      selected: isActive,
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: onTap,
+        child: isActive
+            ? Container(
+                padding: padding,
+                decoration: BoxDecoration(
+                  color: AppColors.primarySurface,
+                  borderRadius: BorderRadius.circular(999),
+                  border: Border.all(color: AppColors.primary.withValues(alpha: 0.4)),
+                ),
+                child: content,
+              )
+            : NeuBox(small: true, radius: 999, padding: padding, child: content),
       ),
     );
   }
 }
 
-/// Carte de l'itinéraire : tracé routier réel (OSRM) entre les deux villes,
-/// ligne droite en attendant ou si le service ne répond pas. Le bouton en
-/// haut à droite recadre sur le trajet après un déplacement.
 class _RouteMap extends StatefulWidget {
   final GeoLocation origin;
   final GeoLocation destination;
@@ -630,7 +502,11 @@ class _RouteMapState extends State<_RouteMap> {
   Widget build(BuildContext context) {
     return Container(
       height: 200,
-      decoration: AppColors.softCardDecoration,
+      decoration: const BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.all(Radius.circular(28)),
+        boxShadow: AppColors.neuShadow,
+      ),
       clipBehavior: Clip.antiAlias,
       child: Stack(
         children: [
@@ -807,36 +683,29 @@ class _Message extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(20),
-      margin: const EdgeInsets.only(bottom: 14),
-      decoration: AppColors.softCardDecoration,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(title, style: AppTextStyles.bodyLargeSemibold),
-          const SizedBox(height: 6),
-          Text(body,
-              style:
-                  AppTextStyles.body.copyWith(color: AppColors.textSecondary)),
-          const SizedBox(height: 14),
-          OutlinedButton(
-            onPressed: onAction,
-            style: OutlinedButton.styleFrom(
-              foregroundColor: AppColors.primary,
-              side: const BorderSide(color: AppColors.primary),
-              minimumSize: const Size(0, 44),
-              padding: const EdgeInsets.symmetric(horizontal: 18),
-              shape: RoundedRectangleBorder(
-                borderRadius:
-                    BorderRadius.circular(AppSpacing.borderRadiusButton),
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 16),
+      child: GlassPanel(
+        radius: 24,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(title, style: AppTextStyles.bodyLargeSemibold.copyWith(fontWeight: FontWeight.w800)),
+            const SizedBox(height: 6),
+            Text(body, style: AppTextStyles.body.copyWith(color: AppColors.textSecondary)),
+            const SizedBox(height: 14),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: NeuBox(
+                small: true,
+                radius: 14,
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 11),
+                onTap: onAction,
+                child: Text(actionLabel, style: AppTextStyles.bodySemibold.copyWith(color: AppColors.primary)),
               ),
-              textStyle: AppTextStyles.bodySemibold,
             ),
-            child: Text(actionLabel),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }

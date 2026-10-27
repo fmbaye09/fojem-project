@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import '../core/events/data_refresh.dart';
 import 'notification_repository.dart';
 
 /// Handler de messages FCM en arrière-plan (doit être une fonction top-level).
@@ -134,6 +135,7 @@ class PushNotificationService {
         iOS: iosSettings,
       ),
       onDidReceiveNotificationResponse: (response) {
+        DataRefresh.instance.notify();
         if (response.payload != null && response.payload!.isNotEmpty) {
           try {
             final data = jsonDecode(response.payload!) as Map<String, dynamic>;
@@ -182,6 +184,8 @@ class PushNotificationService {
 
   /// Affiche une notification système quand un message FCM arrive au premier plan.
   void _handleForegroundMessage(RemoteMessage message) {
+    // Une réservation, un message… a changé : les écrans ouverts se mettent à jour.
+    DataRefresh.instance.notify();
     final notification = message.notification;
     if (notification == null) return;
 
@@ -199,6 +203,7 @@ class PushNotificationService {
 
   /// Quand l'utilisateur tape sur une notification FCM.
   void _handleNotificationTap(RemoteMessage message) {
+    DataRefresh.instance.notify();
     if (kDebugMode) {
       debugPrint('[Push] Tap notif FCM: ${message.data}');
     }
@@ -228,6 +233,7 @@ class PushNotificationService {
 
       for (final notif in list) {
         if (!_notifiedIds.contains(notif.id)) {
+          DataRefresh.instance.notify();
           _notifiedIds.add(notif.id);
           final payload = Map<String, dynamic>.from(notif.payload);
           payload['type'] = notif.type;

@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
+import '../../../core/events/data_refresh.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 import '../../../core/theme/app_colors.dart';
+import '../../../core/widgets/glow.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_text_styles.dart';
 import '../../../core/widgets/driver_avatar.dart';
@@ -34,7 +36,10 @@ class PassengerRequestsScreen extends StatefulWidget {
   State<PassengerRequestsScreen> createState() => _PassengerRequestsScreenState();
 }
 
-class _PassengerRequestsScreenState extends State<PassengerRequestsScreen> {
+class _PassengerRequestsScreenState extends State<PassengerRequestsScreen> with AutoRefresh<PassengerRequestsScreen> {
+  @override
+  Future<void> onAutoRefresh() => _load(silent: true);
+
   bool _isLoading = true;
   bool _hasError = false;
   List<_MatchedRequest> _matches = const [];
@@ -46,7 +51,7 @@ class _PassengerRequestsScreenState extends State<PassengerRequestsScreen> {
     _load();
   }
 
-  Future<void> _load() async {
+  Future<void> _load({bool silent = false}) async {
     final driverId = context.read<AppProvider>().user?.id;
     if (driverId == null) {
       setState(() {
@@ -55,7 +60,7 @@ class _PassengerRequestsScreenState extends State<PassengerRequestsScreen> {
       });
       return;
     }
-    setState(() => _isLoading = true);
+    if (!silent) setState(() => _isLoading = true);
     try {
       final trips = await TripRepository().fetchForDriver(driverId);
       final now = DateTime.now();
@@ -131,13 +136,7 @@ class _PassengerRequestsScreenState extends State<PassengerRequestsScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: AppColors.background,
-      appBar: AppBar(
-        title: const Text('Demandes de passagers'),
-        leading: IconButton(
-          onPressed: () => context.canPop() ? context.pop() : context.go('/home'),
-          icon: const Icon(Icons.arrow_back_rounded, color: AppColors.textPrimary),
-        ),
-      ),
+      appBar: BrandAppBar(title: 'Demandes de passagers', onBack: () => context.canPop() ? context.pop() : context.go('/home')),
       body: SafeArea(
         top: false,
         child: RefreshIndicator(

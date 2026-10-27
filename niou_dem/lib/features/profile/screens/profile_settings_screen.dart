@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
-import 'package:cached_network_image/cached_network_image.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../../core/theme/app_colors.dart';
+import 'package:intl/intl.dart';
+import '../../../core/widgets/glow.dart';
+import '../../../core/widgets/profile_kit.dart';
 import '../../../core/theme/app_text_styles.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/widgets/bottom_nav_bar.dart';
@@ -271,121 +273,167 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
   @override
   Widget build(BuildContext context) {
     final user = context.watch<AppProvider>().user;
+    final identity = user?.identityVerified == true
+        ? 'Vérifié'
+        : (user?.identityStatus == 'pending'
+            ? 'En vérification'
+            : (user?.identityStatus == 'rejected' ? 'Refusé' : 'Non vérifié'));
+    final identityColor = user?.identityVerified == true
+        ? AppColors.success
+        : (user?.identityStatus == 'rejected' ? AppColors.danger : AppColors.amber);
 
     return Scaffold(
       backgroundColor: AppColors.background,
-      appBar: AppBar(
-        title: const Text('Profil'),
-        automaticallyImplyLeading: false,
-      ),
-      body: SafeArea(
-        bottom: false,
-        child: SingleChildScrollView(
-          child: Column(
-            children: [
-              _ProfileHeader(
-                user: user,
-                onEditPhoto: () => _pickAndUploadPhoto(context),
-                onEditProfile: () => _editProfileModal(context, user),
-              ),
-              const SizedBox(height: AppSpacing.lg),
-              _SettingsSection(
-                title: 'Mon compte',
-                items: [
-                  _SettingsItem(
-                    icon: Icons.person_outline,
-                    label: 'Modifier mes informations',
-                    value: user?.name,
-                    onTap: () => _editProfileModal(context, user),
-                  ),
-                  _SettingsItem(
-                    icon: Icons.confirmation_number_outlined,
-                    label: 'Mes réservations',
-                    onTap: () => context.push('/my-trips'),
-                  ),
-                  _SettingsItem(
-                    icon: Icons.alt_route_outlined,
-                    label: 'Mes demandes publiées',
-                    onTap: () => context.push('/my-requests'),
-                  ),
-                  _SettingsItem(
-                    icon: Icons.verified_user_outlined,
-                    label: 'Vérification d\'identité',
-                    value: user?.identityVerified == true
-                        ? 'Vérifié'
-                        : (user?.identityStatus == 'pending'
-                            ? 'En vérification...'
-                            : (user?.identityStatus == 'rejected' ? 'Refusé' : 'Non vérifié')),
-                    onTap: () => context.push('/profile/identity'),
-                  ),
-                  _SettingsItem(
-                    icon: Icons.notifications_outlined,
-                    label: 'Notifications',
-                    onTap: () => context.push('/notifications'),
-                  ),
-                ],
-              ),
-              const SizedBox(height: AppSpacing.md),
-              _SettingsSection(
-                title: 'Préférences',
-                items: [
-                  _SettingsItem(
-                    icon: Icons.language,
-                    label: 'Langue',
-                    value: _languageLabels[_languageCode] ?? 'Français',
-                    onTap: () => _openLanguageScreen(context),
-                  ),
-                ],
-              ),
-              const SizedBox(height: AppSpacing.md),
-              _SettingsSection(
-                title: 'Aide et support',
-                items: [
-                  _SettingsItem(
-                    icon: Icons.help_outline,
-                    label: 'Aide et FAQ',
-                    onTap: () => context.push('/support'),
-                  ),
-                  _SettingsItem(
-                    icon: Icons.headset_mic_outlined,
-                    label: 'Contacter le support',
-                    onTap: () => context.push('/support'),
-                  ),
-                  _SettingsItem(
-                    icon: Icons.description_outlined,
-                    label: 'Conditions générales d\'utilisation',
-                    onTap: () => context.push('/profile/terms'),
-                  ),
-                  _SettingsItem(
-                    icon: Icons.privacy_tip_outlined,
-                    label: 'Politique de confidentialité',
-                    onTap: () => context.push('/profile/privacy'),
-                  ),
-                  _SettingsItem(
-                    icon: Icons.star_outline,
-                    label: 'Noter l\'application',
-                    onTap: () => _rateApp(context),
-                  ),
-                ],
-              ),
-              const SizedBox(height: AppSpacing.md),
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: AppSpacing.md),
-                child: _LogoutButton(
-                  onTap: () => _showLogoutDialog(context),
-                ),
-              ),
-              const SizedBox(height: AppSpacing.md),
-              Center(
-                child: Text(
-                  'FOJËM v1.0.0',
-                  style: AppTextStyles.caption,
-                ),
-              ),
-              const SizedBox(height: AppSpacing.xl),
-            ],
+      body: BrandHeaderLayout(
+        overlap: 72,
+        header: BrandHeader(
+          title: 'Profil',
+          overlap: 96,
+          trailing: GlassIconButton(
+            icon: Icons.settings_outlined,
+            tooltip: 'Modifier mes informations',
+            onPressed: () => _editProfileModal(context, user),
           ),
         ),
+        children: [
+          RiseIn(
+            child: ProfileHeroCard(
+              name: user?.name ?? 'Voyageur',
+              subtitle: user == null
+                  ? null
+                  : 'Membre depuis ${DateFormat('MMMM yyyy', 'fr_FR').format(user.createdAt)}',
+              photoUrl: user?.photoUrl,
+              onEditPhoto: () => _pickAndUploadPhoto(context),
+              stats: [
+                ProfileStat(
+                  icon: Icons.star_rounded,
+                  color: AppColors.accent,
+                  value: (user?.ratingCount ?? 0) > 0
+                      ? user!.rating.toStringAsFixed(1).replaceAll('.', ',')
+                      : '–',
+                  label: 'Note',
+                ),
+                ProfileStat(
+                  icon: Icons.directions_car_rounded,
+                  color: AppColors.primary,
+                  value: '${user?.totalTrips ?? 0}',
+                  label: 'Trajets',
+                ),
+              ],
+              infos: [
+                ProfileInfo(
+                  icon: Icons.verified_user_rounded,
+                  color: identityColor,
+                  label: 'Identité',
+                  value: identity,
+                ),
+                ProfileInfo(
+                  icon: Icons.phone_rounded,
+                  color: AppColors.primaryGlow,
+                  label: 'Téléphone',
+                  value: (user?.phoneNumber.isNotEmpty ?? false) ? user!.phoneNumber : '–',
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 24),
+          RiseIn(
+            delay: const Duration(milliseconds: 80),
+            child: ProfileMenuCard(
+              title: 'Mon compte',
+              items: [
+                ProfileMenuItem(
+                  icon: Icons.person_rounded,
+                  title: 'Informations personnelles',
+                  subtitle: 'Nom, téléphone, e-mail',
+                  onTap: () => _editProfileModal(context, user),
+                ),
+                ProfileMenuItem(
+                  icon: Icons.alt_route_rounded,
+                  color: AppColors.accent,
+                  title: 'Mes demandes publiées',
+                  subtitle: 'Trajets que vous recherchez',
+                  onTap: () => context.push('/my-requests'),
+                ),
+                ProfileMenuItem(
+                  icon: Icons.verified_user_rounded,
+                  color: identityColor,
+                  title: 'Vérification d\'identité',
+                  subtitle: identity,
+                  onTap: () => context.push('/profile/identity'),
+                ),
+                ProfileMenuItem(
+                  icon: Icons.notifications_rounded,
+                  color: AppColors.amber,
+                  title: 'Notifications',
+                  subtitle: 'Alertes de trajets et messages',
+                  onTap: () => context.push('/notifications'),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 24),
+          RiseIn(
+            delay: const Duration(milliseconds: 160),
+            child: ProfileMenuCard(
+              title: 'Préférences',
+              items: [
+                ProfileMenuItem(
+                  icon: Icons.language_rounded,
+                  color: AppColors.primaryGlow,
+                  title: 'Langue',
+                  subtitle: _languageLabels[_languageCode] ?? 'Français',
+                  onTap: () => _openLanguageScreen(context),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 24),
+          RiseIn(
+            delay: const Duration(milliseconds: 240),
+            child: ProfileMenuCard(
+              title: 'Aide et support',
+              items: [
+                ProfileMenuItem(
+                  icon: Icons.help_rounded,
+                  title: 'Aide et FAQ',
+                  subtitle: 'Réponses aux questions fréquentes',
+                  onTap: () => context.push('/support'),
+                ),
+                ProfileMenuItem(
+                  icon: Icons.headset_mic_rounded,
+                  color: AppColors.primaryGlow,
+                  title: 'Contacter le support',
+                  subtitle: 'Nous sommes là pour vous aider',
+                  onTap: () => context.push('/support'),
+                ),
+                ProfileMenuItem(
+                  icon: Icons.description_rounded,
+                  color: AppColors.textSecondary,
+                  title: 'Conditions d\'utilisation',
+                  onTap: () => context.push('/profile/terms'),
+                ),
+                ProfileMenuItem(
+                  icon: Icons.privacy_tip_rounded,
+                  color: AppColors.textSecondary,
+                  title: 'Confidentialité',
+                  onTap: () => context.push('/profile/privacy'),
+                ),
+                ProfileMenuItem(
+                  icon: Icons.star_rounded,
+                  color: AppColors.accent,
+                  title: 'Noter l\'application',
+                  subtitle: 'Votre avis nous fait avancer',
+                  onTap: () => _rateApp(context),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 28),
+          ProfileLogoutButton(onTap: () => _showLogoutDialog(context)),
+          const SizedBox(height: 16),
+          Center(child: Text('FOJËM v1.0.0', style: AppTextStyles.caption)),
+        ],
       ),
       bottomNavigationBar: const TravelerBottomNavBar(current: ClientTab.profile),
     );
@@ -427,325 +475,3 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
   }
 }
 
-class _ProfileHeader extends StatelessWidget {
-  final AppUser? user;
-  final VoidCallback? onEditPhoto;
-  final VoidCallback? onEditProfile;
-
-  const _ProfileHeader({
-    required this.user,
-    this.onEditPhoto,
-    this.onEditProfile,
-  });
-
-  String get _initials {
-    final name = user?.name.trim() ?? '';
-    if (name.isEmpty) return '?';
-    final parts = name.split(' ').where((p) => p.isNotEmpty).toList();
-    if (parts.length == 1) return parts[0][0].toUpperCase();
-    return '${parts[0][0]}${parts[1][0]}'.toUpperCase();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final hasPhoto = user?.photoUrl != null && user!.photoUrl!.isNotEmpty;
-
-    return Container(
-      color: AppColors.surface,
-      padding: const EdgeInsets.all(AppSpacing.lg),
-      child: Row(
-        children: [
-          GestureDetector(
-            onTap: onEditPhoto,
-            child: Stack(
-              children: [
-                Container(
-                  width: 72,
-                  height: 72,
-                  decoration: const BoxDecoration(
-                    color: AppColors.primarySurface,
-                    shape: BoxShape.circle,
-                  ),
-                  clipBehavior: Clip.antiAlias,
-                  child: hasPhoto
-                      ? CachedNetworkImage(
-                          imageUrl: user!.photoUrl!,
-                          fit: BoxFit.cover,
-                          placeholder: (_, __) => const Center(
-                            child: SizedBox(
-                              width: 24,
-                              height: 24,
-                              child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.primary),
-                            ),
-                          ),
-                          errorWidget: (_, __, ___) => Center(
-                            child: Text(
-                              _initials,
-                              style: const TextStyle(
-                                fontSize: 24,
-                                fontWeight: FontWeight.w700,
-                                color: AppColors.primary,
-                              ),
-                            ),
-                          ),
-                        )
-                      : Center(
-                          child: Text(
-                            _initials,
-                            style: const TextStyle(
-                              fontSize: 24,
-                              fontWeight: FontWeight.w700,
-                              color: AppColors.primary,
-                            ),
-                          ),
-                        ),
-                ),
-                Positioned(
-                  right: 0,
-                  bottom: 0,
-                  child: Container(
-                    width: 26,
-                    height: 26,
-                    decoration: BoxDecoration(
-                      color: AppColors.primary,
-                      shape: BoxShape.circle,
-                      border: Border.all(color: Colors.white, width: 2),
-                    ),
-                    child: const Icon(Icons.camera_alt, size: 13, color: Colors.white),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(width: AppSpacing.md),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        user?.name.isNotEmpty == true ? user!.name : 'Utilisateur',
-                        style: AppTextStyles.title2,
-                      ),
-                    ),
-                    if (onEditProfile != null)
-                      IconButton(
-                        icon: const Icon(Icons.edit_outlined, size: 20, color: AppColors.primary),
-                        tooltip: 'Modifier les informations',
-                        onPressed: onEditProfile,
-                      ),
-                  ],
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  user?.phoneNumber ?? '',
-                  style: AppTextStyles.body.copyWith(
-                    color: AppColors.textSecondary,
-                  ),
-                ),
-                const SizedBox(height: 6),
-                Row(
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: AppSpacing.sm,
-                        vertical: 3,
-                      ),
-                      decoration: BoxDecoration(
-                        color: user?.identityVerified == true
-                            ? AppColors.successSurface
-                            : (user?.identityStatus == 'pending'
-                                ? AppColors.amber.withValues(alpha: 0.15)
-                                : AppColors.background),
-                        borderRadius:
-                            BorderRadius.circular(AppSpacing.borderRadiusSm),
-                      ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(
-                            user?.identityVerified == true
-                                ? Icons.verified_rounded
-                                : (user?.identityStatus == 'pending'
-                                    ? Icons.hourglass_top_rounded
-                                    : Icons.info_outline_rounded),
-                            size: 13,
-                            color: user?.identityVerified == true
-                                ? AppColors.success
-                                : (user?.identityStatus == 'pending'
-                                    ? AppColors.amber
-                                    : AppColors.textMuted),
-                          ),
-                          const SizedBox(width: 4),
-                          Text(
-                            user?.identityVerified == true
-                                ? 'Profil vérifié'
-                                : (user?.identityStatus == 'pending'
-                                    ? 'En vérification...'
-                                    : 'Non vérifié'),
-                            style: AppTextStyles.label.copyWith(
-                              color: user?.identityVerified == true
-                                  ? AppColors.success
-                                  : (user?.identityStatus == 'pending'
-                                      ? AppColors.amber
-                                      : AppColors.textMuted),
-                              fontSize: 11,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _SettingsSection extends StatelessWidget {
-  final String title;
-  final List<_SettingsItem> items;
-
-  const _SettingsSection({required this.title, required this.items});
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Padding(
-          padding: const EdgeInsets.symmetric(
-            horizontal: AppSpacing.md,
-            vertical: AppSpacing.sm,
-          ),
-          child: Text(
-            title.toUpperCase(),
-            style: AppTextStyles.label.copyWith(
-              color: AppColors.textMuted,
-              fontSize: 11,
-              letterSpacing: 0.8,
-            ),
-          ),
-        ),
-        Container(
-          color: AppColors.surface,
-          child: Column(
-            children: items.asMap().entries.map((entry) {
-              final index = entry.key;
-              final item = entry.value;
-              final isLast = index == items.length - 1;
-
-              return Column(
-                children: [
-                  item,
-                  if (!isLast)
-                    const Divider(
-                      height: 1,
-                      color: AppColors.border,
-                      indent: 52,
-                    ),
-                ],
-              );
-            }).toList(),
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class _SettingsItem extends StatelessWidget {
-  final IconData icon;
-  final String label;
-  final String? value;
-  final VoidCallback? onTap;
-
-  const _SettingsItem({
-    required this.icon,
-    required this.label,
-    this.value,
-    this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return InkWell(
-      onTap: onTap,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(
-          horizontal: AppSpacing.md,
-          vertical: 14,
-        ),
-        child: Row(
-          children: [
-            Icon(icon, size: 20, color: AppColors.textSecondary),
-            const SizedBox(width: AppSpacing.md),
-            Expanded(
-              child: Text(label, style: AppTextStyles.bodyLarge),
-            ),
-            if (value != null)
-              Text(
-                value!,
-                style: AppTextStyles.body.copyWith(
-                  color: AppColors.textSecondary,
-                ),
-              ),
-            if (onTap != null) ...[
-              const SizedBox(width: AppSpacing.sm),
-              const Icon(
-                Icons.chevron_right,
-                size: 18,
-                color: AppColors.textMuted,
-              ),
-            ],
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _LogoutButton extends StatelessWidget {
-  final VoidCallback onTap;
-
-  const _LogoutButton({required this.onTap});
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        width: double.infinity,
-        padding: const EdgeInsets.all(AppSpacing.md),
-        decoration: BoxDecoration(
-          color: AppColors.dangerSurface,
-          borderRadius: BorderRadius.circular(AppSpacing.borderRadiusMd),
-          border: Border.all(color: AppColors.danger.withOpacity(0.2)),
-        ),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            const Icon(
-              Icons.logout,
-              size: 20,
-              color: AppColors.danger,
-            ),
-            const SizedBox(width: AppSpacing.sm),
-            Text(
-              'Se déconnecter',
-              style: AppTextStyles.bodyLargeSemibold.copyWith(
-                color: AppColors.danger,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}

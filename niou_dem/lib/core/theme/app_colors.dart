@@ -1,89 +1,130 @@
 import 'package:flutter/material.dart';
 
+/// Palette « Glow Flow » (template fojem-glow-flow) : lagon jade → azur
+/// profond, accent mangue (héritage orange de FOJËM), surfaces claires
+/// légèrement bleutées pour le néomorphisme.
+///
+/// Les noms historiques (primary, surface, textPrimary…) sont conservés :
+/// tous les écrans basculent sur la nouvelle palette sans changer d'API.
 class AppColors {
   AppColors._();
 
-  // Palette extraite par échantillonnage pixel des 11 maquettes de référence
-  // (design/screens/) — remplace l'ancienne palette vert/ambre par le
-  // système marine/orange observé sur les écrans fournis.
-  static const Color primary = Color(0xFFEA671A); // orange CTA (mesuré ~#E5-EE 65-6B 15-22)
-  static const Color primaryLight = Color(0xFFF08C4C);
-  static const Color primarySurface = Color(0xFFFFF2DB); // pastille "en attente", cercles d'icône
+  static const Color primary = Color(0xFF00A58C); // jade
+  static const Color primaryGlow = Color(0xFF008ACE); // azur (fin du dégradé)
+  static const Color primaryLight = Color(0xFF4CC3AE);
+  static const Color primarySurface = Color(0xFFD6EEEB);
+  static const Color onPrimary = Color(0xFFF8FDFD);
 
-  static const Color accent = Color(0xFFEA671A);
-  static const Color accentLight = Color(0xFFFDE1C6); // bulle de chat reçue, cercles d'icône pêche
+  static const Color accent = Color(0xFFFC8731); // mangue
+  static const Color accentLight = Color(0xFFFFE6D2);
 
-  static const Color danger = Color(0xFFBE4947);
-  static const Color dangerSurface = Color(0xFFF7E8E7);
-  static const Color success = Color(0xFF32963C);
-  static const Color successSurface = Color(0xFFECF5EB);
-  static const Color amber = Color(0xFFD97706);
-  static const Color amberSurface = Color(0xFFFEF3C7);
+  static const Color danger = Color(0xFFEA3C3F);
+  static const Color dangerSurface = Color(0xFFFDE4E4);
+  static const Color success = Color(0xFF3BB360);
+  static const Color successSurface = Color(0xFFE0F4E7);
+  static const Color amber = Color(0xFFE08A12);
+  static const Color amberSurface = Color(0xFFFFF0D9);
 
-  static const Color background = Color(0xFFFBF9F7);
-  static const Color surface = Color(0xFFFFFFFF);
+  static const Color background = Color(0xFFE7F3F3);
+  static const Color surface = Color(0xFFF1F8F9);
 
-  // "Encre" marine — titres, icônes, bulles de chat envoyées. Remplace le
-  // quasi-noir précédent : dans les maquettes, le texte de titre EST cette
-  // teinte marine, pas un simple gris foncé.
-  static const Color textPrimary = Color(0xFF0B2A47);
-  static const Color textSecondary = Color(0xFF5B5B58);
-  static const Color textMuted = Color(0xFFA0A09A);
+  static const Color textPrimary = Color(0xFF07232F);
+  static const Color textSecondary = Color(0xFF5C737C);
+  static const Color textMuted = Color(0xFF8FA3AA);
 
-  /// Icônes/libellés des onglets inactifs de la barre du bas (gris ardoise
-  /// des maquettes, plus soutenu que textMuted).
-  static const Color navInactive = Color(0xFF55585E);
+  /// Onglets inactifs de la barre du bas.
+  static const Color navInactive = Color(0xFF5C737C);
 
-  /// Pastille verte "Places disponibles" et badge "vérifié".
-  static const Color seatBadge = Color(0xFF2E9A41);
+  /// Pastille « places disponibles » et badge « vérifié ».
+  static const Color seatBadge = success;
 
-  static const Color border = Color(0xFFE8E6E0);
-  static const Color borderStrong = Color(0xFFC8C6C0);
+  static const Color border = Color(0xFFD3E1E3);
+  static const Color borderStrong = Color(0xFFB7CBCF);
+  static const Color muted = Color(0xFFDFEAEC);
 
-  static const Color shimmerBase = Color(0xFFEDEBE6);
-  static const Color shimmerHighlight = Color(0xFFF8F7F4);
+  static const Color shimmerBase = Color(0xFFDCE9EB);
+  static const Color shimmerHighlight = Color(0xFFEFF7F8);
 
-  static BoxDecoration cardDecoration = BoxDecoration(
-    color: surface,
-    borderRadius: BorderRadius.circular(12),
-    boxShadow: [
-      BoxShadow(
-        color: const Color(0xFF000000).withOpacity(0.06),
-        blurRadius: 8,
-        offset: const Offset(0, 2),
-      ),
-      BoxShadow(
-        color: const Color(0xFF000000).withOpacity(0.04),
-        blurRadius: 1,
-        offset: const Offset(0, 0),
-      ),
-    ],
+  // ── Dégradés ────────────────────────────────────────────────────────────
+
+  /// Boutons principaux, en-têtes, avatars.
+  static const LinearGradient brandGradient = LinearGradient(
+    begin: Alignment(-0.9, -1),
+    end: Alignment(1, 0.9),
+    colors: [primary, primaryGlow],
   );
 
-  /// Carte blanche des écrans voyageur : filet très clair + ombre diffuse,
-  /// juste assez pour détacher la carte du fond crème.
-  static final BoxDecoration softCardDecoration = BoxDecoration(
-    color: surface,
-    borderRadius: BorderRadius.circular(10),
-    border: Border.all(color: const Color(0xFFEFEDE8)),
-    boxShadow: const [
-      BoxShadow(
-        color: Color(0x0D1B1B1B),
-        blurRadius: 14,
-        offset: Offset(0, 4),
-      ),
-    ],
+  /// Écran de démarrage : jade → bleu pétrole → mangue.
+  static const LinearGradient splashGradient = LinearGradient(
+    begin: Alignment.topLeft,
+    end: Alignment.bottomRight,
+    colors: [Color(0xFF009F86), Color(0xFF007583), Color(0xFFF58028)],
+    stops: [0, 0.55, 1.15],
   );
 
-  static BoxDecoration modalDecoration = BoxDecoration(
+  /// Fond doux de l'onboarding et de la connexion.
+  static const LinearGradient sunriseGradient = LinearGradient(
+    begin: Alignment.topCenter,
+    end: Alignment.bottomCenter,
+    colors: [Color(0xFFE8FAF5), Color(0xFFFFF3E4)],
+  );
+
+  // ── Ombres néomorphiques ────────────────────────────────────────────────
+
+  static const Color neuLight = Color(0xF2FFFFFF);
+  static const Color neuDark = Color(0x38577782);
+
+  /// Surface en relief.
+  static const List<BoxShadow> neuShadow = [
+    BoxShadow(color: neuDark, offset: Offset(8, 8), blurRadius: 20),
+    BoxShadow(color: neuLight, offset: Offset(-8, -8), blurRadius: 20),
+  ];
+
+  static const List<BoxShadow> neuShadowSm = [
+    BoxShadow(color: neuDark, offset: Offset(4, 4), blurRadius: 10),
+    BoxShadow(color: neuLight, offset: Offset(-4, -4), blurRadius: 10),
+  ];
+
+  /// Halo coloré sous les boutons à dégradé.
+  static const List<BoxShadow> glowShadow = [
+    BoxShadow(color: Color(0x99008ACE), offset: Offset(0, 12), blurRadius: 30, spreadRadius: -10),
+  ];
+
+
+  // ── Identité de l'app ───────────────────────────────────────────────────
+  // Jetons qui distinguent l'app voyageur de l'app chauffeur ; les widgets
+  // partagés ne lisent que ceux-ci.
+
+  /// Fond des en-têtes de page.
+  static const LinearGradient headerGradient = brandGradient;
+
+  /// Boutons d'action principaux et leur halo.
+  static const LinearGradient ctaGradient = brandGradient;
+  static const List<BoxShadow> ctaShadow = glowShadow;
+
+  /// Onglet actif de la barre du bas.
+  static const Color navActive = primary;
+
+  // ── Décorations historiques (désormais néomorphiques) ───────────────────
+
+  static const BoxDecoration cardDecoration = BoxDecoration(
     color: surface,
-    borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+    borderRadius: BorderRadius.all(Radius.circular(22)),
+    boxShadow: neuShadowSm,
+  );
+
+  /// Carte principale des listes : relief néomorphique complet.
+  static const BoxDecoration softCardDecoration = BoxDecoration(
+    color: surface,
+    borderRadius: BorderRadius.all(Radius.circular(24)),
+    boxShadow: neuShadow,
+  );
+
+  static const BoxDecoration modalDecoration = BoxDecoration(
+    color: surface,
+    borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
     boxShadow: [
-      BoxShadow(
-        color: const Color(0xFF000000).withOpacity(0.12),
-        blurRadius: 32,
-        offset: const Offset(0, -8),
-      ),
+      BoxShadow(color: Color(0x2607232F), blurRadius: 32, offset: Offset(0, -8)),
     ],
   );
 }

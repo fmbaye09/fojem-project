@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 import '../../../core/theme/app_colors.dart';
+import '../../../core/widgets/glow.dart';
 import '../../../core/theme/app_text_styles.dart';
 import '../../../core/widgets/fojem_button.dart';
 import '../../../core/widgets/fojem_card.dart';
@@ -62,10 +63,7 @@ class _VehicleScreenState extends State<VehicleScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: AppColors.background,
-      appBar: AppBar(
-        title: Text(_showForm ? 'Ajouter un véhicule' : 'Mes véhicules'),
-        leading: IconButton(
-          onPressed: () {
+      appBar: BrandAppBar(title: _showForm ? 'Ajouter un véhicule' : 'Mes véhicules', onBack: () {
             if (_showForm) {
               setState(() => _showForm = false);
             } else if (context.canPop()) {
@@ -73,10 +71,7 @@ class _VehicleScreenState extends State<VehicleScreen> {
             } else {
               context.go('/home');
             }
-          },
-          icon: const Icon(Icons.arrow_back_rounded, color: AppColors.textPrimary),
-        ),
-      ),
+          }),
       body: SafeArea(
         top: false,
         child: _isLoading

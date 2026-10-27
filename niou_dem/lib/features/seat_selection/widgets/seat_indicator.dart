@@ -131,22 +131,22 @@ class _SelectedDot extends StatelessWidget {
         width: radius * 2.3,
         height: radius * 2.3,
         decoration: BoxDecoration(
-          color: AppColors.primary,
+          color: AppColors.accent,
           shape: BoxShape.circle,
           border: Border.all(color: Colors.white, width: 2.5),
           boxShadow: [
             BoxShadow(
-              color: AppColors.primary.withOpacity(0.75),
+              color: AppColors.accent.withOpacity(0.75),
               blurRadius: 10,
               spreadRadius: 2,
             ),
             BoxShadow(
-              color: AppColors.primary.withOpacity(0.45),
+              color: AppColors.accent.withOpacity(0.45),
               blurRadius: 20,
               spreadRadius: 5,
             ),
             BoxShadow(
-              color: AppColors.primary.withOpacity(0.22),
+              color: AppColors.accent.withOpacity(0.22),
               blurRadius: 36,
               spreadRadius: 8,
             ),

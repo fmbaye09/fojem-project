@@ -9,6 +9,7 @@ import '../../../services/trip_repository.dart';
 import '../providers/seat_selection_provider.dart';
 import '../widgets/reservation_bar.dart';
 import '../widgets/seat_layout_widget.dart';
+import '../../../core/widgets/glow.dart';
 
 /// Écran principal de sélection de place — "Choix de votre place".
 ///
@@ -22,7 +23,8 @@ class SeatSelectionScreen extends StatefulWidget {
   final String? boardingStopId;
   final String? alightingStopId;
 
-  const SeatSelectionScreen({super.key, this.tripId, this.boardingStopId, this.alightingStopId});
+  const SeatSelectionScreen(
+      {super.key, this.tripId, this.boardingStopId, this.alightingStopId});
 
   @override
   State<SeatSelectionScreen> createState() => _SeatSelectionScreenState();
@@ -53,7 +55,8 @@ class _SeatSelectionScreenState extends State<SeatSelectionScreen> {
     if (_isLoading) {
       return const Scaffold(
         backgroundColor: AppColors.background,
-        body: Center(child: CircularProgressIndicator(color: AppColors.primary)),
+        body:
+            Center(child: CircularProgressIndicator(color: AppColors.primary)),
       );
     }
     if (_trip == null) {
@@ -69,7 +72,8 @@ class _SeatSelectionScreenState extends State<SeatSelectionScreen> {
       alightingStopId: widget.alightingStopId,
     );
     return ChangeNotifierProvider(
-      create: (_) => SeatSelectionProvider.forTrip(_trip!, pricePerSeat: segment.pricePerSeat),
+      create: (_) => SeatSelectionProvider.forTrip(_trip!,
+          pricePerSeat: segment.pricePerSeat),
       child: _SeatSelectionContent(
         tripId: _trip!.id,
         segmentQuery: [
@@ -86,7 +90,8 @@ class _SeatSelectionContent extends StatelessWidget {
 
   /// `board=…&alight=…`, relayé à l'écran de confirmation.
   final String segmentQuery;
-  const _SeatSelectionContent({required this.tripId, required this.segmentQuery});
+  const _SeatSelectionContent(
+      {required this.tripId, required this.segmentQuery});
 
   @override
   Widget build(BuildContext context) {
@@ -96,77 +101,59 @@ class _SeatSelectionContent extends StatelessWidget {
       ),
       child: Scaffold(
         backgroundColor: AppColors.background,
-        appBar: _buildAppBar(context),
         body: Column(
           children: [
-            _SubtitleBanner(),
+            Consumer<SeatSelectionProvider>(
+              builder: (context, provider, _) => BrandHeader(
+                title: 'Choix de votre place',
+                subtitle: provider.availableCount > 1
+                    ? 'Jusqu’à ${provider.availableCount} places · '
+                        '${provider.availableCount}/${provider.totalPassengerSeats} disponibles'
+                    : '${provider.availableCount}/${provider.totalPassengerSeats} place disponible',
+                onBack: () => context.canPop() ? context.pop() : null,
+              ),
+            ),
             Expanded(
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 12),
-                child: Consumer<SeatSelectionProvider>(
-                  builder: (context, provider, _) {
-                    return SeatLayoutWidget(
-                      vehicleType: provider.vehicleType,
-                      mode: SeatLayoutMode.selection,
-                      selectedSeatIds: provider.selectedSeatIds,
-                      occupiedSeatIds: provider.seats
-                          .where((s) => s.isOccupied)
-                          .map((s) => s.config.id)
-                          .toSet(),
-                      onSeatTap: (seatId) {
-                        final refusal = provider.toggleSeat(seatId);
-                        if (refusal != null) {
-                          ScaffoldMessenger.of(context)
-                            ..hideCurrentSnackBar()
-                            ..showSnackBar(SnackBar(content: Text(refusal)));
-                        }
+              child: Transform.translate(
+                offset: const Offset(0, -40),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 20),
+                  child: GlassPanel(
+                    radius: 40,
+                    padding: const EdgeInsets.all(18),
+                    child: Consumer<SeatSelectionProvider>(
+                      builder: (context, provider, _) {
+                        return SeatLayoutWidget(
+                          vehicleType: provider.vehicleType,
+                          mode: SeatLayoutMode.selection,
+                          selectedSeatIds: provider.selectedSeatIds,
+                          occupiedSeatIds: provider.seats
+                              .where((s) => s.isOccupied)
+                              .map((s) => s.config.id)
+                              .toSet(),
+                          onSeatTap: (seatId) {
+                            final refusal = provider.toggleSeat(seatId);
+                            if (refusal != null) {
+                              ScaffoldMessenger.of(context)
+                                ..hideCurrentSnackBar()
+                                ..showSnackBar(
+                                    SnackBar(content: Text(refusal)));
+                            }
+                          },
+                        );
                       },
-                    );
-                  },
+                    ),
+                  ),
                 ),
               ),
             ),
             const _SeatLegend(),
-            const SizedBox(height: 4),
+            const SizedBox(height: 96),
           ],
         ),
         bottomNavigationBar: ReservationBar(
           onConfirm: () => _onConfirm(context),
         ),
-      ),
-    );
-  }
-
-  PreferredSizeWidget _buildAppBar(BuildContext context) {
-    return AppBar(
-      backgroundColor: AppColors.surface,
-      elevation: 0,
-      scrolledUnderElevation: 0,
-      leading: IconButton(
-        icon: const Icon(Icons.arrow_back_rounded, color: AppColors.textPrimary),
-        onPressed: () => context.canPop() ? context.pop() : null,
-        tooltip: 'Retour',
-      ),
-      title: Text(
-        'Choix de votre place',
-        style: GoogleFonts.inter(
-          fontSize: 17,
-          fontWeight: FontWeight.w600,
-          color: AppColors.textPrimary,
-          letterSpacing: -0.2,
-        ),
-      ),
-      centerTitle: true,
-      actions: [
-        IconButton(
-          icon: const Icon(Icons.ios_share_rounded, color: AppColors.textPrimary),
-          onPressed: () {},
-          tooltip: 'Partager',
-        ),
-      ],
-      bottom: PreferredSize(
-        preferredSize: const Size.fromHeight(1),
-        child: Container(height: 1, color: AppColors.border),
       ),
     );
   }
@@ -248,37 +235,10 @@ class _LegendItem extends StatelessWidget {
       children: [
         Container(width: 14, height: 14, decoration: decoration),
         const SizedBox(width: 6),
-        Text(label, style: GoogleFonts.inter(fontSize: 12, color: AppColors.textSecondary)),
-      ],
-    );
-  }
-}
-
-// ── Bandeau sous le titre ──────────────────────────────────────────────────
-class _SubtitleBanner extends StatelessWidget {
-  @override
-  Widget build(BuildContext context) {
-    return Consumer<SeatSelectionProvider>(
-      builder: (context, provider, _) {
-        return Container(
-          width: double.infinity,
-          color: AppColors.surface,
-          padding: const EdgeInsets.fromLTRB(20, 10, 20, 12),
-          child: Text(
-            provider.availableCount > 1
-                ? 'Choisissez jusqu\'à ${provider.availableCount} places '
-                    '(${provider.availableCount}/${provider.totalPassengerSeats} disponibles)'
-                : 'Choisissez votre place '
-                    '(${provider.availableCount}/${provider.totalPassengerSeats} disponible)',
+        Text(label,
             style: GoogleFonts.inter(
-              fontSize: 13.5,
-              fontWeight: FontWeight.w400,
-              color: AppColors.textSecondary,
-            ),
-            textAlign: TextAlign.center,
-          ),
-        );
-      },
+                fontSize: 12, color: AppColors.textSecondary)),
+      ],
     );
   }
 }
@@ -377,8 +337,7 @@ class _ConfirmationSheet extends StatelessWidget {
                   ),
                   child: Text('Confirmer',
                       style: GoogleFonts.inter(
-                          fontWeight: FontWeight.w600,
-                          color: Colors.white)),
+                          fontWeight: FontWeight.w600, color: Colors.white)),
                 ),
               ),
             ],

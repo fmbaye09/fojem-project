@@ -2,24 +2,22 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_text_styles.dart';
-import '../theme/app_spacing.dart';
 import '../../models/trip.dart';
 import 'driver_avatar.dart';
+import 'glow.dart';
 
 enum TripCardLayout {
-  /// Accueil : "Dakar → Thiès", jour + heure de départ, places.
+  /// Accueil : jour + heure de montée en pied de carte.
   route,
 
-  /// Trajets : "08:30 → 10:00" avec les villes dessous, durée, places.
+  /// Résultats : distance à pied des arrêts proposés en pied de carte.
   schedule,
 }
 
-/// Carte trajet des maquettes Accueil et Trajets : infos du trajet à gauche,
-/// chauffeur (photo, nom, note) et prix à droite. Toute la carte est
-/// cliquable ; le détail du trajet porte la réservation.
-///
-/// Sur les écrans étroits (≈ 360 dp), le bloc chauffeur/prix passe sous les
-/// infos du trajet plutôt que d'écraser les textes.
+/// Carte trajet « Glow Flow » (template fojem-glow-flow) : chauffeur et prix
+/// en tête, bloc en creux « heure · arrêt → durée → heure · arrêt », puis
+/// date (ou distance des arrêts) et places. Affiche le tronçon du passager
+/// (arrêts proposés par la recherche), pas le trajet complet du chauffeur.
 class TripCard extends StatelessWidget {
   final Trip trip;
   final VoidCallback onTap;
@@ -32,278 +30,158 @@ class TripCard extends StatelessWidget {
     this.layout = TripCardLayout.route,
   });
 
-  static const _padding = EdgeInsets.fromLTRB(14, 16, 14, 16);
-
   @override
   Widget build(BuildContext context) {
+    final seg = trip.segment();
+    final boardAt = boardingTime(trip);
+    final arriveAt = seg.alighting?.scheduledAt ?? trip.departureTime.add(trip.estimatedDuration);
+    final duration = arriveAt.difference(boardAt);
+    final time = DateFormat('HH:mm');
+    final driver = trip.driver;
+    final match = trip.match;
+
     return Semantics(
       button: true,
-      label: '${trip.departure} vers ${trip.arrival}, '
-          '${formatDayLabel(trip.departureTime)} à '
-          '${DateFormat('HH:mm').format(trip.departureTime)}, '
-          '${formatFcfa(trip.segment().pricePerSeat)}',
-      child: Material(
-        color: AppColors.surface,
-        borderRadius: BorderRadius.circular(AppSpacing.borderRadiusCard),
-        child: InkWell(
-          onTap: onTap,
-          borderRadius: BorderRadius.circular(AppSpacing.borderRadiusCard),
-          child: Ink(
-            decoration: AppColors.softCardDecoration,
-            padding: _padding,
-            child: LayoutBuilder(
-              builder: (context, constraints) {
-                final stacked = constraints.maxWidth < 320;
-                // Largeur restante à gauche du bloc chauffeur (avatar + nom ≈ 168).
-                final infoWidth =
-                    stacked ? constraints.maxWidth : constraints.maxWidth - 168;
-                final shortSeats = infoWidth < 172;
-                final info = layout == TripCardLayout.route
-                    ? _RouteInfo(trip: trip, shortSeats: shortSeats)
-                    : _ScheduleInfo(trip: trip, shortSeats: shortSeats);
-                if (stacked) {
-                  return Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
+      label: '${seg.boarding?.name ?? trip.departure} vers ${seg.alighting?.name ?? trip.arrival}, '
+          '${formatDayLabel(boardAt)} à ${time.format(boardAt)}, '
+          '${formatFcfa(seg.pricePerSeat)}',
+      child: NeuBox(
+        onTap: onTap,
+        radius: 24,
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(
+              children: [
+                if (driver != null)
+                  DriverAvatar(name: driver.name, photoUrl: driver.photoUrl, size: 40)
+                else
+                  const BrandAvatar(name: '?', size: 40),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      info,
-                      const SizedBox(height: 14),
-                      const Divider(height: 1, color: AppColors.border),
-                      const SizedBox(height: 12),
-                      Row(
-                        children: [
-                          Expanded(
-                              child: _DriverSummary(
-                                  trip: trip, maxNameWidth: 200)),
-                          const SizedBox(width: 12),
-                          _Price(amount: trip.segment().pricePerSeat),
-                        ],
+                      Text(
+                        driver?.shortName ?? 'Chauffeur',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: AppTextStyles.bodySemibold.copyWith(fontWeight: FontWeight.w800),
                       ),
-                    ],
-                  );
-                }
-                return IntrinsicHeight(
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      Expanded(child: info),
-                      const SizedBox(width: 10),
-                      ConstrainedBox(
-                        constraints: const BoxConstraints(maxWidth: 158),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.end,
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      if (driver != null)
+                        Row(
                           children: [
-                            _DriverSummary(trip: trip, maxNameWidth: 108),
-                            const SizedBox(height: 12),
-                            _Price(amount: trip.segment().pricePerSeat),
+                            const Icon(Icons.star_rounded, size: 14, color: AppColors.accent),
+                            const SizedBox(width: 3),
+                            Text(
+                              '${driver.rating.toStringAsFixed(1).replaceAll('.', ',')}'
+                              '${driver.totalTrips > 0 ? ' · ${driver.totalTrips} trajets' : ''}',
+                              style: AppTextStyles.caption,
+                            ),
                           ],
                         ),
-                      ),
                     ],
                   ),
-                );
-              },
+                ),
+                const SizedBox(width: 8),
+                _Price(amount: seg.pricePerSeat),
+              ],
             ),
-          ),
+            const SizedBox(height: 14),
+            NeuInset(
+              radius: 18,
+              padding: const EdgeInsets.all(12),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: _TimeAndPlace(time: time.format(boardAt), place: seg.boarding?.name ?? trip.departure),
+                  ),
+                  Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(Icons.arrow_forward_rounded, size: 18, color: AppColors.accent),
+                      if (duration.inMinutes > 0)
+                        Text(_durationLabel(duration),
+                            style: AppTextStyles.caption.copyWith(fontSize: 10.5)),
+                    ],
+                  ),
+                  Expanded(
+                    child: _TimeAndPlace(
+                      time: time.format(arriveAt),
+                      place: seg.alighting?.name ?? trip.arrival,
+                      end: true,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Icon(
+                  layout == TripCardLayout.schedule && match != null
+                      ? Icons.directions_walk_rounded
+                      : Icons.schedule_rounded,
+                  size: 15,
+                  color: AppColors.textSecondary,
+                ),
+                const SizedBox(width: 5),
+                Expanded(
+                  child: Text(
+                    layout == TripCardLayout.schedule && match != null
+                        ? 'Montée ${formatDistanceFromYou(match.boardingDistanceM)} · '
+                            'descente ${formatDistanceFromYou(match.alightingDistanceM)}'
+                        : formatDayLabel(boardAt),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: AppTextStyles.caption,
+                  ),
+                ),
+                GlowPill(
+                  icon: Icons.groups_rounded,
+                  label: '${trip.availableSeats} place${trip.availableSeats > 1 ? 's' : ''}',
+                ),
+              ],
+            ),
+          ],
         ),
       ),
     );
   }
-}
 
-final TextStyle _routeTitle = AppTextStyles.title1.copyWith(
-  fontSize: 19,
-  fontWeight: FontWeight.w700,
-  height: 1.15,
-  letterSpacing: -0.2,
-);
-
-final TextStyle _metaStyle = AppTextStyles.body.copyWith(
-  fontSize: 13.5,
-  color: AppColors.textSecondary,
-  height: 1.25,
-);
-
-class _RouteInfo extends StatelessWidget {
-  final Trip trip;
-  final bool shortSeats;
-
-  const _RouteInfo({required this.trip, required this.shortSeats});
-
-  @override
-  Widget build(BuildContext context) {
-    final seg = trip.segment();
-    final boardAt = boardingTime(trip);
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        FittedBox(
-          fit: BoxFit.scaleDown,
-          alignment: Alignment.centerLeft,
-          child: Row(
-            children: [
-              Text(seg.boarding?.name ?? trip.departure, style: _routeTitle),
-              const _RouteArrow(),
-              Text(seg.alighting?.name ?? trip.arrival, style: _routeTitle),
-            ],
-          ),
-        ),
-        const SizedBox(height: 12),
-        _MetaLine(
-          icon: Icons.schedule_rounded,
-          text: '${formatDayLabel(boardAt)} • '
-              '${DateFormat('HH:mm').format(boardAt)}',
-        ),
-        const SizedBox(height: 8),
-        _SeatsLine(seats: trip.availableSeats, short: shortSeats),
-      ],
-    );
+  static String _durationLabel(Duration d) {
+    if (d.inHours == 0) return '${d.inMinutes}min';
+    final m = d.inMinutes.remainder(60);
+    return m == 0 ? '${d.inHours}h' : '${d.inHours}h${m.toString().padLeft(2, '0')}';
   }
 }
 
-class _ScheduleInfo extends StatelessWidget {
-  final Trip trip;
-  final bool shortSeats;
-
-  const _ScheduleInfo({required this.trip, required this.shortSeats});
-
-  @override
-  Widget build(BuildContext context) {
-    // Le tronçon du passager : il monte et descend aux arrêts proposés.
-    final seg = trip.segment();
-    final match = trip.match;
-    final boardAt = boardingTime(trip);
-    final arrivalTime = seg.alighting?.scheduledAt ??
-        trip.departureTime.add(trip.estimatedDuration);
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        FittedBox(
-          fit: BoxFit.scaleDown,
-          alignment: Alignment.centerLeft,
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              _TimeAndCity(
-                time: DateFormat('HH:mm').format(boardAt),
-                city: seg.boarding?.name ?? trip.departure,
-              ),
-              const Padding(
-                padding: EdgeInsets.only(top: 1),
-                child: _RouteArrow(),
-              ),
-              _TimeAndCity(
-                time: DateFormat('HH:mm').format(arrivalTime),
-                city: seg.alighting?.name ?? trip.arrival,
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 12),
-        if (match != null)
-          _MetaLine(
-            icon: Icons.directions_walk_rounded,
-            text: 'Montée ${formatDistanceFromYou(match.boardingDistanceM)} · '
-                'descente ${formatDistanceFromYou(match.alightingDistanceM)}',
-          )
-        else
-          _MetaLine(
-            icon: Icons.schedule_rounded,
-            text: 'Durée estimée ${trip.durationLabel}',
-          ),
-        const SizedBox(height: 8),
-        _SeatsLine(seats: trip.availableSeats, short: shortSeats),
-      ],
-    );
-  }
-}
-
-class _TimeAndCity extends StatelessWidget {
+class _TimeAndPlace extends StatelessWidget {
   final String time;
-  final String city;
+  final String place;
+  final bool end;
 
-  const _TimeAndCity({required this.time, required this.city});
+  const _TimeAndPlace({required this.time, required this.place, this.end = false});
 
   @override
   Widget build(BuildContext context) {
     return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
+      crossAxisAlignment: end ? CrossAxisAlignment.end : CrossAxisAlignment.start,
       children: [
-        Text(time, style: _routeTitle),
-        const SizedBox(height: 2),
+        Text(time, style: AppTextStyles.title2.copyWith(fontSize: 18)),
         Text(
-          city,
-          style: AppTextStyles.body
-              .copyWith(color: AppColors.textPrimary, height: 1.2),
+          place,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          textAlign: end ? TextAlign.right : TextAlign.left,
+          style: AppTextStyles.caption,
         ),
       ],
     );
   }
 }
 
-class _RouteArrow extends StatelessWidget {
-  const _RouteArrow();
-
-  @override
-  Widget build(BuildContext context) {
-    return const Padding(
-      padding: EdgeInsets.symmetric(horizontal: 12),
-      child:
-          Icon(Icons.arrow_forward_rounded, size: 20, color: AppColors.primary),
-    );
-  }
-}
-
-class _MetaLine extends StatelessWidget {
-  final IconData icon;
-  final String text;
-
-  const _MetaLine({required this.icon, required this.text});
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      children: [
-        Icon(icon, size: 16, color: AppColors.textMuted),
-        const SizedBox(width: 7),
-        Flexible(
-          child: Text(
-            text,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: _metaStyle,
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class _SeatsLine extends StatelessWidget {
-  final int seats;
-  final bool short;
-
-  const _SeatsLine({required this.seats, required this.short});
-
-  @override
-  Widget build(BuildContext context) {
-    // Libellé complet de la maquette quand la place le permet, sinon
-    // "Places" seul : jamais de texte tronqué à côté de la pastille.
-    return Row(
-      children: [
-        const Icon(Icons.directions_car_outlined,
-            size: 16, color: AppColors.textMuted),
-        const SizedBox(width: 7),
-        Text(short ? 'Places' : 'Places disponibles',
-            maxLines: 1, style: _metaStyle),
-        const SizedBox(width: 8),
-        SeatCountBadge(count: seats),
-      ],
-    );
-  }
-}
-
-/// Pastille verte carrée avec le nombre de places restantes.
 class SeatCountBadge extends StatelessWidget {
   final int count;
 
@@ -333,58 +211,6 @@ class SeatCountBadge extends StatelessWidget {
   }
 }
 
-class _DriverSummary extends StatelessWidget {
-  final Trip trip;
-  final double maxNameWidth;
-
-  const _DriverSummary({required this.trip, required this.maxNameWidth});
-
-  @override
-  Widget build(BuildContext context) {
-    final driver = trip.driver;
-    if (driver == null) return const SizedBox.shrink();
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        DriverAvatar(name: driver.name, photoUrl: driver.photoUrl, size: 42),
-        const SizedBox(width: 8),
-        Flexible(
-          child: ConstrainedBox(
-            constraints: BoxConstraints(maxWidth: maxNameWidth),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Flexible(
-                      child: Text(
-                        driver.shortName,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: AppTextStyles.body.copyWith(
-                          fontSize: 13.5,
-                          fontWeight: FontWeight.w500,
-                          height: 1.2,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 4),
-                    const Icon(Icons.verified_rounded,
-                        size: 16, color: AppColors.seatBadge),
-                  ],
-                ),
-                const SizedBox(height: 4),
-                RatingLine(rating: driver.rating, count: driver.ratingCount),
-              ],
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-}
 
 class _Price extends StatelessWidget {
   final double amount;
@@ -448,7 +274,7 @@ class TripCardSkeleton extends StatelessWidget {
         );
 
     return Container(
-      padding: TripCard._padding,
+      padding: const EdgeInsets.all(16),
       decoration: AppColors.softCardDecoration,
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,

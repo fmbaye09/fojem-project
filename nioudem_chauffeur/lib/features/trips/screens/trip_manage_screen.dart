@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import '../../../core/events/data_refresh.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
@@ -36,7 +37,10 @@ class TripManageScreen extends StatefulWidget {
   State<TripManageScreen> createState() => _TripManageScreenState();
 }
 
-class _TripManageScreenState extends State<TripManageScreen> {
+class _TripManageScreenState extends State<TripManageScreen> with AutoRefresh<TripManageScreen> {
+  @override
+  Future<void> onAutoRefresh() => _load(silent: true);
+
   Trip? _trip;
   Vehicle? _vehicle;
   List<Booking> _confirmed = [];
@@ -292,6 +296,11 @@ class _TripManageScreenState extends State<TripManageScreen> {
                       SliverAppBar(
                         expandedHeight: 180,
                         pinned: true,
+                        backgroundColor: AppColors.primaryGlow,
+                        surfaceTintColor: Colors.transparent,
+                        shape: const RoundedRectangleBorder(
+                          borderRadius: BorderRadius.vertical(bottom: Radius.circular(32)),
+                        ),
                         leading: IconButton(
                           onPressed: () => context.canPop() ? context.pop() : context.go('/trips'),
                           icon: Container(
@@ -306,15 +315,8 @@ class _TripManageScreenState extends State<TripManageScreen> {
                         flexibleSpace: FlexibleSpaceBar(
                           background: Container(
                             decoration: const BoxDecoration(
-                              gradient: LinearGradient(
-                                begin: Alignment.topLeft,
-                                end: Alignment.bottomRight,
-                                colors: [
-                                  Color(0xFF1A5C2E),
-                                  AppColors.primary,
-                                  Color(0xFF2D8A4E),
-                                ],
-                              ),
+                              gradient: AppColors.headerGradient,
+                              borderRadius: BorderRadius.vertical(bottom: Radius.circular(32)),
                             ),
                             child: SafeArea(
                               child: Padding(

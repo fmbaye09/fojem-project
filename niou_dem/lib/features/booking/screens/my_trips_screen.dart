@@ -1,9 +1,13 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import '../../../core/events/data_refresh.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import '../../../core/theme/app_colors.dart';
+import '../../../core/widgets/bottom_nav_bar.dart';
+import '../../../core/widgets/glow.dart';
+import '../../../core/widgets/notification_bell.dart';
 import '../../../core/theme/app_text_styles.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/widgets/status_chip.dart';
@@ -20,7 +24,10 @@ class MyTripsScreen extends StatefulWidget {
 }
 
 class _MyTripsScreenState extends State<MyTripsScreen>
-    with SingleTickerProviderStateMixin {
+    with SingleTickerProviderStateMixin, AutoRefresh<MyTripsScreen> {
+  @override
+  Future<void> onAutoRefresh() => _loadBookings(silent: true);
+
   late TabController _tabController;
   List<Booking> _bookings = [];
   bool _isLoading = true;
@@ -88,13 +95,10 @@ class _MyTripsScreenState extends State<MyTripsScreen>
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: AppColors.background,
-      appBar: AppBar(
-        title: const Text('Mes réservations'),
-        leading: IconButton(
-          onPressed: () =>
-              context.canPop() ? context.pop() : context.go('/profile/settings'),
-          icon: const Icon(Icons.arrow_back),
-        ),
+      appBar: BrandAppBar(
+        title: 'Mes réservations',
+        actions: const [NotificationBellButton(onBrand: true), SizedBox(width: 8)],
+        bottomHeight: 46,
         bottom: _TabBar(controller: _tabController),
       ),
       body: SafeArea(
@@ -131,34 +135,26 @@ class _MyTripsScreenState extends State<MyTripsScreen>
           ),
         ),
       ),
+      bottomNavigationBar: const TravelerBottomNavBar(current: ClientTab.bookings),
     );
   }
 }
 
-class _TabBar extends StatelessWidget implements PreferredSizeWidget {
+/// Onglets « À venir / Passés » en segmenté de verre sur l'en-tête.
+class _TabBar extends StatelessWidget {
   final TabController controller;
 
   const _TabBar({required this.controller});
 
   @override
-  Size get preferredSize => const Size.fromHeight(48);
-
-  @override
   Widget build(BuildContext context) {
-    return Container(
-      color: AppColors.surface,
-      child: TabBar(
-        controller: controller,
-        labelStyle: AppTextStyles.bodySemibold,
-        unselectedLabelStyle: AppTextStyles.body,
-        labelColor: AppColors.primary,
-        unselectedLabelColor: AppColors.textSecondary,
-        indicatorColor: AppColors.primary,
-        indicatorSize: TabBarIndicatorSize.label,
-        tabs: const [
-          Tab(text: 'À venir'),
-          Tab(text: 'Passés'),
-        ],
+    return AnimatedBuilder(
+      animation: controller,
+      builder: (_, __) => GlowSegmented<int>(
+        onBrand: true,
+        value: controller.index,
+        options: const [(0, 'À venir'), (1, 'Passés')],
+        onChanged: controller.animateTo,
       ),
     );
   }

@@ -1,9 +1,10 @@
 import 'package:flutter/material.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_text_styles.dart';
+import 'glow.dart';
 
-/// Bandeau de confiance ("Voyagez en toute sérénité") en bas de l'accueil
-/// et de l'onglet Trajets : bouclier vert, titre, phrase d'appui.
+/// Bandeau de confiance (« Voyagez en toute sérénité ») en bas de l'accueil
+/// et des résultats : panneau en verre, bouclier vert.
 class TrustBanner extends StatelessWidget {
   final String title;
   final String subtitle;
@@ -16,34 +17,20 @@ class TrustBanner extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.fromLTRB(18, 16, 16, 16),
-      decoration: BoxDecoration(
-        color: AppColors.surface,
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: AppColors.border),
-      ),
+    return GlassPanel(
+      radius: 24,
+      padding: const EdgeInsets.all(18),
       child: Row(
         children: [
-          const Icon(Icons.verified_user_rounded,
-              size: 38, color: AppColors.seatBadge),
+          const Icon(Icons.verified_user_rounded, size: 40, color: AppColors.success),
           const SizedBox(width: 16),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  title,
-                  style: AppTextStyles.bodyLargeSemibold.copyWith(
-                    color: const Color(0xFF3A3A38),
-                  ),
-                ),
+                Text(title, style: AppTextStyles.bodyLargeSemibold.copyWith(fontWeight: FontWeight.w800)),
                 const SizedBox(height: 2),
-                Text(
-                  subtitle,
-                  style: AppTextStyles.body
-                      .copyWith(color: AppColors.textSecondary),
-                ),
+                Text(subtitle, style: AppTextStyles.body.copyWith(color: AppColors.textSecondary)),
               ],
             ),
           ),

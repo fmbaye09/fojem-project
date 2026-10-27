@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import '../../../core/theme/app_colors.dart';
+import '../../../core/widgets/glow.dart';
 import '../../../core/theme/app_text_styles.dart';
 import '../../../core/widgets/bottom_nav_bar.dart';
 import '../../../core/widgets/driver_avatar.dart';
@@ -51,19 +52,14 @@ class _ConversationListScreenState extends State<ConversationListScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: AppColors.background,
+      appBar: const BrandAppBar(title: 'Messages', subtitle: 'Vos échanges avec les chauffeurs'),
       body: SafeArea(
         bottom: false,
+        top: false,
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(20, 20, 20, 12),
-              child: Text(
-                'Messages',
-                style: AppTextStyles.display
-                    .copyWith(fontSize: 27, letterSpacing: -0.5),
-              ),
-            ),
+            const SizedBox(height: 12),
             Expanded(
               child: _stream == null
                   ? const _Empty()

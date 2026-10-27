@@ -2,8 +2,10 @@ import 'package:flutter/material.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_text_styles.dart';
 import '../theme/app_spacing.dart';
+import 'glow.dart';
 
 enum FojemButtonVariant { primary, secondary, ghost, danger, dangerOutline }
+
 enum FojemButtonSize { large, medium, small }
 
 class FojemButton extends StatelessWidget {
@@ -269,36 +271,34 @@ class _PrimaryButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final bgColor = isDisabled
-        ? AppColors.primary.withOpacity(0.4)
-        : AppColors.primary;
-    const contentColor = Colors.white;
-
-    return Material(
-      color: bgColor,
-      borderRadius: BorderRadius.circular(AppSpacing.borderRadiusMd),
-      child: InkWell(
-        onTap: onPressed,
-        borderRadius: BorderRadius.circular(AppSpacing.borderRadiusMd),
-        splashColor: Colors.white.withOpacity(0.1),
-        highlightColor: Colors.white.withOpacity(0.05),
-        child: Container(
-          height: height,
-          padding: const EdgeInsets.symmetric(horizontal: AppSpacing.md),
-          child: Center(
-            child: _ButtonContent(
-              label: label,
-              isLoading: isLoading,
-              textStyle: textStyle,
-              contentColor: contentColor,
-              prefixIcon: prefixIcon,
-              suffixIcon: suffixIcon,
-              iconSize: iconSize,
-            ),
+    // Dégradé de marque + halo (`btn-brand` du template).
+    const contentColor = AppColors.onPrimary;
+    final button = AnimatedOpacity(
+      opacity: isDisabled ? 0.4 : 1,
+      duration: const Duration(milliseconds: 200),
+      child: Container(
+        height: height,
+        padding: const EdgeInsets.symmetric(horizontal: AppSpacing.md),
+        decoration: BoxDecoration(
+          gradient: AppColors.ctaGradient,
+          borderRadius: BorderRadius.circular(AppSpacing.borderRadiusMd),
+          boxShadow: isDisabled ? null : AppColors.ctaShadow,
+        ),
+        child: Center(
+          child: _ButtonContent(
+            label: label,
+            isLoading: isLoading,
+            textStyle: textStyle,
+            contentColor: contentColor,
+            prefixIcon: prefixIcon,
+            suffixIcon: suffixIcon,
+            iconSize: iconSize,
           ),
         ),
       ),
     );
+    if (onPressed == null) return button;
+    return PressScale(onTap: onPressed!, child: button);
   }
 }
 
@@ -327,39 +327,30 @@ class _SecondaryButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final borderColor = isDisabled ? AppColors.border : AppColors.primary;
-    final contentColor =
-        isDisabled ? AppColors.textMuted : AppColors.primary;
-
-    return Material(
-      color: Colors.transparent,
-      borderRadius: BorderRadius.circular(AppSpacing.borderRadiusMd),
-      child: InkWell(
-        onTap: onPressed,
+    // Surface en relief, texte de marque (`neu` du template).
+    final contentColor = isDisabled ? AppColors.textMuted : AppColors.primary;
+    final button = Container(
+      height: height,
+      padding: const EdgeInsets.symmetric(horizontal: AppSpacing.md),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
         borderRadius: BorderRadius.circular(AppSpacing.borderRadiusMd),
-        splashColor: AppColors.primary.withOpacity(0.06),
-        highlightColor: AppColors.primary.withOpacity(0.04),
-        child: Container(
-          height: height,
-          padding: const EdgeInsets.symmetric(horizontal: AppSpacing.md),
-          decoration: BoxDecoration(
-            border: Border.all(color: borderColor, width: 1.5),
-            borderRadius: BorderRadius.circular(AppSpacing.borderRadiusMd),
-          ),
-          child: Center(
-            child: _ButtonContent(
-              label: label,
-              isLoading: isLoading,
-              textStyle: textStyle,
-              contentColor: contentColor,
-              prefixIcon: prefixIcon,
-              suffixIcon: suffixIcon,
-              iconSize: iconSize,
-            ),
-          ),
+        boxShadow: isDisabled ? null : AppColors.neuShadowSm,
+      ),
+      child: Center(
+        child: _ButtonContent(
+          label: label,
+          isLoading: isLoading,
+          textStyle: textStyle,
+          contentColor: contentColor,
+          prefixIcon: prefixIcon,
+          suffixIcon: suffixIcon,
+          iconSize: iconSize,
         ),
       ),
     );
+    if (onPressed == null) return button;
+    return PressScale(onTap: onPressed!, child: button);
   }
 }
 
@@ -388,8 +379,7 @@ class _GhostButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final contentColor =
-        isDisabled ? AppColors.textMuted : AppColors.primary;
+    final contentColor = isDisabled ? AppColors.textMuted : AppColors.primary;
 
     return Material(
       color: Colors.transparent,

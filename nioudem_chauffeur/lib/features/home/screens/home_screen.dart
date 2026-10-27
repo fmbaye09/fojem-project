@@ -1,12 +1,13 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import '../../../core/events/data_refresh.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_text_styles.dart';
 import '../../../core/widgets/bottom_nav_bar.dart';
-import '../../../core/widgets/fojem_logo.dart';
+import '../../../core/widgets/glow.dart';
 import '../../../core/widgets/trip_card.dart';
 import '../../../core/widgets/fojem_button.dart';
 import '../../../core/widgets/notification_bell.dart';
@@ -28,7 +29,10 @@ class HomeScreen extends StatefulWidget {
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
-class _HomeScreenState extends State<HomeScreen> {
+class _HomeScreenState extends State<HomeScreen> with AutoRefresh<HomeScreen> {
+  @override
+  Future<void> onAutoRefresh() => _load(silent: true);
+
   bool _isLoading = true;
   bool _hasError = false;
   int _upcomingCount = 0;
@@ -125,176 +129,143 @@ class _HomeScreenState extends State<HomeScreen> {
 
     return Scaffold(
       backgroundColor: AppColors.background,
-      body: SafeArea(
-        bottom: false,
-        child: RefreshIndicator(
-          color: AppColors.primary,
-          onRefresh: _load,
-          child: ListView(
-            padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
-            children: [
-              const Row(
-                children: [
-                  FojemLogo.icon(size: 40),
-                  Spacer(),
-                  NotificationBellButton(),
-                ],
-              ),
-              const SizedBox(height: 22),
-              Text(
-                firstName == null ? 'Bonjour' : 'Bonjour, $firstName',
-                style: AppTextStyles.display
-                    .copyWith(fontSize: 28, letterSpacing: -0.6),
-              ),
-              const SizedBox(height: 6),
-              Text(
-                'Gérez vos trajets et vos passagers',
-                style: AppTextStyles.bodyLarge.copyWith(
-                  fontSize: 15.5,
-                  color: AppColors.textSecondary,
-                  height: 1.3,
-                ),
-              ),
-              if (user != null && !user.isApprovedDriver) ...[
-                const SizedBox(height: 20),
-                Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.all(16),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFFFF7ED),
-                    borderRadius: BorderRadius.circular(16),
-                    border: Border.all(color: const Color(0xFFFDBA74)),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          Container(
-                            padding: const EdgeInsets.all(6),
-                            decoration: BoxDecoration(
-                              color: const Color(0xFFEA580C).withOpacity(0.12),
-                              shape: BoxShape.circle,
-                            ),
-                            child: const Icon(
-                              Icons.shield_outlined,
-                              color: Color(0xFFEA580C),
-                              size: 20,
-                            ),
-                          ),
-                          const SizedBox(width: 10),
-                          Expanded(
-                            child: Text(
-                              user.isPendingReview
-                                  ? 'Vérification en cours'
-                                  : user.isRejectedDriver
-                                      ? 'Dossier refusé'
-                                      : 'Compte non vérifié',
-                              style: AppTextStyles.bodyLargeSemibold.copyWith(
-                                color: const Color(0xFF9A3412),
-                                fontSize: 15,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        user.isPendingReview
-                            ? 'Votre dossier a bien été envoyé et est en cours d\'examen par notre équipe. Vous recevrez une notification dès validation.'
-                            : user.isRejectedDriver
-                                ? 'Certaines pièces de votre dossier ont été refusées. Veuillez les mettre à jour pour activer votre compte.'
-                                : 'Vous n\'avez pas encore soumis vos documents. Faites vérifier votre identité et ajoutez votre véhicule pour pouvoir publier des trajets.',
-                        style: AppTextStyles.caption.copyWith(
-                          color: const Color(0xFF7C2D12),
-                          height: 1.35,
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-                      SizedBox(
-                        width: double.infinity,
-                        child: FojemButton.primary(
-                          label: user.isPendingReview
-                              ? 'Voir le statut'
-                              : user.isRejectedDriver
-                                  ? 'Corriger mon dossier'
-                                  : 'Faire vérifier mon compte',
-                          prefixIcon: Icons.badge_outlined,
-                          onPressed: () {
-                            if (user.isPendingReview) {
-                              context.push('/verification-pending');
-                            } else {
-                              context.push('/profile/identity');
-                            }
-                          },
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-              const SizedBox(height: 24),
-              if (_isLoading)
-                const _StatsRowSkeleton()
-              else
-                _StatsRow(
-                  upcomingCount: _upcomingCount,
-                  monthRevenue: _monthRevenue,
-                  rating: user?.rating ?? 0,
-                ),
-              const SizedBox(height: 28),
-              Text(
-                'Prochain trajet',
-                style:
-                    AppTextStyles.title1.copyWith(fontSize: 20, fontWeight: FontWeight.w700),
-              ),
-              const SizedBox(height: 12),
-              if (_isLoading)
-                const TripCardSkeleton()
-              else if (_hasError)
-                const _InlineNotice(
-                  text:
-                      'Impossible de charger vos trajets. Tirez vers le bas pour réessayer.',
-                )
-              else if (_nextTrip == null)
-                const _NoTripCard()
-              else
-                _NextTripCard(trip: _nextTrip!, vehicle: _nextTripVehicle),
-              const SizedBox(height: 28),
-              Text('Vous souhaitez publier un trajet ?',
-                  style: AppTextStyles.bodyLargeSemibold.copyWith(fontSize: 16)),
-              const SizedBox(height: 12),
-              FojemButton.secondary(
-                label: 'Publier un trajet',
-                prefixIcon: Icons.add_circle_outline_rounded,
-                onPressed: () {
-                  if (user?.isApprovedDriver != true) {
-                    showVerificationRequiredDialog(context, action: 'publier un trajet');
-                    return;
-                  }
-                  context.push('/publish-trip');
-                },
-              ),
-              const SizedBox(height: 12),
-              FojemButton.ghost(
-                label: 'Demandes de passagers sur ma route',
-                prefixIcon: Icons.person_search_rounded,
-                onPressed: () {
-                  if (user?.isApprovedDriver != true) {
-                    showVerificationRequiredDialog(
-                      context,
-                      action: 'consulter et répondre aux demandes de passagers',
-                    );
-                    return;
-                  }
-                  context.push('/driver/passenger-requests');
-                },
-              ),
-            ],
-          ),
+      body: BrandHeaderLayout(
+        onRefresh: _load,
+        header: BrandHeader(
+          title: firstName == null ? 'Bonjour' : 'Bonjour, $firstName',
+          subtitle: 'Gérez vos trajets et vos passagers',
+          trailing: const NotificationBellButton(onBrand: true),
+          overlap: 72,
         ),
+        children: [
+          RiseIn(
+            child: _isLoading
+                ? const _StatsRowSkeleton()
+                : _StatsRow(
+                    upcomingCount: _upcomingCount,
+                    monthRevenue: _monthRevenue,
+                    rating: user?.rating ?? 0,
+                  ),
+          ),
+          if (user != null && !user.isApprovedDriver) ...[
+            const SizedBox(height: 18),
+            RiseIn(
+              delay: const Duration(milliseconds: 60),
+              child: _VerificationBanner(
+                title: user.isPendingReview
+                    ? 'Vérification en cours'
+                    : user.isRejectedDriver
+                        ? 'Dossier refusé'
+                        : 'Compte non vérifié',
+                body: user.isPendingReview
+                    ? 'Votre dossier est en cours d’examen par notre équipe. Vous serez notifié dès sa validation.'
+                    : user.isRejectedDriver
+                        ? 'Certaines pièces de votre dossier ont été refusées. Mettez-les à jour pour activer votre compte.'
+                        : 'Faites vérifier votre identité et ajoutez votre véhicule pour pouvoir publier des trajets.',
+                actionLabel: user.isPendingReview
+                    ? 'Voir le statut'
+                    : user.isRejectedDriver
+                        ? 'Corriger mon dossier'
+                        : 'Faire vérifier mon compte',
+                onAction: () => context.push(user.isPendingReview ? '/verification-pending' : '/profile/identity'),
+              ),
+            ),
+          ],
+          const SizedBox(height: 26),
+          Text('Prochain trajet', style: AppTextStyles.title2),
+          const SizedBox(height: 12),
+          if (_isLoading)
+            const TripCardSkeleton()
+          else if (_hasError)
+            const _InlineNotice(
+              text: 'Impossible de charger vos trajets. Tirez vers le bas pour réessayer.',
+            )
+          else if (_nextTrip == null)
+            const _NoTripCard()
+          else
+            RiseIn(
+              delay: const Duration(milliseconds: 120),
+              child: _NextTripCard(trip: _nextTrip!, vehicle: _nextTripVehicle),
+            ),
+          const SizedBox(height: 26),
+          Text('Vous souhaitez publier un trajet ?', style: AppTextStyles.bodyLargeSemibold),
+          const SizedBox(height: 12),
+          NeuButton(
+            label: 'Publier un trajet',
+            icon: Icons.add_circle_outline_rounded,
+            onPressed: () {
+              if (user?.isApprovedDriver != true) {
+                showVerificationRequiredDialog(context, action: 'publier un trajet');
+                return;
+              }
+              context.push('/publish-trip');
+            },
+          ),
+          const SizedBox(height: 14),
+          NeuButton(
+            label: 'Demandes de passagers sur ma route',
+            icon: Icons.person_search_rounded,
+            color: AppColors.textPrimary,
+            onPressed: () {
+              if (user?.isApprovedDriver != true) {
+                showVerificationRequiredDialog(
+                  context,
+                  action: 'consulter et répondre aux demandes de passagers',
+                );
+                return;
+              }
+              context.push('/driver/passenger-requests');
+            },
+          ),
+        ],
       ),
       bottomNavigationBar: const DriverBottomNavBar(current: DriverTab.home),
+    );
+  }
+}
+
+/// Bandeau « compte non vérifié / en cours / refusé », en verre teinté.
+class _VerificationBanner extends StatelessWidget {
+  final String title;
+  final String body;
+  final String actionLabel;
+  final VoidCallback onAction;
+
+  const _VerificationBanner({
+    required this.title,
+    required this.body,
+    required this.actionLabel,
+    required this.onAction,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return GlassPanel(
+      radius: 24,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 40,
+                height: 40,
+                decoration: BoxDecoration(
+                  color: AppColors.accent.withValues(alpha: 0.15),
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                child: const Icon(Icons.shield_outlined, color: AppColors.accent, size: 22),
+              ),
+              const SizedBox(width: 12),
+              Expanded(child: Text(title, style: AppTextStyles.bodyLargeSemibold.copyWith(fontWeight: FontWeight.w800))),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Text(body, style: AppTextStyles.body.copyWith(color: AppColors.textSecondary)),
+          const SizedBox(height: 14),
+          GlowButton(label: actionLabel, leadingIcon: Icons.badge_outlined, onPressed: onAction),
+        ],
+      ),
     );
   }
 }

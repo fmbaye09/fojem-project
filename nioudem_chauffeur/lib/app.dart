@@ -2,10 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
+import 'core/events/data_refresh.dart';
 import 'core/theme/app_theme.dart';
 import 'providers/app_provider.dart';
 import 'features/onboarding/screens/splash_screen.dart';
 import 'features/onboarding/screens/auth_screen.dart';
+import 'features/onboarding/screens/onboarding_screen.dart';
 import 'features/auth/screens/verification_pending_screen.dart';
 import 'features/home/screens/home_screen.dart';
 import 'features/trips/screens/my_trips_screen.dart';
@@ -39,7 +41,7 @@ CustomTransitionPage<void> _tabPage(GoRouterState state, Widget child) {
 }
 
 /// Chemins accessibles sans session (avant connexion).
-const _publicPaths = {'/splash', '/role-selection'};
+const _publicPaths = {'/splash', '/onboarding', '/role-selection'};
 
 GoRouter _buildRouter(AppProvider appProvider) => GoRouter(
   initialLocation: '/splash',
@@ -61,7 +63,8 @@ GoRouter _buildRouter(AppProvider appProvider) => GoRouter(
       return _publicPaths.contains(path) ? null : '/role-selection';
     }
 
-    if (_publicPaths.contains(path)) {
+    // Le splash termine son animation puis ouvre l'accueil lui-même.
+    if (_publicPaths.contains(path) && path != '/splash') {
       return '/home';
     }
 
@@ -71,6 +74,10 @@ GoRouter _buildRouter(AppProvider appProvider) => GoRouter(
     GoRoute(
       path: '/splash',
       builder: (_, __) => const SplashScreen(),
+    ),
+    GoRoute(
+      path: '/onboarding',
+      builder: (_, __) => const OnboardingScreen(),
     ),
     GoRoute(
       path: '/role-selection',
@@ -237,6 +244,8 @@ class _FojemAppState extends State<FojemApp> with WidgetsBindingObserver {
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
+      // Retour dans l'app : ce qui a changé entre-temps s'affiche aussitôt.
+      DataRefresh.instance.notify();
       _appProvider.refreshUser();
     }
   }

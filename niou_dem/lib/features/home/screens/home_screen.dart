@@ -1,15 +1,15 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import '../../../core/events/data_refresh.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 import '../../../core/geo/senegal_city_coordinates.dart';
 import '../../../core/theme/app_colors.dart';
-import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_text_styles.dart';
 import '../../../core/widgets/bottom_nav_bar.dart';
 import '../../../core/geo/geo_location.dart';
 import '../../../core/widgets/location_picker_screen.dart';
-import '../../../core/widgets/fojem_logo.dart';
+import '../../../core/widgets/glow.dart';
 import '../../../core/widgets/notification_bell.dart';
 import '../../../core/widgets/trip_card.dart';
 import '../../../core/widgets/trust_banner.dart';
@@ -21,9 +21,9 @@ import '../../../providers/search_provider.dart';
 import '../../../services/booking_repository.dart';
 import '../../../services/trip_repository.dart';
 
-/// Accueil voyageur — fidèle à la maquette : logo + cloche, salutation,
-/// carte de recherche (départ, arrivée, date, bouton), "Trajets près de
-/// vous", bandeau de confiance.
+/// Accueil voyageur « Glow Flow » : en-tête en dégradé (salutation, cloche),
+/// carte de recherche en verre qui le chevauche, réservation en cours,
+/// prochains départs, bandeau de confiance.
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
 
@@ -31,7 +31,10 @@ class HomeScreen extends StatefulWidget {
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
-class _HomeScreenState extends State<HomeScreen> {
+class _HomeScreenState extends State<HomeScreen> with AutoRefresh<HomeScreen> {
+  @override
+  Future<void> onAutoRefresh() => _loadNearby(silent: true);
+
   bool _isLoading = true;
   bool _hasError = false;
   List<Trip> _nearby = [];
@@ -102,105 +105,53 @@ class _HomeScreenState extends State<HomeScreen> {
 
     return Scaffold(
       backgroundColor: AppColors.background,
-      body: SafeArea(
-        bottom: false,
-        child: RefreshIndicator(
-          color: AppColors.primary,
-          onRefresh: _loadNearby,
-          child: ListView(
-            padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
-            children: [
-              const Row(
-                children: [
-                  FojemLogo.icon(size: 40),
-                  Spacer(),
-                  NotificationBellButton(),
-                ],
-              ),
-              const SizedBox(height: 22),
-              Text(
-                firstName == null ? 'Bonjour' : 'Bonjour, $firstName',
-                style: AppTextStyles.display
-                    .copyWith(fontSize: 28, letterSpacing: -0.6),
-              ),
-              const SizedBox(height: 6),
-              Text(
-                'Trouvez un trajet fiable et économique',
-                style: AppTextStyles.bodyLarge.copyWith(
-                  fontSize: 15.5,
-                  color: AppColors.textSecondary,
-                  height: 1.3,
+      body: BrandHeaderLayout(
+        onRefresh: _loadNearby,
+        header: BrandHeader(
+          title: firstName == null ? 'Bonjour' : 'Bonjour, $firstName',
+          subtitle: 'Où allez-vous aujourd’hui ?',
+          trailing: const NotificationBellButton(onBrand: true),
+          overlap: 64,
+        ),
+        children: [
+          const RiseIn(child: _SearchCard()),
+          const SizedBox(height: 16),
+          if (_activeBooking != null) ...[
+            RiseIn(
+              delay: const Duration(milliseconds: 80),
+              child: _ActiveBookingCard(booking: _activeBooking!),
+            ),
+            const SizedBox(height: 16),
+          ],
+          Text('Prochains départs', style: AppTextStyles.title2),
+          const SizedBox(height: 8),
+          if (_isLoading) ...[
+            const TripCardSkeleton(),
+            const SizedBox(height: 16),
+            const TripCardSkeleton(),
+            const SizedBox(height: 16),
+          ] else if (_hasError)
+            const _InlineNotice(
+              text: 'Impossible de charger les trajets. Tirez vers le bas pour réessayer.',
+            )
+          else if (_nearby.isEmpty)
+            const _InlineNotice(
+              text: 'Aucun trajet prévu sur cet itinéraire pour le moment.',
+            )
+          else
+            for (var i = 0; i < _nearby.length; i++) ...[
+              RiseIn(
+                delay: Duration(milliseconds: 120 + 70 * i),
+                child: TripCard(
+                  trip: _nearby[i],
+                  onTap: () => context.push(tripDetailLocation(_nearby[i])),
                 ),
               ),
-              const SizedBox(height: 24),
-              if (_activeBooking != null) ...[
-                _ActiveBookingCard(booking: _activeBooking!),
-                const SizedBox(height: 12),
-              ],
-              const _SearchCard(),
-              const SizedBox(height: 28),
-              Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      'Prochains départs',
-                      style: AppTextStyles.title1
-                          .copyWith(fontSize: 20, fontWeight: FontWeight.w700),
-                    ),
-                  ),
-                  TextButton(
-                    onPressed: () => context.go('/trips'),
-                    style: TextButton.styleFrom(
-                      foregroundColor: AppColors.primary,
-                      padding: const EdgeInsets.only(left: 12, right: 4),
-                      minimumSize: const Size(0, 44),
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Text('Voir tout',
-                            style: AppTextStyles.bodyLarge.copyWith(
-                              fontSize: 15,
-                              color: AppColors.primary,
-                              fontWeight: FontWeight.w500,
-                              height: 1,
-                            )),
-                        const SizedBox(width: 6),
-                        const Icon(Icons.chevron_right_rounded, size: 24),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 12),
-              if (_isLoading) ...[
-                const TripCardSkeleton(),
-                const SizedBox(height: 14),
-                const TripCardSkeleton(),
-                const SizedBox(height: 14),
-              ] else if (_hasError)
-                const _InlineNotice(
-                  text:
-                      'Impossible de charger les trajets. Tirez vers le bas pour réessayer.',
-                )
-              else if (_nearby.isEmpty)
-                const _InlineNotice(
-                  text:
-                      'Aucun trajet prévu au départ de chez vous pour le moment.',
-                )
-              else
-                for (final trip in _nearby) ...[
-                  TripCard(
-                    trip: trip,
-                    onTap: () => context.push(tripDetailLocation(trip)),
-                  ),
-                  const SizedBox(height: 14),
-                ],
-              const SizedBox(height: 6),
-              const TrustBanner(),
+              const SizedBox(height: 16),
             ],
-          ),
-        ),
+          const SizedBox(height: 4),
+          const TrustBanner(),
+        ],
       ),
       bottomNavigationBar: const TravelerBottomNavBar(current: ClientTab.home),
     );
@@ -214,29 +165,26 @@ class _InlineNotice extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      margin: const EdgeInsets.only(bottom: 14),
-      padding: const EdgeInsets.all(18),
-      decoration: AppColors.softCardDecoration,
-      child: Text(text,
-          style: AppTextStyles.body.copyWith(color: AppColors.textSecondary)),
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 16),
+      child: GlassPanel(
+        radius: 24,
+        child: Text(text, style: AppTextStyles.body.copyWith(color: AppColors.textSecondary)),
+      ),
     );
   }
 }
 
 // ─── Carte de recherche ───────────────────────────────────────────────────
 
-const double _railWidth = 40;
-const double _cityRowHeight = 72;
-
+/// Carte de recherche en verre (template) : départ / arrivée en creux avec
+/// bouton d'inversion, « Aujourd'hui / Plus tard », bouton à dégradé.
 class _SearchCard extends StatelessWidget {
   const _SearchCard();
 
   /// Adresse, quartier, gare ou position GPS : la recherche trouve les
   /// points de rendez-vous des chauffeurs proches de ce lieu.
-  Future<void> _pickPlace(BuildContext context,
-      {required bool isDeparture}) async {
+  Future<void> _pickPlace(BuildContext context, {required bool isDeparture}) async {
     final search = context.read<SearchProvider>();
     final picked = await Navigator.of(context).push<GeoLocation>(
       MaterialPageRoute(
@@ -256,7 +204,7 @@ class _SearchCard extends StatelessWidget {
     final today = DateTime(now.year, now.month, now.day);
     final picked = await showDatePicker(
       context: context,
-      initialDate: search.date.isBefore(today) ? today : search.date,
+      initialDate: search.date.isAfter(today) ? search.date : today.add(const Duration(days: 1)),
       firstDate: today,
       lastDate: today.add(const Duration(days: 90)),
       locale: const Locale('fr', 'FR'),
@@ -264,78 +212,118 @@ class _SearchCard extends StatelessWidget {
     if (picked != null) search.setDate(picked);
   }
 
+  static bool _isToday(DateTime d) {
+    final now = DateTime.now();
+    return d.year == now.year && d.month == now.month && d.day == now.day;
+  }
+
   @override
   Widget build(BuildContext context) {
     final search = context.watch<SearchProvider>();
+    final today = _isToday(search.date);
 
-    return Container(
-      decoration: AppColors.softCardDecoration,
-      clipBehavior: Clip.antiAlias,
-      child: Material(
-        color: Colors.transparent,
-        child: Column(
-          children: [
-            const SizedBox(height: 4),
-            Stack(
-              children: [
-                Column(
-                  children: [
-                    _CityRow(
-                      label: 'Départ',
-                      city: search.departure,
-                      placeholder: 'D’où partez-vous ?',
-                      onTap: () => _pickPlace(context, isDeparture: true),
-                    ),
-                    const _Divider(indent: 16 + _railWidth + 12),
-                    _CityRow(
-                      label: 'Arrivée',
-                      city: search.arrival,
-                      placeholder: 'Où allez-vous ?',
-                      onTap: () => _pickPlace(context, isDeparture: false),
-                    ),
-                  ],
-                ),
-                const Positioned(
-                  left: 16,
-                  top: 0,
-                  bottom: 0,
-                  child: IgnorePointer(child: _RouteRail()),
-                ),
-              ],
-            ),
-            const _Divider(indent: 16),
-            _FieldRow(
-              onTap: () => _pickDate(context),
-              leading: const Icon(Icons.calendar_month_rounded,
-                  size: 24, color: AppColors.textPrimary),
-              height: 62,
-              child: Text(formatDayLabel(search.date), style: _valueStyle),
-            ),
-            const _Divider(indent: 16),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 16, 16, 16),
-              child: SizedBox(
-                width: double.infinity,
-                height: 50,
-                child: FilledButton.icon(
-                  onPressed:
-                      search.hasSearch ? () => context.push('/trips') : null,
-                  icon: const Icon(Icons.search_rounded, size: 22),
-                  label: const Text('Rechercher un trajet'),
-                  style: FilledButton.styleFrom(
-                    backgroundColor: AppColors.primary,
-                    foregroundColor: Colors.white,
-                    disabledBackgroundColor:
-                        AppColors.primary.withValues(alpha: 0.4),
-                    disabledForegroundColor: Colors.white,
-                    shape: RoundedRectangleBorder(
-                      borderRadius:
-                          BorderRadius.circular(AppSpacing.borderRadiusButton),
-                    ),
-                    textStyle:
-                        AppTextStyles.buttonLarge.copyWith(fontSize: 16.5),
-                    elevation: 0,
+    return GlassPanel(
+      radius: 32,
+      padding: const EdgeInsets.all(18),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Stack(
+            alignment: Alignment.centerRight,
+            children: [
+              Column(
+                children: [
+                  _PlaceField(
+                    icon: Icons.radio_button_unchecked_rounded,
+                    iconColor: AppColors.primary,
+                    value: search.departure,
+                    placeholder: 'D’où partez-vous ?',
+                    onTap: () => _pickPlace(context, isDeparture: true),
                   ),
+                  const SizedBox(height: 12),
+                  _PlaceField(
+                    icon: Icons.place_rounded,
+                    iconColor: AppColors.accent,
+                    value: search.arrival,
+                    placeholder: 'Où allez-vous ?',
+                    onTap: () => _pickPlace(context, isDeparture: false),
+                  ),
+                ],
+              ),
+              Positioned(
+                right: 12,
+                child: NeuBox(
+                  small: true,
+                  radius: 20,
+                  padding: const EdgeInsets.all(8),
+                  onTap: search.swap,
+                  child: const Icon(Icons.swap_vert_rounded, size: 20, color: AppColors.primary),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          GlowSegmented<bool>(
+            value: today,
+            options: [
+              (true, 'Aujourd’hui'),
+              (false, today ? 'Plus tard' : formatDayLabel(search.date)),
+            ],
+            onChanged: (isToday) {
+              if (isToday) {
+                search.setDate(DateTime.now());
+              } else {
+                _pickDate(context);
+              }
+            },
+          ),
+          const SizedBox(height: 14),
+          GlowButton(
+            label: 'Rechercher un trajet',
+            leadingIcon: Icons.search_rounded,
+            onPressed: search.hasSearch ? () => context.push('/search') : null,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Champ départ / arrivée « en creux ».
+class _PlaceField extends StatelessWidget {
+  final IconData icon;
+  final Color iconColor;
+  final String? value;
+  final String placeholder;
+  final VoidCallback onTap;
+
+  const _PlaceField({
+    required this.icon,
+    required this.iconColor,
+    required this.value,
+    required this.placeholder,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: onTap,
+      child: NeuInset(
+        radius: 18,
+        padding: const EdgeInsets.fromLTRB(16, 15, 60, 15),
+        child: Row(
+          children: [
+            Icon(icon, size: 18, color: iconColor),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                value ?? placeholder,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: AppTextStyles.bodyLargeSemibold.copyWith(
+                  color: value == null ? AppColors.textMuted : AppColors.textPrimary,
                 ),
               ),
             ),
@@ -346,152 +334,7 @@ class _SearchCard extends StatelessWidget {
   }
 }
 
-final TextStyle _valueStyle = AppTextStyles.bodyLargeSemibold.copyWith(
-  fontSize: 16.5,
-  height: 1.2,
-);
-
-class _CityRow extends StatelessWidget {
-  final String label;
-  final String? city;
-  final String placeholder;
-  final VoidCallback onTap;
-
-  const _CityRow({
-    required this.label,
-    required this.city,
-    required this.placeholder,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return _FieldRow(
-      onTap: onTap,
-      height: _cityRowHeight,
-      leading: const SizedBox.shrink(),
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            label,
-            style: AppTextStyles.body.copyWith(
-              color: AppColors.textSecondary,
-              fontSize: 13.5,
-              height: 1.2,
-            ),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            city == null ? placeholder : '$city, Sénégal',
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: city == null
-                ? _valueStyle.copyWith(color: AppColors.textMuted)
-                : _valueStyle,
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-/// Ligne touchable de la carte : colonne d'icône fixe, contenu, chevron.
-class _FieldRow extends StatelessWidget {
-  final VoidCallback onTap;
-  final Widget leading;
-  final Widget child;
-  final double height;
-
-  const _FieldRow({
-    required this.onTap,
-    required this.leading,
-    required this.child,
-    required this.height,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return InkWell(
-      onTap: onTap,
-      child: SizedBox(
-        height: height,
-        child: Padding(
-          padding: const EdgeInsets.only(left: 16, right: 20),
-          child: Row(
-            children: [
-              SizedBox(width: _railWidth, child: Center(child: leading)),
-              const SizedBox(width: 12),
-              Expanded(child: child),
-              const Icon(Icons.keyboard_arrow_down_rounded,
-                  size: 24, color: AppColors.textPrimary),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-/// Rail gauche départ → arrivée : pastille grise "origine", point orange,
-/// pointillés gris, épingle orange — chaque icône centrée sur sa ligne.
-class _RouteRail extends StatelessWidget {
-  const _RouteRail();
-
-  @override
-  Widget build(BuildContext context) {
-    Widget dot(Color color, double size) => Container(
-          width: size,
-          height: size,
-          decoration: BoxDecoration(color: color, shape: BoxShape.circle),
-        );
-
-    return SizedBox(
-      width: _railWidth,
-      child: Column(
-        children: [
-          const SizedBox(height: (_cityRowHeight - 40) / 2),
-          Container(
-            width: 40,
-            height: 40,
-            decoration: const BoxDecoration(
-              color: Color(0xFFEFEDE9),
-              shape: BoxShape.circle,
-            ),
-            alignment: Alignment.center,
-            child: const Icon(Icons.adjust_rounded,
-                size: 20, color: AppColors.textPrimary),
-          ),
-          const SizedBox(height: 6),
-          dot(AppColors.primary, 7),
-          const SizedBox(height: 5),
-          dot(AppColors.borderStrong, 5),
-          const SizedBox(height: 5),
-          dot(AppColors.borderStrong, 5),
-          const SizedBox(height: 4),
-          const Icon(Icons.location_on_rounded,
-              size: 30, color: AppColors.primary),
-        ],
-      ),
-    );
-  }
-}
-
-class _Divider extends StatelessWidget {
-  final double indent;
-
-  const _Divider({required this.indent});
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: EdgeInsets.only(left: indent, right: 16),
-      child: const Divider(height: 1, thickness: 1, color: Color(0xFFECEAE5)),
-    );
-  }
-}
-
+/// Réservation en cours : ligne compacte vers le billet (template).
 class _ActiveBookingCard extends StatelessWidget {
   final Booking booking;
 
@@ -502,150 +345,53 @@ class _ActiveBookingCard extends StatelessWidget {
     final trip = booking.trip;
     final isConfirmed = booking.status == BookingStatus.confirmed;
     final isBoarded = booking.isBoarded;
-
-    final Color accentColor = isBoarded
-        ? const Color(0xFF2E7D32)
-        : (isConfirmed ? AppColors.primary : const Color(0xFFD97706));
-
-    final Color bgSurface = isBoarded
-        ? const Color(0xFFF1F8F4)
-        : (isConfirmed ? const Color(0xFFF0FDF4) : const Color(0xFFFFFBEB));
-
-    final String statusLabel = isBoarded
+    final statusColor = isBoarded || isConfirmed ? AppColors.success : AppColors.amber;
+    final statusLabel = isBoarded
         ? 'À bord du véhicule'
         : (isConfirmed ? 'Réservation confirmée' : 'Demande en attente');
+    final when = booking.boardingStop?.scheduledAt ?? trip?.departureTime;
 
-    return Container(
-      margin: const EdgeInsets.only(bottom: 12),
-      decoration: BoxDecoration(
-        color: AppColors.surface,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: accentColor.withValues(alpha: 0.4), width: 1.5),
-        boxShadow: [
-          BoxShadow(
-            color: accentColor.withValues(alpha: 0.08),
-            blurRadius: 16,
-            offset: const Offset(0, 4),
+    return NeuBox(
+      onTap: () => context.push('/trip/${booking.tripId}/tracking'),
+      padding: const EdgeInsets.all(14),
+      child: Row(
+        children: [
+          Container(
+            width: 48,
+            height: 48,
+            decoration: BoxDecoration(
+              color: AppColors.accent.withValues(alpha: 0.15),
+              borderRadius: BorderRadius.circular(16),
+            ),
+            child: Icon(
+              isConfirmed ? Icons.qr_code_2_rounded : Icons.hourglass_top_rounded,
+              color: AppColors.accent,
+            ),
           ),
-        ],
-      ),
-      child: Material(
-        color: Colors.transparent,
-        borderRadius: BorderRadius.circular(16),
-        child: InkWell(
-          borderRadius: BorderRadius.circular(16),
-          onTap: () => context.push('/trip/${booking.tripId}/tracking'),
-          child: Padding(
-            padding: const EdgeInsets.all(16),
+          const SizedBox(width: 14),
+          Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // Header badge
-                Row(
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                      decoration: BoxDecoration(
-                        color: bgSurface,
-                        borderRadius: BorderRadius.circular(20),
-                        border: Border.all(color: accentColor.withValues(alpha: 0.3)),
-                      ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(
-                            isBoarded
-                                ? Icons.check_circle_rounded
-                                : (isConfirmed ? Icons.qr_code_2_rounded : Icons.hourglass_top_rounded),
-                            size: 14,
-                            color: accentColor,
-                          ),
-                          const SizedBox(width: 6),
-                          Text(
-                            statusLabel,
-                            style: AppTextStyles.caption.copyWith(
-                              color: accentColor,
-                              fontWeight: FontWeight.w700,
-                              fontSize: 12,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    const Spacer(),
-                    const Icon(Icons.arrow_forward_ios_rounded, size: 14, color: AppColors.textSecondary),
-                  ],
+                Text('● $statusLabel',
+                    style: AppTextStyles.caption.copyWith(color: statusColor, fontWeight: FontWeight.w800)),
+                Text(
+                  '${booking.boardingStop?.name ?? trip?.departure ?? 'Départ'} → '
+                  '${booking.alightingStop?.name ?? trip?.arrival ?? 'Arrivée'}',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: AppTextStyles.bodySemibold.copyWith(fontWeight: FontWeight.w800),
                 ),
-                const SizedBox(height: 12),
-
-                // Trajet
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.center,
-                  children: [
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            '${trip?.departure ?? 'Départ'} → ${trip?.arrival ?? 'Arrivée'}',
-                            style: AppTextStyles.bodyLargeSemibold.copyWith(fontSize: 16),
-                          ),
-                          if (trip != null) ...[
-                            const SizedBox(height: 4),
-                            Text(
-                              '${DateFormat('EEEE d MMM à HH:mm', 'fr_FR').format(trip.departureTime)} • ${booking.seatLabel}',
-                              style: AppTextStyles.caption.copyWith(color: AppColors.textSecondary),
-                            ),
-                          ],
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 14),
-
-                // Bottom row with QR shortcut or tracking hint
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                  decoration: BoxDecoration(
-                    color: bgSurface,
-                    borderRadius: BorderRadius.circular(10),
+                if (when != null)
+                  Text(
+                    '${DateFormat('EEE d MMM · HH:mm', 'fr_FR').format(when)} · ${booking.seatLabel}',
+                    style: AppTextStyles.caption,
                   ),
-                  child: Row(
-                    children: [
-                      Icon(
-                        isConfirmed ? Icons.qr_code_scanner_rounded : Icons.info_outline_rounded,
-                        size: 18,
-                        color: accentColor,
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Text(
-                          isConfirmed
-                              ? (isBoarded
-                                  ? 'Présence confirmée • Bon voyage !'
-                                  : 'Code QR disponible pour le départ')
-                              : 'En attente de validation par le chauffeur',
-                          style: AppTextStyles.caption.copyWith(
-                            color: accentColor,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                      ),
-                      Text(
-                        'Suivi →',
-                        style: AppTextStyles.caption.copyWith(
-                          color: accentColor,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
               ],
             ),
           ),
-        ),
+          const Icon(Icons.chevron_right_rounded, color: AppColors.textMuted),
+        ],
       ),
     );
   }

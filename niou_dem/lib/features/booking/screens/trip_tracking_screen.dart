@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import '../../../core/events/data_refresh.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
@@ -9,6 +10,7 @@ import 'package:qr_flutter/qr_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../../core/geo/senegal_city_coordinates.dart';
 import '../../../core/theme/app_colors.dart';
+import '../../../core/widgets/glow.dart';
 import '../../../core/theme/app_text_styles.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/widgets/driver_avatar.dart';
@@ -33,7 +35,10 @@ class TripTrackingScreen extends StatefulWidget {
   State<TripTrackingScreen> createState() => _TripTrackingScreenState();
 }
 
-class _TripTrackingScreenState extends State<TripTrackingScreen> {
+class _TripTrackingScreenState extends State<TripTrackingScreen> with AutoRefresh<TripTrackingScreen> {
+  @override
+  Future<void> onAutoRefresh() => _loadSilently();
+
   Trip? _trip;
   Booking? _booking;
   bool _isLoading = true;
@@ -104,14 +109,15 @@ class _TripTrackingScreenState extends State<TripTrackingScreen> {
     });
   }
 
+  /// Étape d'après les statuts réels (réservation, trajet), jamais d'après
+  /// l'heure : un trajet en retard n'apparaît pas « parti » ou « arrivé ».
   _TrackingStep _stepFor(Trip trip, Booking? booking) {
-    if (booking?.status == BookingStatus.completed) return _TrackingStep.arrived;
-    if (booking?.isBoarded == true) return _TrackingStep.departed;
-
-    final now = DateTime.now();
-    final arrival = trip.departureTime.add(trip.estimatedDuration);
-    if (now.isAfter(arrival)) return _TrackingStep.arrived;
-    if (now.isAfter(trip.departureTime)) return _TrackingStep.departed;
+    if (booking?.status == BookingStatus.completed || trip.status == TripStatus.completed) {
+      return _TrackingStep.arrived;
+    }
+    if (booking?.isBoarded == true || trip.status == TripStatus.inProgress) {
+      return _TrackingStep.departed;
+    }
     if (booking?.status == BookingStatus.confirmed) {
       return _TrackingStep.driverConfirmed;
     }
@@ -151,18 +157,14 @@ class _TripTrackingScreenState extends State<TripTrackingScreen> {
 
     return Scaffold(
       backgroundColor: AppColors.background,
-      appBar: AppBar(
-        title: const Text('Suivi du trajet'),
-        leading: IconButton(
-          onPressed: () => context.pop(),
-          icon: const Icon(Icons.arrow_back),
-        ),
+      appBar: BrandAppBar(
+        title: 'Suivi du trajet',
+        subtitle: _booking != null
+            ? '${_booking!.boardingStop?.name ?? _trip!.departure} → ${_booking!.alightingStop?.name ?? _trip!.arrival}'
+            : '${_trip!.departure} → ${_trip!.arrival}',
+        onBack: () => context.pop(),
         actions: [
-          IconButton(
-            onPressed: _load,
-            icon: const Icon(Icons.refresh_rounded),
-            tooltip: 'Actualiser',
-          ),
+          GlassIconButton(icon: Icons.refresh_rounded, onPressed: _load, tooltip: 'Actualiser'),
         ],
       ),
       body: RefreshIndicator(
@@ -178,6 +180,7 @@ class _TripTrackingScreenState extends State<TripTrackingScreen> {
                 _QrTicketCard(booking: _booking!, trip: _trip!),
                 const SizedBox(height: AppSpacing.lg),
                 // Où retrouver le chauffeur, tant que le passager n'est pas à bord.
+                _EtaCard(trip: _trip!, booking: _booking!),
                 if (_booking!.boardingStop != null &&
                     !_booking!.isBoarded &&
                     (_booking!.status == BookingStatus.pending ||
@@ -842,34 +845,39 @@ class _LiveTrackingMapState extends State<_LiveTrackingMap> {
         bounds: LatLngBounds.fromPoints([
           _origin,
           _destination,
-          _currentVehiclePosition,
+          if (_currentVehiclePosition != null) _currentVehiclePosition!,
         ]),
         padding: const EdgeInsets.all(40),
       );
 
-  ll.LatLng get _currentVehiclePosition {
-    if (widget.trip.status == TripStatus.completed) return _destination;
+  /// Position réelle du chauffeur, uniquement pendant le trajet et si elle
+  /// est récente : sinon aucune voiture n'est affichée plutôt qu'une
+  /// position inventée.
+  ll.LatLng? get _currentVehiclePosition {
+    if (widget.trip.status != TripStatus.inProgress) return null;
     final cLat = widget.trip.currentLat;
     final cLng = widget.trip.currentLng;
-    if (cLat != null && cLng != null && (cLat != 0 || cLng != 0)) {
-      return ll.LatLng(cLat, cLng);
-    }
-    if (_path.length < 2) return _origin;
-    if (widget.trip.status == TripStatus.inProgress) {
-      final midIndex = _path.length ~/ 2;
-      return _path[midIndex];
-    }
-    return _origin;
+    final fresh = widget.trip.live?.locationFresh ??
+        (widget.trip.locationUpdatedAt != null &&
+            DateTime.now().difference(widget.trip.locationUpdatedAt!) < const Duration(minutes: 3));
+    if (!fresh || cLat == null || cLng == null || (cLat == 0 && cLng == 0)) return null;
+    return ll.LatLng(cLat, cLng);
   }
 
+  /// Fraîcheur du signal GPS, pendant le trajet seulement : avant le départ,
+  /// la « position » enregistrée n'est que le point de départ.
   String? get _lastGpsSignalLabel {
+    if (widget.trip.status != TripStatus.inProgress) return null;
     final updated = widget.trip.locationUpdatedAt;
-    if (updated == null) return null;
-    final diff = DateTime.now().difference(updated);
+    if (_currentVehiclePosition == null) {
+      return updated == null
+          ? 'Position du chauffeur indisponible'
+          : 'Position indisponible · dernier signal à ${DateFormat('HH:mm').format(updated.toLocal())}';
+    }
+    final diff = DateTime.now().difference(updated!);
     if (diff.inSeconds < 15) return 'Position GPS en direct';
     if (diff.inMinutes < 1) return 'Signal GPS il y a ${diff.inSeconds}s';
-    if (diff.inMinutes < 60) return 'Signal GPS il y a ${diff.inMinutes} min';
-    return 'Dernier signal à ${DateFormat('HH:mm').format(updated.toLocal())}';
+    return 'Signal GPS il y a ${diff.inMinutes} min';
   }
 
   Future<void> _openExternalMap() async {
@@ -1007,8 +1015,9 @@ class _LiveTrackingMapState extends State<_LiveTrackingMap> {
                           height: 36,
                           child: const Icon(Icons.location_on_rounded, color: AppColors.danger, size: 34),
                         ),
+                        if (_currentVehiclePosition != null)
                         Marker(
-                          point: _currentVehiclePosition,
+                          point: _currentVehiclePosition!,
                           width: 44,
                           height: 44,
                           child: Container(
@@ -1075,6 +1084,108 @@ class _LiveTrackingMapState extends State<_LiveTrackingMap> {
           ),
         ],
       ),
+    );
+  }
+}
+
+/// « Le chauffeur arrive à votre point de rendez-vous vers 09:12 » puis,
+/// une fois à bord, l'heure d'arrivée à l'arrêt de descente. Les heures
+/// viennent du serveur (`live`) : d'après la position GPS quand elle est
+/// récente, sinon d'après l'horaire publié — et l'écran le dit.
+class _EtaCard extends StatelessWidget {
+  final Trip trip;
+  final Booking booking;
+
+  const _EtaCard({required this.trip, required this.booking});
+
+  @override
+  Widget build(BuildContext context) {
+    final message = _message();
+    if (message == null) return const SizedBox.shrink();
+    return Padding(
+      padding: const EdgeInsets.only(bottom: AppSpacing.lg),
+      child: Container(
+        width: double.infinity,
+        padding: AppSpacing.cardPadding,
+        decoration: BoxDecoration(
+          color: AppColors.primarySurface,
+          borderRadius: BorderRadius.circular(AppSpacing.borderRadiusMd),
+          border: Border.all(color: AppColors.primary.withValues(alpha: 0.25)),
+        ),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(message.icon, color: AppColors.primary, size: 26),
+            const SizedBox(width: AppSpacing.md),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(message.title, style: AppTextStyles.bodyLargeSemibold),
+                  if (message.detail != null) ...[
+                    const SizedBox(height: 2),
+                    Text(message.detail!, style: AppTextStyles.caption.copyWith(color: AppColors.textSecondary)),
+                  ],
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  ({IconData icon, String title, String? detail})? _message() {
+    final time = DateFormat('HH:mm');
+    final boarding = booking.boardingStop;
+    final alighting = booking.alightingStop;
+    final live = trip.live;
+    if (booking.status != BookingStatus.confirmed && booking.status != BookingStatus.pending) return null;
+
+    if (trip.status == TripStatus.upcoming) {
+      final at = boarding?.scheduledAt ?? trip.departureTime;
+      return (
+        icon: Icons.schedule_rounded,
+        title: 'Rendez-vous à ${time.format(at)}${boarding != null ? ' · ${boarding.name}' : ''}',
+        detail: 'Le chauffeur n’a pas encore démarré le trajet.',
+      );
+    }
+    if (trip.status != TripStatus.inProgress) return null;
+
+    // Après la montée : arrivée à l'arrêt de descente.
+    final target = booking.isBoarded ? alighting : boarding;
+    if (target == null) return null;
+    final eta = live?.etas[target.id];
+    final passedTarget = (live?.lastPassedStopPosition ?? 0) >= target.position;
+
+    if (!booking.isBoarded && passedTarget) {
+      return (
+        icon: Icons.where_to_vote_rounded,
+        title: 'Le chauffeur est à votre point de rendez-vous',
+        detail: '${target.name} · ${target.displayAddress}. Présentez votre QR code.',
+      );
+    }
+    if (eta == null) {
+      return (
+        icon: Icons.sensors_off_rounded,
+        title: booking.isBoarded ? 'En route vers ${target.name}' : 'Le chauffeur est en route',
+        detail: 'Heure d’arrivée indisponible pour le moment.',
+      );
+    }
+
+    final minutes = eta.difference(DateTime.now()).inMinutes;
+    final inLabel = minutes <= 1 ? 'd’un instant à l’autre' : 'dans $minutes min';
+    final delay = live?.delayMinutes ?? 0;
+    final detailParts = [
+      if (live?.isLiveEstimate == true) 'Estimation d’après la position du chauffeur' else 'Estimation d’après l’horaire prévu (position indisponible)',
+      if (delay >= 5) 'environ $delay min de retard',
+    ];
+    return (
+      icon: booking.isBoarded ? Icons.flag_rounded : Icons.directions_car_filled_rounded,
+      title: booking.isBoarded
+          ? 'Arrivée à ${target.name} vers ${time.format(eta)}'
+          : 'Le chauffeur arrive à ${target.name} vers ${time.format(eta)} · $inLabel',
+      detail: detailParts.join(' · '),
     );
   }
 }

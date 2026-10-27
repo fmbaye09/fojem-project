@@ -2,11 +2,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
+import 'core/events/data_refresh.dart';
 import 'core/theme/app_theme.dart';
 import 'providers/app_provider.dart';
 import 'providers/search_provider.dart';
 import 'features/onboarding/screens/splash_screen.dart';
 import 'features/onboarding/screens/auth_screen.dart';
+import 'features/onboarding/screens/onboarding_screen.dart';
 import 'features/home/screens/home_screen.dart';
 import 'features/search/screens/trips_screen.dart';
 import 'features/booking/screens/trip_detail_screen.dart';
@@ -42,7 +44,7 @@ CustomTransitionPage<void> _tabPage(GoRouterState state, Widget child) {
 }
 
 /// Chemins accessibles sans session (avant connexion).
-const _publicPaths = {'/splash', '/role-selection'};
+const _publicPaths = {'/splash', '/onboarding', '/role-selection'};
 
 GoRouter _buildRouter(AppProvider appProvider) => GoRouter(
   initialLocation: '/splash',
@@ -62,13 +64,18 @@ GoRouter _buildRouter(AppProvider appProvider) => GoRouter(
       return _publicPaths.contains(path) ? null : '/role-selection';
     }
 
-    if (_publicPaths.contains(path)) return '/home';
+    // Le splash termine son animation puis ouvre l'accueil lui-même.
+    if (_publicPaths.contains(path) && path != '/splash') return '/home';
     return null;
   },
   routes: [
     GoRoute(
       path: '/splash',
       builder: (_, __) => const SplashScreen(),
+    ),
+    GoRoute(
+      path: '/onboarding',
+      builder: (_, __) => const OnboardingScreen(),
     ),
     GoRoute(
       path: '/role-selection',
@@ -81,8 +88,8 @@ GoRouter _buildRouter(AppProvider appProvider) => GoRouter(
       pageBuilder: (_, state) => _tabPage(state, const HomeScreen()),
     ),
     GoRoute(
-      path: '/trips',
-      pageBuilder: (_, state) => _tabPage(state, const TripsScreen()),
+      path: '/my-trips',
+      pageBuilder: (_, state) => _tabPage(state, const MyTripsScreen()),
     ),
     GoRoute(
       path: '/chat',
@@ -127,8 +134,8 @@ GoRouter _buildRouter(AppProvider appProvider) => GoRouter(
       },
     ),
     GoRoute(
-      path: '/my-trips',
-      builder: (_, __) => const MyTripsScreen(),
+      path: '/search',
+      builder: (_, __) => const SearchResultsScreen(),
     ),
     GoRoute(
       path: '/my-requests',
@@ -251,13 +258,12 @@ class _FojemAppState extends State<FojemApp> with WidgetsBindingObserver {
         return;
       }
 
-      // `/trips` est l'écran de résultats de recherche : une réservation
-      // confirmée se consulte dans « Mes trajets ».
+      // Une réservation se consulte dans l’onglet « Réservations ».
       if (type == 'booking_confirmed' ||
           type == 'booking_rejected' ||
           type == 'booking_cancelled' ||
           type == 'trip_cancelled') {
-        _router.push('/my-trips');
+        _router.go('/my-trips');
         return;
       }
 
@@ -273,6 +279,8 @@ class _FojemAppState extends State<FojemApp> with WidgetsBindingObserver {
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
+      // Retour dans l'app : ce qui a changé entre-temps s'affiche aussitôt.
+      DataRefresh.instance.notify();
       _appProvider.refreshUser();
     }
   }

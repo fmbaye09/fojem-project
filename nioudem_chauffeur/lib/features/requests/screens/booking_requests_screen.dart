@@ -1,13 +1,15 @@
 import 'dart:async';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
+import '../../../core/events/data_refresh.dart';
 import 'package:go_router/go_router.dart';
 import '../../../core/network/api_exception.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_text_styles.dart';
 import '../../../core/widgets/driver_avatar.dart';
-import '../../../core/widgets/fojem_logo.dart';
+import '../../../core/widgets/glow.dart';
+import '../../../core/widgets/notification_bell.dart';
 import '../../../core/widgets/trip_card.dart' show formatDayLabel;
 import '../../../core/widgets/fojem_button.dart';
 import '../../../core/widgets/stop_segment.dart';
@@ -28,7 +30,10 @@ class BookingRequestsScreen extends StatefulWidget {
   State<BookingRequestsScreen> createState() => _BookingRequestsScreenState();
 }
 
-class _BookingRequestsScreenState extends State<BookingRequestsScreen> {
+class _BookingRequestsScreenState extends State<BookingRequestsScreen> with AutoRefresh<BookingRequestsScreen> {
+  @override
+  Future<void> onAutoRefresh() => _load(silent: true);
+
   Trip? _trip;
   List<Booking> _pending = [];
   bool _isLoading = true;
@@ -119,39 +124,19 @@ class _BookingRequestsScreenState extends State<BookingRequestsScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: AppColors.background,
+      appBar: BrandAppBar(
+        title: 'Demandes reçues',
+        subtitle: _pending.isEmpty ? null : '${_pending.length} en attente de votre réponse',
+        onBack: () => context.canPop() ? context.pop() : context.go('/home'),
+        actions: const [NotificationBellButton(onBrand: true)],
+      ),
       body: SafeArea(
+        top: false,
         child: Column(
           children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(4, 4, 20, 0),
-              child: Row(
-                children: [
-                  IconButton(
-                    onPressed: () => context.canPop() ? context.pop() : context.go('/home'),
-                    icon: const Icon(Icons.arrow_back_rounded, color: AppColors.textPrimary),
-                  ),
-                  Text('Demandes reçues',
-                      style: AppTextStyles.title2.copyWith(fontWeight: FontWeight.w700)),
-                ],
-              ),
-            ),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
-              child: Row(
-                children: [
-                  const FojemLogo.icon(size: 36),
-                  const Spacer(),
-                  IconButton(
-                    onPressed: () => context.push('/notifications'),
-                    icon: const Icon(Icons.notifications_none_rounded,
-                        size: 24, color: AppColors.textPrimary),
-                  ),
-                ],
-              ),
-            ),
             if (_trip != null)
               Padding(
-                padding: const EdgeInsets.fromLTRB(20, 4, 20, 4),
+                padding: const EdgeInsets.fromLTRB(20, 16, 20, 4),
                 child: _TripSummaryBar(trip: _trip!),
               ),
             Expanded(

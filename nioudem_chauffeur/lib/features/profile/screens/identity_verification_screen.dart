@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 import '../../../core/network/api_exception.dart';
 import '../../../core/theme/app_colors.dart';
+import '../../../core/widgets/glow.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_text_styles.dart';
 import '../../../core/widgets/fojem_button.dart';
@@ -207,10 +208,7 @@ class _IdentityVerificationScreenState extends State<IdentityVerificationScreen>
 
     return Scaffold(
       backgroundColor: AppColors.background,
-      appBar: AppBar(
-        title: Text(isStep0 ? 'Vérification d’identité' : 'Informations du véhicule'),
-        leading: IconButton(
-          onPressed: () {
+      appBar: BrandAppBar(title: isStep0 ? 'Vérification d’identité' : 'Informations du véhicule', onBack: () {
             if (_step == 1) {
               setState(() => _step = 0);
             } else if (context.canPop()) {
@@ -218,10 +216,7 @@ class _IdentityVerificationScreenState extends State<IdentityVerificationScreen>
             } else {
               context.go('/home');
             }
-          },
-          icon: const Icon(Icons.arrow_back_rounded, color: AppColors.textPrimary),
-        ),
-      ),
+          }),
       body: SafeArea(
         top: false,
         child: _isLoading

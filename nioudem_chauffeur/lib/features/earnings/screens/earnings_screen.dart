@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
+import '../../../core/events/data_refresh.dart';
 import 'package:go_router/go_router.dart';
 import '../../../core/theme/app_colors.dart';
+import '../../../core/widgets/glow.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_text_styles.dart';
 import '../../../core/widgets/skeleton_loader.dart';
@@ -29,7 +31,10 @@ class EarningsScreen extends StatefulWidget {
   State<EarningsScreen> createState() => _EarningsScreenState();
 }
 
-class _EarningsScreenState extends State<EarningsScreen> with SingleTickerProviderStateMixin {
+class _EarningsScreenState extends State<EarningsScreen> with SingleTickerProviderStateMixin, AutoRefresh<EarningsScreen> {
+  @override
+  Future<void> onAutoRefresh() => _load(silent: true);
+
   late final TabController _tabController =
       TabController(length: 3, vsync: this);
 
@@ -55,8 +60,8 @@ class _EarningsScreenState extends State<EarningsScreen> with SingleTickerProvid
   /// `BookingRepository`). Reste vide tant que le backend ne crédite pas
   /// automatiquement le wallet chauffeur à la complétion d'une réservation
   /// (voir le commentaire dans `wallet_repository.dart`).
-  Future<void> _load() async {
-    setState(() => _isLoading = true);
+  Future<void> _load({bool silent = false}) async {
+    if (!silent) setState(() => _isLoading = true);
     try {
       final transactions = await WalletRepository().fetchTransactions();
       final relevant = transactions
@@ -112,23 +117,18 @@ class _EarningsScreenState extends State<EarningsScreen> with SingleTickerProvid
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: AppColors.background,
-      appBar: AppBar(
-        title: const Text('Gains'),
-        leading: IconButton(
-          onPressed: () => context.canPop() ? context.pop() : context.go('/home'),
-          icon: const Icon(Icons.arrow_back_rounded, color: AppColors.textPrimary),
-        ),
-        bottom: TabBar(
-          controller: _tabController,
-          labelColor: AppColors.primary,
-          unselectedLabelColor: AppColors.textSecondary,
-          indicatorColor: AppColors.primary,
-          labelStyle: AppTextStyles.bodySemibold,
-          tabs: const [
-            Tab(text: 'Jour'),
-            Tab(text: 'Semaine'),
-            Tab(text: 'Mois'),
-          ],
+      appBar: BrandAppBar(
+        title: 'Gains',
+        onBack: () => context.canPop() ? context.pop() : context.go('/home'),
+        bottomHeight: 46,
+        bottom: AnimatedBuilder(
+          animation: _tabController,
+          builder: (_, __) => GlowSegmented<int>(
+            onBrand: true,
+            value: _tabController.index,
+            options: const [(0, 'Jour'), (1, 'Semaine'), (2, 'Mois')],
+            onChanged: _tabController.animateTo,
+          ),
         ),
       ),
       body: SafeArea(

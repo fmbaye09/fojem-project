@@ -2,16 +2,21 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import '../theme/app_colors.dart';
+import 'glow.dart';
 import '../../services/notification_repository.dart';
 
 class NotificationBellButton extends StatefulWidget {
   final Color iconColor;
   final double size;
 
+  /// Bouton rond en verre, pour les en-têtes en dégradé.
+  final bool onBrand;
+
   const NotificationBellButton({
     super.key,
     this.iconColor = AppColors.textPrimary,
     this.size = 26,
+    this.onBrand = false,
   });
 
   @override
@@ -42,13 +47,23 @@ class _NotificationBellButtonState extends State<NotificationBellButton> {
     } catch (_) {}
   }
 
+  Future<void> _open() async {
+    await context.push('/notifications');
+    _checkUnread();
+  }
+
   @override
   Widget build(BuildContext context) {
+    if (widget.onBrand) {
+      return GlassIconButton(
+        icon: _unreadCount > 0 ? Icons.notifications_active_rounded : Icons.notifications_none_rounded,
+        onPressed: _open,
+        tooltip: 'Notifications',
+        showDot: _unreadCount > 0,
+      );
+    }
     return IconButton(
-      onPressed: () async {
-        await context.push('/notifications');
-        _checkUnread();
-      },
+      onPressed: _open,
       tooltip: 'Notifications',
       icon: Stack(
         clipBehavior: Clip.none,

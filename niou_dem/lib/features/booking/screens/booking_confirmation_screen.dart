@@ -6,6 +6,8 @@ import 'package:provider/provider.dart';
 
 import '../../../core/network/api_exception.dart';
 import '../../../core/theme/app_colors.dart';
+import '../../../core/widgets/glow.dart';
+import '../../../core/widgets/trip_card.dart' show formatFcfa;
 import '../../../core/theme/app_text_styles.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/widgets/fojem_button.dart';
@@ -227,12 +229,10 @@ class _BookingConfirmationScreenState
 
     return Scaffold(
       backgroundColor: AppColors.background,
-      appBar: AppBar(
-        title: const Text('Confirmer la réservation'),
-        leading: IconButton(
-          onPressed: () => context.pop(),
-          icon: const Icon(Icons.arrow_back),
-        ),
+      appBar: BrandAppBar(
+        title: 'Confirmer la réservation',
+        subtitle: '${segment.boarding?.name ?? trip.departure} → ${segment.alighting?.name ?? trip.arrival}',
+        onBack: () => context.pop(),
       ),
       body: Column(
         children: [
@@ -482,32 +482,31 @@ class _ConfirmBar extends StatelessWidget {
     required this.onConfirm,
   });
 
+  /// Barre fixe du bas : total et envoi de la demande.
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.fromLTRB(
-        AppSpacing.md,
-        AppSpacing.md,
-        AppSpacing.md,
-        0,
-      ),
-      decoration: BoxDecoration(
-        color: AppColors.surface,
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.06),
-            blurRadius: 12,
-            offset: const Offset(0, -4),
+    return BottomActionBar(
+          child: Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text('Total', style: AppTextStyles.caption.copyWith(fontWeight: FontWeight.w700)),
+                    Text(formatFcfa(total), style: AppTextStyles.priceLarge.copyWith(fontSize: 20)),
+                  ],
+                ),
+              ),
+              GlowButton(
+                label: 'Envoyer la demande',
+                expanded: false,
+                isLoading: isLoading,
+                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 15),
+                onPressed: isLoading ? null : onConfirm,
+              ),
+            ],
           ),
-        ],
-      ),
-      child: SafeArea(
-        child: FojemButton.primary(
-          label: isLoading ? '' : 'Envoyer la demande de réservation',
-          onPressed: isLoading ? null : onConfirm,
-          isLoading: isLoading,
-        ),
-      ),
     );
   }
 }

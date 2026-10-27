@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
+import '../../../core/events/data_refresh.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 import '../../../core/theme/app_colors.dart';
+import '../../../core/widgets/glow.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_text_styles.dart';
 import '../../../core/widgets/bottom_nav_bar.dart';
@@ -23,7 +25,10 @@ class MyTripsScreen extends StatefulWidget {
 
 enum _Filter { upcoming, past }
 
-class _MyTripsScreenState extends State<MyTripsScreen> {
+class _MyTripsScreenState extends State<MyTripsScreen> with AutoRefresh<MyTripsScreen> {
+  @override
+  Future<void> onAutoRefresh() => _load(silent: true);
+
   bool _isLoading = true;
   bool _hasError = false;
   List<Trip> _trips = [];
@@ -35,10 +40,10 @@ class _MyTripsScreenState extends State<MyTripsScreen> {
     _load();
   }
 
-  Future<void> _load() async {
+  Future<void> _load({bool silent = false}) async {
     final driverId = context.read<AppProvider>().user?.id;
     if (driverId == null) return;
-    setState(() => _isLoading = true);
+    if (!silent) setState(() => _isLoading = true);
     try {
       final trips = await TripRepository().fetchForDriver(driverId);
       if (!mounted) return;
@@ -78,55 +83,23 @@ class _MyTripsScreenState extends State<MyTripsScreen> {
 
     return Scaffold(
       backgroundColor: AppColors.background,
+      appBar: BrandAppBar(
+        title: 'Mes trajets',
+        subtitle: '${_trips.length} trajet${_trips.length > 1 ? 's' : ''} au total',
+        actions: [
+          GlassIconButton(
+            icon: Icons.add_rounded,
+            tooltip: 'Publier un trajet',
+            onPressed: () => context.push('/publish-trip'),
+          ),
+        ],
+      ),
       body: SafeArea(
+        top: false,
         bottom: false,
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            // ── Header ──
-            Padding(
-              padding: const EdgeInsets.fromLTRB(20, 20, 20, 0),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'Mes trajets',
-                          style: AppTextStyles.display.copyWith(fontSize: 27, letterSpacing: -0.5),
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          '${_trips.length} trajet${_trips.length > 1 ? 's' : ''} au total',
-                          style: AppTextStyles.body.copyWith(color: AppColors.textSecondary, fontSize: 14),
-                        ),
-                      ],
-                    ),
-                  ),
-                  // Quick add button
-                  InkWell(
-                    onTap: () => context.push('/publish-trip'),
-                    borderRadius: BorderRadius.circular(14),
-                    child: Container(
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        color: AppColors.primary,
-                        borderRadius: BorderRadius.circular(14),
-                        boxShadow: [
-                          BoxShadow(
-                            color: AppColors.primary.withOpacity(0.3),
-                            blurRadius: 12,
-                            offset: const Offset(0, 4),
-                          ),
-                        ],
-                      ),
-                      child: const Icon(Icons.add_rounded, color: Colors.white, size: 22),
-                    ),
-                  ),
-                ],
-              ),
-            ),
             const SizedBox(height: 16),
 
             // ── Filter tabs ──

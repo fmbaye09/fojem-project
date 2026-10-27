@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../../core/events/data_refresh.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
@@ -17,7 +18,10 @@ class MyRideRequestsScreen extends StatefulWidget {
   State<MyRideRequestsScreen> createState() => _MyRideRequestsScreenState();
 }
 
-class _MyRideRequestsScreenState extends State<MyRideRequestsScreen> {
+class _MyRideRequestsScreenState extends State<MyRideRequestsScreen> with AutoRefresh<MyRideRequestsScreen> {
+  @override
+  Future<void> onAutoRefresh() => _loadRequests(silent: true);
+
   final _repository = RideRequestRepository();
   List<RideRequest> _requests = [];
   final Map<String, List<MatchedTripScore>> _matchesByRequest = {};
@@ -30,17 +34,19 @@ class _MyRideRequestsScreenState extends State<MyRideRequestsScreen> {
     _loadRequests();
   }
 
-  Future<void> _loadRequests() async {
+  Future<void> _loadRequests({bool silent = false}) async {
     final userId = context.read<AppProvider>().user?.id;
     if (userId == null) {
       if (mounted) setState(() => _isLoading = false);
       return;
     }
 
-    setState(() {
-      _isLoading = true;
-      _errorMessage = null;
-    });
+    if (!silent) {
+      setState(() {
+        _isLoading = true;
+        _errorMessage = null;
+      });
+    }
 
     try {
       final list = await _repository.fetchForPassenger(userId);

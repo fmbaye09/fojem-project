@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
+import '../../../core/events/data_refresh.dart';
 import 'package:go_router/go_router.dart';
 import '../../../core/theme/app_colors.dart';
+import '../../../core/widgets/glow.dart';
 import '../../../core/theme/app_text_styles.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../models/app_notification.dart';
@@ -13,7 +15,10 @@ class NotificationsScreen extends StatefulWidget {
   State<NotificationsScreen> createState() => _NotificationsScreenState();
 }
 
-class _NotificationsScreenState extends State<NotificationsScreen> {
+class _NotificationsScreenState extends State<NotificationsScreen> with AutoRefresh<NotificationsScreen> {
+  @override
+  Future<void> onAutoRefresh() => _loadNotifications(silent: true);
+
   final _repository = NotificationRepository();
   List<AppNotification>? _notifications;
   bool _isLoading = true;
@@ -25,11 +30,13 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     _loadNotifications();
   }
 
-  Future<void> _loadNotifications() async {
-    setState(() {
-      _isLoading = true;
-      _error = null;
-    });
+  Future<void> _loadNotifications({bool silent = false}) async {
+    if (!silent) {
+      setState(() {
+        _isLoading = true;
+        _error = null;
+      });
+    }
 
     try {
       final list = await _repository.fetchNotifications();
@@ -102,23 +109,11 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
 
     return Scaffold(
       backgroundColor: AppColors.background,
-      appBar: AppBar(
-        title: const Text('Notifications'),
-        leading: IconButton(
-          onPressed: () => context.pop(),
-          icon: const Icon(Icons.arrow_back),
-        ),
+      appBar: BrandAppBar(
+        title: 'Notifications',
+        onBack: () => context.pop(),
         actions: [
-          if (hasUnread)
-            TextButton(
-              onPressed: _markAllRead,
-              child: Text(
-                'Tout lire',
-                style: AppTextStyles.bodySemibold.copyWith(
-                  color: AppColors.primary,
-                ),
-              ),
-            ),
+          if (hasUnread) BrandAppBarTextAction(label: 'Tout lire', onPressed: _markAllRead),
         ],
       ),
       body: _buildBody(),

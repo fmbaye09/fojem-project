@@ -14,6 +14,7 @@ import '../../../core/widgets/option_sheet.dart';
 import '../../../core/widgets/trip_card.dart' show formatDayLabel, formatFcfa;
 import '../../../core/widgets/fojem_button.dart';
 import '../../../core/widgets/fojem_text_field.dart';
+import '../../../core/widgets/glow.dart';
 import '../../../models/vehicle.dart';
 import '../../../providers/app_provider.dart';
 import '../../../services/map/map_service.dart';
@@ -232,13 +233,7 @@ class _PublishTripScreenState extends State<PublishTripScreen> {
     if (user != null && !user.isApprovedDriver) {
       return Scaffold(
         backgroundColor: AppColors.background,
-        appBar: AppBar(
-          title: const Text('Publier un trajet'),
-          leading: IconButton(
-            onPressed: () => context.pop(),
-            icon: const Icon(Icons.arrow_back_rounded, color: AppColors.textPrimary),
-          ),
-        ),
+        appBar: BrandAppBar(title: 'Publier un trajet', onBack: () => context.pop()),
         body: SafeArea(
           child: Center(
             child: Padding(
@@ -287,12 +282,18 @@ class _PublishTripScreenState extends State<PublishTripScreen> {
 
     return Scaffold(
       backgroundColor: AppColors.background,
+      appBar: BrandAppBar(
+        title: 'Publier un trajet',
+        subtitle: '${_step + 1} sur 3 · ${_stepTitles[_step]}',
+        onBack: _goBack,
+        bottomHeight: 8,
+        bottom: _StepProgress(step: _step, count: _stepTitles.length),
+      ),
       body: SafeArea(
+        top: false,
         child: Column(
           children: [
-            _Header(onBack: _goBack),
-            _StepIndicator(step: _step, title: _stepTitles[_step]),
-            const SizedBox(height: 8),
+            const SizedBox(height: 16),
             if (!_isLoadingVehicle && _vehicle == null)
               Padding(
                 padding: const EdgeInsets.fromLTRB(20, 0, 20, 8),
@@ -1044,96 +1045,35 @@ class _StepThree extends StatelessWidget {
 
 // ─── En-tête + indicateur d'étape ──────────────────────────────────────────
 
-class _Header extends StatelessWidget {
-  final VoidCallback onBack;
-
-  const _Header({required this.onBack});
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(4, 4, 20, 0),
-      child: Row(
-        children: [
-          IconButton(
-            onPressed: onBack,
-            icon: const Icon(Icons.arrow_back_rounded, size: 24, color: AppColors.textPrimary),
-          ),
-          Expanded(
-            child: Text(
-              'Publier un trajet',
-              style: AppTextStyles.title2.copyWith(fontWeight: FontWeight.w700),
-              textAlign: TextAlign.center,
-            ),
-          ),
-          const SizedBox(width: 40),
-        ],
-      ),
-    );
-  }
-}
-
-class _StepIndicator extends StatelessWidget {
+/// Progression des 3 étapes, en barre blanche sur le dégradé de l'en-tête.
+class _StepProgress extends StatelessWidget {
   final int step;
-  final String title;
+  final int count;
 
-  const _StepIndicator({required this.step, required this.title});
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      children: [
-        Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            for (var i = 0; i < 3; i++) ...[
-              _Dot(isActive: i == step, isDone: i < step),
-              if (i < 2)
-                Container(
-                  width: 28,
-                  height: 2,
-                  color: i < step ? AppColors.primary : AppColors.border,
-                ),
-            ],
-          ],
-        ),
-        const SizedBox(height: 10),
-        Text('${step + 1} sur 3',
-            style: AppTextStyles.caption.copyWith(color: AppColors.textMuted)),
-        const SizedBox(height: 2),
-        Text(title, style: AppTextStyles.title2),
-      ],
-    );
-  }
-}
-
-class _Dot extends StatelessWidget {
-  final bool isActive;
-  final bool isDone;
-
-  const _Dot({required this.isActive, required this.isDone});
+  const _StepProgress({required this.step, required this.count});
 
   @override
   Widget build(BuildContext context) {
-    final filled = isActive || isDone;
     return Container(
-      width: 28,
-      height: 28,
       decoration: BoxDecoration(
-        shape: BoxShape.circle,
-        color: filled ? AppColors.primary : AppColors.surface,
-        border: filled ? null : Border.all(color: AppColors.border, width: 1.5),
+        color: AppColors.onPrimary.withValues(alpha: 0.22),
+        borderRadius: BorderRadius.circular(4),
       ),
-      child: Center(
-        child: isDone
-            ? const Icon(Icons.check, size: 14, color: Colors.white)
-            : Icon(Icons.circle,
-                size: 8, color: filled ? Colors.white : AppColors.border),
+      alignment: Alignment.centerLeft,
+      child: AnimatedFractionallySizedBox(
+        duration: const Duration(milliseconds: 450),
+        curve: Curves.easeOutCubic,
+        widthFactor: (step + 1) / count,
+        child: Container(
+          decoration: BoxDecoration(
+            color: AppColors.onPrimary,
+            borderRadius: BorderRadius.circular(4),
+          ),
+        ),
       ),
     );
   }
 }
-
 
 class _VehicleSummaryCard extends StatelessWidget {
   final Vehicle vehicle;
