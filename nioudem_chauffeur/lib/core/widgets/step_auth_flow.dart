@@ -52,7 +52,7 @@ class _Step {
 /// Connexion / inscription page par page (template fojem-glow-flow) : une
 /// information par écran, barre de progression, transitions animées.
 class StepAuthFlow extends StatefulWidget {
-  /// « Bienvenue chez FOJËM » / « FOJËM Chauffeur ».
+  /// « Bienvenue chez FOJËM » / « FOJËM Pro ».
   final String welcomeTitle;
   final String welcomeSubtitle;
   final Future<AuthFailure?> Function(String login, String password) onLogin;

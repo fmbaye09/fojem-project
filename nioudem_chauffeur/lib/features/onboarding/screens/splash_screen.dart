@@ -81,12 +81,41 @@ class _SplashScreenState extends State<SplashScreen> {
                       const SizedBox(height: 40),
                       RiseIn(
                         delay: const Duration(milliseconds: 700),
-                        child: Text(
-                          'FOJËM',
-                          style: AppTextStyles.display.copyWith(
-                            color: AppColors.onPrimary,
-                            fontSize: 48,
-                            letterSpacing: -1,
+                        // Nom de l'app chauffeur : « FOJËM Pro », PRO en pastille mangue.
+                        child: Semantics(
+                          label: 'FOJËM Pro',
+                          child: ExcludeSemantics(
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Text(
+                                  'FOJËM',
+                                  style: AppTextStyles.display.copyWith(
+                                    color: AppColors.onPrimary,
+                                    fontSize: 48,
+                                    letterSpacing: -1,
+                                  ),
+                                ),
+                                const SizedBox(width: 10),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                                  decoration: BoxDecoration(
+                                    gradient: AppColors.ctaGradient,
+                                    borderRadius: BorderRadius.circular(10),
+                                    boxShadow: AppColors.ctaShadow,
+                                  ),
+                                  child: Text(
+                                    'PRO',
+                                    style: AppTextStyles.display.copyWith(
+                                      color: AppColors.onPrimary,
+                                      fontSize: 22,
+                                      letterSpacing: 1,
+                                      height: 1.1,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
                           ),
                         ),
                       ),

@@ -33,7 +33,7 @@ class ExternalLinks {
     final uri = Uri(
       scheme: 'mailto',
       path: supportEmail,
-      query: 'subject=${Uri.encodeComponent('Support FOJËM Chauffeur')}',
+      query: 'subject=${Uri.encodeComponent('Support FOJËM Pro')}',
     );
     final ok = await launchUrl(uri);
     if (!ok && context.mounted) {

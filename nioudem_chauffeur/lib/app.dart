@@ -262,7 +262,7 @@ class _FojemAppState extends State<FojemApp> with WidgetsBindingObserver {
     return ChangeNotifierProvider.value(
       value: _appProvider,
       child: MaterialApp.router(
-        title: 'FOJËM Chauffeur',
+        title: 'FOJËM Pro',
         debugShowCheckedModeBanner: false,
         theme: AppTheme.light,
         routerConfig: _router,

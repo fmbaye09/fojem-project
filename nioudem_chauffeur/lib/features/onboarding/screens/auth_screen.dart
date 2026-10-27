@@ -13,7 +13,7 @@ class AuthScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final app = context.read<AppProvider>();
     return StepAuthFlow(
-      welcomeTitle: 'FOJËM Chauffeur',
+      welcomeTitle: 'FOJËM Pro',
       welcomeSubtitle: 'Publiez vos trajets et gérez vos passagers.',
       onLogin: (login, password) async {
         final ok = await app.login(login: login, password: password);

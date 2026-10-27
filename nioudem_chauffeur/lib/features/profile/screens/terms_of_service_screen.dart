@@ -15,7 +15,7 @@ class TermsOfServiceScreen extends StatelessWidget {
   static const _sections = [
     (
       'Objet',
-      'FOJËM Chauffeur permet aux conducteurs de proposer des trajets de covoiturage interurbain au Sénégal et de gérer les réservations des passagers. L\'utilisation de l\'application implique l\'acceptation des présentes conditions.',
+      'FOJËM Pro permet aux conducteurs de proposer des trajets de covoiturage interurbain au Sénégal et de gérer les réservations des passagers. L\'utilisation de l\'application implique l\'acceptation des présentes conditions.',
     ),
     (
       'Inscription et vérification',

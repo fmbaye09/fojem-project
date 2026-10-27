@@ -253,7 +253,7 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
           const SizedBox(height: 28),
           ProfileLogoutButton(onTap: () => _showLogoutDialog(context)),
           const SizedBox(height: 16),
-          Center(child: Text('FOJËM Chauffeur v1.0.0', style: AppTextStyles.caption)),
+          Center(child: Text('FOJËM Pro v1.0.0', style: AppTextStyles.caption)),
         ],
       ),
       bottomNavigationBar: const DriverBottomNavBar(current: DriverTab.profile),
