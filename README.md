@@ -6,7 +6,7 @@ Bienvenue sur le dépôt principal de **FOJËM** (*Niou Dèm*), la solution mode
 
 ## Architecture de la Solution
 
-Le projet est structuré en **4 composantes indépendantes et complémentaires** :
+Ce dépôt est un **monorepo** : les 4 composantes, indépendantes et complémentaires, vivent chacune dans leur sous-dossier :
 
 ```
 d:/FOJEM/
@@ -129,15 +129,15 @@ flutter run
 
 ## Comptes de Démonstration (Seeder)
 
-Le seeder initial crée automatiquement ces profils de test avec le mot de passe commun **`password`** :
+Le seeder initial crée automatiquement ces profils de test (mot de passe défini dans `fojem_backend/database/seeders/DatabaseSeeder.php`, à n'utiliser qu'en local) :
 
-| Rôle | Email / Identifiant | Téléphone | Mot de passe | Description |
-|---|---|---|---|---|
-| **Chauffeur** | `demo.driver@fojem.sn` | `+221770000001` | `password` | Chauffeur vérifié avec véhicule Renault Logan et trajet ouvert (Plateau → Ouakam) |
-| **Passager** | `demo.passenger@fojem.sn` | `+221770000002` | `password` | Passagère avec portefeuille pré-crédité (5 000 FCFA) |
-| **Super Admin** | `super_admin@fojem.sn` | `—` | `password` | Accès complet au dashboard administrateur |
-| **Support Admin** | `support@fojem.sn` | `—` | `password` | Modération des trajets et gestion du support client |
-| **Finance Admin** | `finance@fojem.sn` | `—` | `password` | Supervision des portefeuilles et transactions financières |
+| Rôle | Email / Identifiant | Téléphone | Description |
+|---|---|---|---|
+| **Chauffeur** | `demo.driver@fojem.sn` | `+221770000001` | Chauffeur vérifié avec véhicule Renault Logan et trajet ouvert (Plateau → Ouakam) |
+| **Passager** | `demo.passenger@fojem.sn` | `+221770000002` | Passagère avec portefeuille pré-crédité (5 000 FCFA) |
+| **Super Admin** | `super_admin@fojem.sn` | `—` | Accès complet au dashboard administrateur |
+| **Support Admin** | `support@fojem.sn` | `—` | Modération des trajets et gestion du support client |
+| **Finance Admin** | `finance@fojem.sn` | `—` | Supervision des portefeuilles et transactions financières |
 
 ---
 
