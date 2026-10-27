@@ -305,3 +305,56 @@ export interface MapTripsResponse {
   trips: MapTripItem[];
   sos_alerts: MapSosAlertItem[];
 }
+
+// ── Supervision des trajets (/admin/trips) ─────────────────────────────────
+
+export type TripStatus = "open" | "full" | "in_progress" | "completed" | "cancelled";
+
+export type BookingStatus =
+  | "pending_driver"
+  | "confirmed"
+  | "rejected"
+  | "cancelled_passenger"
+  | "cancelled_driver"
+  | "completed"
+  | "no_show";
+
+export interface AdminTrip {
+  id: string;
+  status: TripStatus;
+  closed_by: "driver" | "system" | "admin" | null;
+  departure_type: "now" | "scheduled";
+  scheduled_at: string | null;
+  created_at: string | null;
+  origin_name: string | null;
+  destination_name: string | null;
+  price_per_seat: string;
+  seats_available: number;
+  confirmed_bookings_count: number;
+  pending_bookings_count: number;
+  driver: { id: string; full_name: string; phone_number: string | null } | null;
+  vehicle: { brand: string | null; model: string | null; plate_number: string; seat_count: number } | null;
+}
+
+export interface AdminTripBooking {
+  id: string;
+  status: BookingStatus;
+  seat_count: number;
+  seat_numbers: string[];
+  price_charged: string;
+  has_heavy_luggage: boolean;
+  created_at: string | null;
+  started_at: string | null;
+  passenger: { id: string; full_name: string; phone_number: string | null } | null;
+}
+
+export interface AdminTripDetail extends AdminTrip {
+  origin_lat: number;
+  origin_lng: number;
+  destination_lat: number;
+  destination_lng: number;
+  women_only: boolean;
+  toll_fees: string | null;
+  location_updated_at: string | null;
+  bookings: AdminTripBooking[];
+}

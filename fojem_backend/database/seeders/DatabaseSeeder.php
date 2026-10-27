@@ -48,6 +48,8 @@ class DatabaseSeeder extends Seeder
                 ['resource' => 'disputes', 'action' => 'edit'],
                 ['resource' => 'sos_alerts', 'action' => 'view'],
                 ['resource' => 'sos_alerts', 'action' => 'edit'],
+                ['resource' => 'trips', 'action' => 'view'],
+                ['resource' => 'trips', 'action' => 'edit'],
             ],
             AdminRole::FINANCE => [
                 ['resource' => 'payout_requests', 'action' => 'view'],

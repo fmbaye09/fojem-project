@@ -6,6 +6,7 @@ import { RequirePermission } from "./components/layout/RequirePermission";
 import { Login } from "./pages/Login";
 import { Overview } from "./pages/Overview";
 import { MapView } from "./pages/MapView";
+import { Trips } from "./pages/Trips";
 import { UsersPage } from "./pages/UsersPage";
 import { Finance } from "./pages/Finance";
 import { Moderation } from "./pages/Moderation";
@@ -53,6 +54,9 @@ export default function App() {
         <Route element={<AppLayout />}>
           <Route path="/" element={<Overview />} />
           <Route path="/map" element={<MapView />} />
+          <Route element={<RequirePermission resource="trips" />}>
+            <Route path="/trips" element={<Trips />} />
+          </Route>
           <Route element={<RequirePermission resource="users" />}>
             <Route path="/users" element={<UsersPage />} />
           </Route>

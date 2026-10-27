@@ -11,6 +11,7 @@ use App\Http\Controllers\Api\Admin\PlatformSettingController;
 use App\Http\Controllers\Api\Admin\SosAlertController as AdminSosAlertController;
 use App\Http\Controllers\Api\Admin\StatsController;
 use App\Http\Controllers\Api\Admin\TransactionController;
+use App\Http\Controllers\Api\Admin\TripController as AdminTripController;
 use App\Http\Controllers\Api\Admin\UserController as AdminUserManagementController;
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\BookingController;
@@ -154,6 +155,13 @@ Route::prefix('admin')->group(function () {
         });
         Route::patch('drivers/{driver}/documents/{docId}/review', [AdminDriverController::class, 'reviewDocument'])
             ->middleware('admin.permission:driver_documents,edit');
+
+        Route::middleware('admin.permission:trips,view')->group(function () {
+            Route::get('trips', [AdminTripController::class, 'index']);
+            Route::get('trips/{trip}', [AdminTripController::class, 'show']);
+        });
+        Route::post('trips/{trip}/cancel', [AdminTripController::class, 'cancel'])
+            ->middleware('admin.permission:trips,edit');
 
         Route::middleware('admin.permission:transactions,view')
             ->get('transactions', [TransactionController::class, 'index']);

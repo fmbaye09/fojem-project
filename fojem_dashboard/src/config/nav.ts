@@ -1,6 +1,7 @@
 import {
   LayoutDashboard,
   Map,
+  Route,
   Users,
   Wallet,
   ShieldAlert,
@@ -21,6 +22,7 @@ export interface NavItem {
 export const NAV_ITEMS: NavItem[] = [
   { to: "/", label: "Vue d'ensemble", icon: LayoutDashboard, end: true },
   { to: "/map", label: "Cartographie", icon: Map },
+  { to: "/trips", label: "Trajets", icon: Route, resource: "trips" },
   { to: "/users", label: "Utilisateurs", icon: Users, resource: "users" },
   { to: "/finance", label: "Finance", icon: Wallet, resource: "transactions" },
   { to: "/moderation", label: "Modération & SOS", icon: ShieldAlert, resource: "sos_alerts" },
