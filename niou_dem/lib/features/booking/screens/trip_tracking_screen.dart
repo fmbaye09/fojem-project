@@ -338,8 +338,8 @@ class _QrTicketCard extends StatelessWidget {
                           ? booking.confirmationCode
                           : (booking.id.length >= 8 ? booking.id.substring(0, 8).toUpperCase() : booking.id),
                       style: AppTextStyles.display.copyWith(
-                        fontSize: 22,
-                        letterSpacing: 4,
+                        fontSize: 30,
+                        letterSpacing: 10,
                         color: AppColors.primary,
                         fontWeight: FontWeight.bold,
                       ),
@@ -349,7 +349,7 @@ class _QrTicketCard extends StatelessWidget {
                   Text(
                     isBoarded
                         ? 'Votre présence a été validée par le chauffeur.'
-                        : 'Présentez ce QR code ou dictez le code au chauffeur avant le départ.',
+                        : 'Présentez ce QR code au chauffeur, ou donnez-lui ce code à 4 chiffres s’il ne peut pas scanner.',
                     textAlign: TextAlign.center,
                     style: AppTextStyles.body.copyWith(
                       fontSize: 12.5,

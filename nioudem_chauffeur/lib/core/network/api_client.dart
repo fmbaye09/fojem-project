@@ -63,6 +63,9 @@ class ApiClient {
   Future<Map<String, dynamic>> patch(String path, {Map<String, dynamic>? data}) =>
       _request(() => _dio.patch(path, data: data), signalPath: path);
 
+  Future<Map<String, dynamic>> put(String path, {Map<String, dynamic>? data}) =>
+      _request(() => _dio.put(path, data: data), signalPath: path);
+
   /// Envoi `multipart/form-data` (upload de fichiers : photo de profil,
   /// documents chauffeur). Dio pose lui-même le `Content-Type` avec la
   /// bonne frontière quand `data` est un [FormData]. Délai d'envoi allongé :

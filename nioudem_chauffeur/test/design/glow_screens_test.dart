@@ -86,11 +86,22 @@ void main() {
     // Genre : choix par défaut.
     await tester.tap(find.text('Continuer'));
     await tester.pump(const Duration(seconds: 1));
+    await fill('motdepasse');
+
+    // Confirmation différente : refusée, rien n'est envoyé.
+    await tester.enterText(find.byType(TextField), 'autrechose');
+    await tester.pump();
+    await tester.tap(find.text('Créer mon compte'));
+    await tester.pump(const Duration(seconds: 1));
+    expect(find.text('Les mots de passe ne correspondent pas.'), findsOneWidget);
+    expect(sent, isNull);
+
     await tester.enterText(find.byType(TextField), 'motdepasse');
     await tester.pump();
     await tester.tap(find.text('Créer mon compte'));
     await tester.pump(const Duration(seconds: 1));
 
+    expect(sent?.password, 'motdepasse');
     expect(sent?.fullName, 'Awa Ndiaye');
     expect(sent?.phoneNumber, '+221771234567');
     expect(sent?.email, 'awa@exemple.com');
@@ -116,6 +127,10 @@ void main() {
       await tester.tap(find.text('Continuer'));
       await tester.pump(const Duration(seconds: 1));
     }
+    await tester.tap(find.text('Continuer'));
+    await tester.pump(const Duration(seconds: 1));
+    await tester.enterText(find.byType(TextField), 'motdepasse');
+    await tester.pump();
     await tester.tap(find.text('Continuer'));
     await tester.pump(const Duration(seconds: 1));
     await tester.enterText(find.byType(TextField), 'motdepasse');

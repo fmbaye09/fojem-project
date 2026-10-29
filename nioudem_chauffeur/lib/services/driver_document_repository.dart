@@ -9,7 +9,10 @@ class DriverOnboarding {
   final Map<String, String> vehicle;
   final List<DriverDocument> documents;
 
-  const DriverOnboarding({required this.vehicle, required this.documents});
+  /// Contact d'urgence (nom, téléphone), vide s'il n'a pas encore été donné.
+  final ({String name, String phone})? emergencyContact;
+
+  const DriverOnboarding({required this.vehicle, required this.documents, this.emergencyContact});
 }
 
 /// Un fichier à envoyer pour un type de pièce.
@@ -47,9 +50,13 @@ class DriverDocumentRepository {
     String? color,
     String? plateNumber,
     int? seatCount,
+    String? emergencyContactName,
+    String? emergencyContactPhone,
     required Map<DriverDocumentType, OnboardingFile> files,
   }) async {
     final form = FormData.fromMap({
+      if (emergencyContactName != null) 'emergency_contact_name': emergencyContactName,
+      if (emergencyContactPhone != null) 'emergency_contact_phone': emergencyContactPhone,
       if (brand != null) 'brand': brand,
       if (model != null) 'model': model,
       if (color != null) 'color': color,
@@ -76,6 +83,18 @@ class DriverDocumentRepository {
         .map(DriverDocument.fromJson)
         .whereType<DriverDocument>()
         .toList();
-    return DriverOnboarding(vehicle: vehicle, documents: documents);
+    final contact = body['emergency_contact'];
+    return DriverOnboarding(
+      vehicle: vehicle,
+      documents: documents,
+      emergencyContact: contact is Map
+          ? (name: '${contact['name'] ?? ''}', phone: '${contact['phone'] ?? ''}')
+          : null,
+    );
+  }
+
+  /// Modifie le contact d'urgence depuis le profil.
+  Future<void> updateEmergencyContact({required String name, required String phone}) async {
+    await _client.put('/profile/emergency-contact', data: {'name': name, 'phone': phone});
   }
 }

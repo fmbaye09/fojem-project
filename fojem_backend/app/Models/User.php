@@ -160,6 +160,30 @@ class User extends Authenticatable
         return $this->hasMany(EmergencyContact::class);
     }
 
+    /** Le contact d'urgence en cours (un seul est géré par l'app). */
+    public function emergencyContact(): HasOne
+    {
+        return $this->hasOne(EmergencyContact::class)->latest('created_at');
+    }
+
+    /** Remplace le contact d'urgence de l'utilisateur. */
+    public function setEmergencyContact(string $name, string $phone): EmergencyContact
+    {
+        $contact = $this->emergencyContact ?? new EmergencyContact(['user_id' => $this->id]);
+        $contact->fill(['contact_name' => $name, 'contact_phone' => $phone])->save();
+        $this->unsetRelation('emergencyContact');
+
+        return $contact;
+    }
+
+    /** Forme exposée par l'API : nom + téléphone en clair, ou null. */
+    public function emergencyContactPayload(): ?array
+    {
+        $contact = $this->emergencyContact;
+
+        return $contact ? ['name' => $contact->contact_name, 'phone' => $contact->contact_phone] : null;
+    }
+
     /**
      * Named to avoid colliding with Notifiable::notifications(), which
      * targets Laravel's own `notifications` table (unused here - our

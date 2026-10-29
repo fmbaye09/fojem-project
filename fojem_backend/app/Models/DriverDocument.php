@@ -19,9 +19,12 @@ class DriverDocument extends Model
      * The full set of document types a driver must have approved before
      * drivers.verification_status can move to "approved" (see
      * App\Services\DriverVerificationService::recompute()). Mirrors the
-     * `document_type` enum in the driver_documents migration.
+     * `document_type` enum in the driver_documents migration (CNI added by
+     * 2026_11_01_000001_add_cni_to_driver_documents_table).
      */
     public const REQUIRED_TYPES = [
+        'cni_recto',
+        'cni_verso',
         'permis_recto',
         'permis_verso',
         'carte_grise',

@@ -83,6 +83,8 @@ class _StepAuthFlowState extends State<StepAuthFlow> {
     _Step('gender', 'Vous êtes…', 'Certains trajets sont réservés aux femmes.', _Kind.gender, serverField: 'gender'),
     _Step('password', 'Créez un mot de passe', 'Au moins 8 caractères.', _Kind.password,
         icon: Icons.lock_outline_rounded, placeholder: 'Mot de passe', serverField: 'password'),
+    _Step('confirm', 'Confirmez votre mot de passe', 'Saisissez-le une seconde fois.', _Kind.password,
+        icon: Icons.lock_outline_rounded, placeholder: 'Mot de passe'),
   ];
 
   static const _login = [
@@ -160,6 +162,10 @@ class _StepAuthFlowState extends State<StepAuthFlow> {
     final step = _step;
     if (step.kind != _Kind.gender && step.kind != _Kind.method) {
       _data[step.key] = _controller.text.trim();
+    }
+    if (step.key == 'confirm' && _data['confirm'] != _data['password']) {
+      setState(() => _error = 'Les mots de passe ne correspondent pas.');
+      return;
     }
     if (_index < _steps.length - 1) {
       _goTo(_mode, _index + 1);

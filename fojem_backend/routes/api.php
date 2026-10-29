@@ -52,6 +52,8 @@ Route::get('trips/search', [TripController::class, 'search']);
 Route::middleware('auth:sanctum')->group(function () {
     Route::patch('profile', [ProfileController::class, 'update']);
     Route::post('profile/photo', [ProfileController::class, 'updatePhoto']);
+    Route::get('profile/emergency-contact', [ProfileController::class, 'emergencyContact']);
+    Route::put('profile/emergency-contact', [ProfileController::class, 'updateEmergencyContact']);
     Route::get('profile/identity', [IdentityVerificationController::class, 'show']);
     Route::post('profile/identity', [IdentityVerificationController::class, 'submit']);
 

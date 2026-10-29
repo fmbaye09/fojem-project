@@ -47,8 +47,10 @@ export const IDENTITY_DOC_TYPE_LABEL: Record<IdentityDocumentType, string> = {
   driver_license: "Permis de conduire",
 };
 
-/** Ordre d'affichage fixe des 9 pièces exigées. */
+/** Ordre d'affichage fixe des 11 pièces exigées. */
 export const DOCUMENT_TYPES_ORDERED: readonly DriverDocumentType[] = [
+  "cni_recto",
+  "cni_verso",
   "permis_recto",
   "permis_verso",
   "carte_grise",
@@ -61,6 +63,8 @@ export const DOCUMENT_TYPES_ORDERED: readonly DriverDocumentType[] = [
 ];
 
 export const DOCUMENT_TYPE_LABEL: Record<DriverDocumentType, string> = {
+  cni_recto: "Carte d'identité (recto)",
+  cni_verso: "Carte d'identité (verso)",
   permis_recto: "Permis de conduire (recto)",
   permis_verso: "Permis de conduire (verso)",
   carte_grise: "Carte grise",

@@ -10,6 +10,7 @@ import '../../../core/network/api_exception.dart';
 import '../../../core/widgets/bottom_nav_bar.dart';
 import '../../../core/widgets/image_source_sheet.dart';
 import '../../../providers/app_provider.dart';
+import '../../../services/driver_document_repository.dart';
 import '../../../services/profile_repository.dart';
 import '../../../core/utils/language_preference.dart';
 import '../../../core/utils/external_links.dart';
@@ -85,6 +86,18 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
     if (updated == true && mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Nom mis à jour.')),
+      );
+    }
+  }
+
+  Future<void> _editEmergencyContact() async {
+    final updated = await showDialog<bool>(
+      context: context,
+      builder: (_) => const _EmergencyContactDialog(),
+    );
+    if (updated == true && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Contact d’urgence enregistré.')),
       );
     }
   }
@@ -182,6 +195,13 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
                   title: 'Vérification d\'identité',
                   subtitle: status,
                   onTap: () => context.push('/profile/identity'),
+                ),
+                ProfileMenuItem(
+                  icon: Icons.contact_emergency_rounded,
+                  color: AppColors.danger,
+                  title: 'Contact d’urgence',
+                  subtitle: 'Prévenu en cas de problème',
+                  onTap: _editEmergencyContact,
                 ),
                 ProfileMenuItem(
                   icon: Icons.notifications_rounded,
@@ -385,6 +405,125 @@ class _EditNameDialogState extends State<_EditNameDialog> {
                   height: 18,
                   child: CircularProgressIndicator(strokeWidth: 2),
                 )
+              : Text(
+                  'Enregistrer',
+                  style: AppTextStyles.bodySemibold.copyWith(
+                    color: _canSave ? AppColors.primary : AppColors.textMuted,
+                  ),
+                ),
+        ),
+      ],
+    );
+  }
+}
+
+/// Contact d'urgence (nom + téléphone) : chargé puis modifié via l'API.
+class _EmergencyContactDialog extends StatefulWidget {
+  const _EmergencyContactDialog();
+
+  @override
+  State<_EmergencyContactDialog> createState() => _EmergencyContactDialogState();
+}
+
+class _EmergencyContactDialogState extends State<_EmergencyContactDialog> {
+  final _repository = DriverDocumentRepository();
+  final _name = TextEditingController();
+  final _phone = TextEditingController();
+  bool _isLoading = true;
+  bool _isSaving = false;
+  String? _error;
+
+  bool get _canSave =>
+      !_isSaving &&
+      !_isLoading &&
+      _name.text.trim().length >= 2 &&
+      _phone.text.replaceAll(RegExp(r'\D'), '').length >= 9;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    try {
+      final contact = (await _repository.fetch()).emergencyContact;
+      _name.text = contact?.name ?? '';
+      _phone.text = contact?.phone ?? '';
+    } catch (_) {
+      // Champs vides : le chauffeur peut quand même saisir un contact.
+    }
+    if (mounted) setState(() => _isLoading = false);
+  }
+
+  Future<void> _save() async {
+    if (!_canSave) return;
+    setState(() {
+      _isSaving = true;
+      _error = null;
+    });
+    try {
+      await _repository.updateEmergencyContact(name: _name.text.trim(), phone: _phone.text.trim());
+      if (mounted) Navigator.of(context).pop(true);
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _isSaving = false;
+        _error = e is ApiException ? e.message : 'Échec de l’enregistrement. Réessayez.';
+      });
+    }
+  }
+
+  @override
+  void dispose() {
+    _name.dispose();
+    _phone.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(AppSpacing.borderRadiusMd),
+      ),
+      title: Text('Contact d’urgence', style: AppTextStyles.title2),
+      content: _isLoading
+          ? const SizedBox(height: 80, child: Center(child: CircularProgressIndicator()))
+          : Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  'Un proche à prévenir en cas de problème pendant un trajet. Visible uniquement par l’équipe FOJËM.',
+                  style: AppTextStyles.caption,
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: _name,
+                  enabled: !_isSaving,
+                  textCapitalization: TextCapitalization.words,
+                  onChanged: (_) => setState(() => _error = null),
+                  decoration: const InputDecoration(labelText: 'Nom du contact'),
+                ),
+                const SizedBox(height: 8),
+                TextField(
+                  controller: _phone,
+                  enabled: !_isSaving,
+                  keyboardType: TextInputType.phone,
+                  onChanged: (_) => setState(() => _error = null),
+                  decoration: InputDecoration(labelText: 'Téléphone', errorText: _error),
+                ),
+              ],
+            ),
+      actions: [
+        TextButton(
+          onPressed: _isSaving ? null : () => Navigator.of(context).pop(false),
+          child: const Text('Annuler'),
+        ),
+        TextButton(
+          onPressed: _canSave ? _save : null,
+          child: _isSaving
+              ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
               : Text(
                   'Enregistrer',
                   style: AppTextStyles.bodySemibold.copyWith(

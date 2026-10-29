@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Profile\UpdateProfilePhotoRequest;
 use App\Http\Requests\Profile\UpdateProfileRequest;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
 
 class ProfileController extends Controller
@@ -37,5 +38,22 @@ class ProfileController extends Controller
         $user->update(['profile_photo_url' => $photoUrl]);
 
         return response()->json(['user' => $user->fresh()]);
+    }
+
+    public function emergencyContact(Request $request)
+    {
+        return response()->json(['emergency_contact' => $request->user()->emergencyContactPayload()]);
+    }
+
+    public function updateEmergencyContact(Request $request)
+    {
+        $data = $request->validate([
+            'name' => ['required', 'string', 'max:120'],
+            'phone' => ['required', 'string', 'regex:/^\+?[0-9 ]{7,20}$/'],
+        ]);
+        $user = $request->user();
+        $user->setEmergencyContact(trim($data['name']), trim($data['phone']));
+
+        return response()->json(['emergency_contact' => $user->emergencyContactPayload()]);
     }
 }

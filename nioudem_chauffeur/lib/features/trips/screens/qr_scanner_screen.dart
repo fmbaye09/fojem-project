@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import '../../../core/theme/app_colors.dart';
@@ -73,14 +74,32 @@ class _QrScannerScreenState extends State<QrScannerScreen>
     final rawValue = barcodes.first.rawValue;
     if (rawValue == null || rawValue.isEmpty) return;
 
+    // Le backend sait interpréter "FOJEM:{booking_id}:{code}", l'id brut ou
+    // le code de départ seul : on lui transmet la valeur scannée telle quelle.
+    await _submitCode(rawValue.trim());
+  }
+
+  /// Alternative au scan : le code à 4 chiffres imprimé sur le billet.
+  Future<void> _enterCode() async {
+    final code = await showModalBottomSheet<String>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: AppColors.surface,
+      showDragHandle: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (_) => const _CodeEntrySheet(),
+    );
+    if (code != null && mounted) await _submitCode(code);
+  }
+
+  Future<void> _submitCode(String code) async {
+    if (_isProcessing) return;
     setState(() => _isProcessing = true);
 
     // Pause la caméra pendant le traitement
     _controller.stop();
-
-    // Le backend sait interpréter "FOJEM:{booking_id}:{code}", l'id brut ou
-    // le code de départ seul : on lui transmet la valeur scannée telle quelle.
-    final String code = rawValue.trim();
 
     try {
       final result = await BookingRepository().boardPassenger(
@@ -161,6 +180,7 @@ class _QrScannerScreenState extends State<QrScannerScreen>
               return _CameraErrorWidget(
                 error: error,
                 onRetry: _resetScan,
+                onEnterCode: _enterCode,
               );
             },
           ),
@@ -218,6 +238,18 @@ class _QrScannerScreenState extends State<QrScannerScreen>
                       ),
                       textAlign: TextAlign.center,
                     ),
+                    const SizedBox(height: 16),
+                    OutlinedButton.icon(
+                      onPressed: _enterCode,
+                      icon: const Icon(Icons.dialpad_rounded),
+                      label: const Text('Saisir le code à 4 chiffres'),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: Colors.white,
+                        side: const BorderSide(color: Colors.white54),
+                        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                        shape: const StadiumBorder(),
+                      ),
+                    ),
                   ],
                 ),
               ),
@@ -251,8 +283,9 @@ class _QrScannerScreenState extends State<QrScannerScreen>
 class _CameraErrorWidget extends StatelessWidget {
   final MobileScannerException error;
   final VoidCallback onRetry;
+  final VoidCallback onEnterCode;
 
-  const _CameraErrorWidget({required this.error, required this.onRetry});
+  const _CameraErrorWidget({required this.error, required this.onRetry, required this.onEnterCode});
 
   String _getErrorMessage() {
     switch (error.errorCode) {
@@ -303,6 +336,12 @@ class _CameraErrorWidget extends StatelessWidget {
                 prefixIcon: Icons.refresh_rounded,
                 onPressed: onRetry,
                 size: FojemButtonSize.medium,
+              ),
+              const SizedBox(height: 12),
+              TextButton.icon(
+                onPressed: onEnterCode,
+                icon: const Icon(Icons.dialpad_rounded, color: Colors.white),
+                label: Text('Saisir le code du billet', style: AppTextStyles.bodySemibold.copyWith(color: Colors.white)),
               ),
             ],
           ),
@@ -520,6 +559,68 @@ class _ResultSheet extends StatelessWidget {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+/// Saisie du code à 4 chiffres du billet (alternative au QR code).
+class _CodeEntrySheet extends StatefulWidget {
+  const _CodeEntrySheet();
+
+  @override
+  State<_CodeEntrySheet> createState() => _CodeEntrySheetState();
+}
+
+class _CodeEntrySheetState extends State<_CodeEntrySheet> {
+  final _controller = TextEditingController();
+
+  bool get _complete => _controller.text.length == 4;
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _validate() {
+    if (_complete) Navigator.of(context).pop(_controller.text);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: EdgeInsets.fromLTRB(24, 0, 24, 24 + MediaQuery.viewInsetsOf(context).bottom),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text('Code du billet', style: AppTextStyles.title2),
+          const SizedBox(height: 6),
+          Text(
+            'Saisissez les 4 chiffres indiqués sur le billet du passager.',
+            textAlign: TextAlign.center,
+            style: AppTextStyles.body.copyWith(color: AppColors.textSecondary),
+          ),
+          const SizedBox(height: 20),
+          TextField(
+            controller: _controller,
+            autofocus: true,
+            maxLength: 4,
+            keyboardType: TextInputType.number,
+            textAlign: TextAlign.center,
+            inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+            onChanged: (_) => setState(() {}),
+            onSubmitted: (_) => _validate(),
+            style: AppTextStyles.display.copyWith(fontSize: 36, letterSpacing: 18),
+            decoration: const InputDecoration(counterText: '', hintText: '• • • •'),
+          ),
+          const SizedBox(height: 20),
+          FojemButton.primary(
+            label: 'Valider l’embarquement',
+            prefixIcon: Icons.how_to_reg_rounded,
+            onPressed: _complete ? _validate : null,
+          ),
+        ],
       ),
     );
   }

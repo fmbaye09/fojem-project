@@ -89,6 +89,7 @@ class DriverDocumentController extends Controller
         return response()->json([
             'vehicle' => $vehicle,
             'documents' => $documents,
+            'emergency_contact' => $request->user()->emergencyContactPayload(),
         ]);
     }
 
@@ -98,6 +99,19 @@ class DriverDocumentController extends Controller
     public function submitOnboarding(Request $request)
     {
         $driver = $this->driverOrFail($request);
+
+        // Contact d'urgence demandé à l'inscription : visible par l'admin et
+        // sur les alertes SOS.
+        $request->validate([
+            'emergency_contact_name' => ['sometimes', 'required_with:emergency_contact_phone', 'string', 'max:120'],
+            'emergency_contact_phone' => ['sometimes', 'required_with:emergency_contact_name', 'string', 'regex:/^\+?[0-9 ]{7,20}$/'],
+        ]);
+        if ($request->filled('emergency_contact_name') && $request->filled('emergency_contact_phone')) {
+            $request->user()->setEmergencyContact(
+                trim($request->input('emergency_contact_name')),
+                trim($request->input('emergency_contact_phone')),
+            );
+        }
 
         $vehicleFields = [];
         if ($request->has('brand')) $vehicleFields['pending_vehicle_brand'] = $request->input('brand');

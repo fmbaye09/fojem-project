@@ -119,6 +119,8 @@ class NotificationService
 
     /** Libellés des documents du dossier chauffeur (DriverDocument::REQUIRED_TYPES). */
     private const DOCUMENT_LABELS = [
+        'cni_recto' => "carte d'identité (recto)",
+        'cni_verso' => "carte d'identité (verso)",
         'permis_recto' => 'permis de conduire (recto)',
         'permis_verso' => 'permis de conduire (verso)',
         'carte_grise' => 'carte grise',

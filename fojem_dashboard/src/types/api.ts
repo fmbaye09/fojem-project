@@ -93,6 +93,8 @@ export interface PlatformUser {
  * quand les 9 sont approuvées.
  */
 export type DriverDocumentType =
+  | "cni_recto"
+  | "cni_verso"
   | "permis_recto"
   | "permis_verso"
   | "carte_grise"
@@ -123,6 +125,13 @@ export interface DriverDocument {
 export interface DriverDocumentsResponse {
   driver_id: string;
   documents: DriverDocument[];
+  /** Contact d'urgence donné par le chauffeur à l'inscription. */
+  emergency_contact: EmergencyContact | null;
+}
+
+export interface EmergencyContact {
+  name: string;
+  phone: string;
 }
 
 /** Réponse de PATCH /admin/drivers/:id/documents/:docId/review. */

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Check, ImageOff, X } from "lucide-react";
+import { Check, ImageOff, Phone, Siren, X } from "lucide-react";
 import { useApi } from "../../lib/useApi";
 import { apiFetch, ApiError } from "../../lib/api";
 import type {
@@ -130,7 +130,36 @@ export function DriverDocumentsPanel({
         </div>
       )}
 
+      {data && <EmergencyContactCard contact={data.emergency_contact} />}
+
       {actionError && <div className="text-sm text-danger bg-danger-surface rounded-sm px-3 py-2">{actionError}</div>}
+    </div>
+  );
+}
+
+/** Contact d'urgence du chauffeur (aussi affiché sur ses alertes SOS). */
+function EmergencyContactCard({ contact }: { contact: DriverDocumentsResponse["emergency_contact"] }) {
+  return (
+    <div className="flex items-center gap-3 rounded-sm border border-line bg-surface px-3 py-2.5">
+      <Siren size={18} className="text-danger shrink-0" />
+      <div className="flex-1 min-w-0">
+        <p className="text-xs text-ink-muted">Contact d'urgence</p>
+        {contact ? (
+          <p className="text-sm text-ink-primary truncate">
+            <strong>{contact.name}</strong> · {contact.phone}
+          </p>
+        ) : (
+          <p className="text-sm text-ink-secondary">Non renseigné</p>
+        )}
+      </div>
+      {contact && (
+        <a
+          href={`tel:${contact.phone.replace(/\s/g, "")}`}
+          className="inline-flex items-center gap-1 text-sm text-primary hover:underline"
+        >
+          <Phone size={14} /> Appeler
+        </a>
+      )}
     </div>
   );
 }

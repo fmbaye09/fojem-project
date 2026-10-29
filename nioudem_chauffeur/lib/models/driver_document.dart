@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 
-/// Les 9 pièces exigées pour valider un profil chauffeur. [apiValue] est la
+/// Les 11 pièces exigées pour valider un profil chauffeur. [apiValue] est la
 /// valeur exacte attendue par le backend dans le champ `document_type` de
 /// `POST /driver/documents` (toute autre valeur est refusée en 422).
 enum DriverDocumentType {
+  cniRecto('cni_recto', "Carte d'identité (recto)", Icons.credit_card_outlined),
+  cniVerso('cni_verso', "Carte d'identité (verso)", Icons.credit_card_outlined),
   permisRecto('permis_recto', 'Permis de conduire (recto)', Icons.badge_outlined),
   permisVerso('permis_verso', 'Permis de conduire (verso)', Icons.badge_outlined),
   carteGrise('carte_grise', 'Carte grise du véhicule', Icons.description_outlined),

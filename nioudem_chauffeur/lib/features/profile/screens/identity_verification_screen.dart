@@ -20,7 +20,7 @@ import '../../../services/driver_document_repository.dart';
 
 /// Formulaire d'activation chauffeur (route `/profile/identity`) :
 /// Découpé en 2 phases distinctes :
-/// 1. Phase 1 : Vérification d'identité du chauffeur (Permis recto/verso + Selfie permis).
+/// 1. Phase 1 : Identité du chauffeur (CNI et permis recto/verso, selfie permis, contact d'urgence).
 /// 2. Phase 2 : Enregistrement du premier véhicule (Champs véhicule + Carte grise + Photos véhicule + Selfie carte grise).
 /// Le chauffeur peut aussi enregistrer son identité et ajouter un véhicule ultérieurement.
 class IdentityVerificationScreen extends StatefulWidget {
@@ -36,6 +36,8 @@ class _IdentityVerificationScreenState extends State<IdentityVerificationScreen>
   int _step = 0; // 0: Chauffeur (Identité), 1: Véhicule
 
   static const _identityTypes = [
+    DriverDocumentType.cniRecto,
+    DriverDocumentType.cniVerso,
     DriverDocumentType.permisRecto,
     DriverDocumentType.permisVerso,
     DriverDocumentType.selfiePermis,
@@ -54,6 +56,8 @@ class _IdentityVerificationScreenState extends State<IdentityVerificationScreen>
   final _modelController = TextEditingController();
   final _colorController = TextEditingController();
   final _plateController = TextEditingController();
+  final _emergencyNameController = TextEditingController();
+  final _emergencyPhoneController = TextEditingController();
   VehicleType _type = VehicleType.septPlaces;
 
   bool _isLoading = true;
@@ -67,7 +71,14 @@ class _IdentityVerificationScreenState extends State<IdentityVerificationScreen>
   bool get _needsVehicle =>
       context.read<AppProvider>().user?.driverStatus != DriverVerificationStatus.approved;
 
-  bool get _identityValid => _identityTypes.every(
+  /// Contact d'urgence obligatoire : nom et numéro (9 chiffres au moins).
+  bool get _emergencyValid =>
+      _emergencyNameController.text.trim().length >= 2 &&
+      _emergencyPhoneController.text.replaceAll(RegExp(r'\D'), '').length >= 9;
+
+  bool get _identityValid =>
+      _emergencyValid &&
+      _identityTypes.every(
         (t) => _picked.containsKey(t) || _documents.containsKey(t),
       );
 
@@ -103,6 +114,8 @@ class _IdentityVerificationScreenState extends State<IdentityVerificationScreen>
     _modelController.dispose();
     _colorController.dispose();
     _plateController.dispose();
+    _emergencyNameController.dispose();
+    _emergencyPhoneController.dispose();
     super.dispose();
   }
 
@@ -116,6 +129,8 @@ class _IdentityVerificationScreenState extends State<IdentityVerificationScreen>
       if (!mounted) return;
       _documents = {for (final d in data.documents) d.type: d};
       _prefillVehicle(data.vehicle);
+      _emergencyNameController.text = data.emergencyContact?.name ?? '';
+      _emergencyPhoneController.text = data.emergencyContact?.phone ?? '';
       setState(() => _isLoading = false);
     } catch (e) {
       if (!mounted) return;
@@ -175,6 +190,8 @@ class _IdentityVerificationScreenState extends State<IdentityVerificationScreen>
         color: needsVehicle ? _colorController.text.trim() : null,
         plateNumber: needsVehicle ? _plateController.text.trim() : null,
         seatCount: needsVehicle ? _type.passengerSeatCount : null,
+        emergencyContactName: _emergencyNameController.text.trim(),
+        emergencyContactPhone: _emergencyPhoneController.text.trim(),
         files: filesToSend,
       );
       if (!mounted) return;
@@ -235,7 +252,7 @@ class _IdentityVerificationScreenState extends State<IdentityVerificationScreen>
                           } else {
                             ScaffoldMessenger.of(context).showSnackBar(
                               const SnackBar(
-                                content: Text('Veuillez d\'abord compléter les documents d\'identité.'),
+                                content: Text('Complétez d\'abord vos documents d\'identité et votre contact d\'urgence.'),
                               ),
                             );
                           }
@@ -252,7 +269,7 @@ class _IdentityVerificationScreenState extends State<IdentityVerificationScreen>
                                 icon: Icons.badge_outlined,
                                 title: 'Phase 1 : Identité du chauffeur',
                                 subtitle:
-                                    'Photographiez votre permis de conduire (recto et verso) et prenez un selfie en tenant votre permis.',
+                                    'Photographiez votre carte d’identité et votre permis de conduire (recto et verso), prenez un selfie en tenant votre permis, et indiquez un contact d’urgence.',
                               ),
                               const SizedBox(height: 18),
                               for (final type in _identityTypes) ...[
@@ -268,6 +285,32 @@ class _IdentityVerificationScreenState extends State<IdentityVerificationScreen>
                               const _TipCard(
                                 message:
                                     'Photos nettes, bien éclairées, document entier visible. Formats acceptés : JPG ou PNG.',
+                              ),
+                              const SizedBox(height: 22),
+                              Text(
+                                'Contact d’urgence',
+                                style: AppTextStyles.title2.copyWith(fontSize: 16),
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                'Un proche à prévenir en cas de problème pendant un trajet. Visible uniquement par l’équipe FOJËM.',
+                                style: AppTextStyles.caption,
+                              ),
+                              const SizedBox(height: 12),
+                              FojemTextField(
+                                label: 'Nom du contact',
+                                hint: 'Fatou Diop',
+                                controller: _emergencyNameController,
+                                onChanged: (_) => setState(() {}),
+                              ),
+                              const SizedBox(height: 16),
+                              FojemTextField(
+                                label: 'Téléphone du contact',
+                                hint: '77 123 45 67',
+                                controller: _emergencyPhoneController,
+                                keyboardType: TextInputType.phone,
+                                textInputAction: TextInputAction.done,
+                                onChanged: (_) => setState(() {}),
                               ),
                             ] else ...[
                               const _SectionHeader(

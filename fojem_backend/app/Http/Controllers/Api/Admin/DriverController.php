@@ -41,7 +41,11 @@ class DriverController extends Controller
             'updated_at' => $doc->updated_at,
         ]);
 
-        return response()->json(['driver_id' => $driver->id, 'documents' => $documents]);
+        return response()->json([
+            'driver_id' => $driver->id,
+            'documents' => $documents,
+            'emergency_contact' => $driver->user?->emergencyContactPayload(),
+        ]);
     }
 
     /** Streams a document's file to an authenticated, permission-checked admin. */
