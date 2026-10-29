@@ -94,7 +94,7 @@ class TripController extends Controller
                     $pct = (int) round((float) $req->getAttribute('compatibility_score'));
                     $notifications->system(
                         $req->passenger,
-                        "Trajet compatible à {$pct}% trouvé !",
+                        "🔎 Trajet compatible à {$pct}% trouvé !",
                         "Un chauffeur vient de publier un trajet {$tripLabel} correspondant à votre demande.",
                         [
                             'type' => 'trip_match',
@@ -325,7 +325,7 @@ class TripController extends Controller
             if ($b->passenger) {
                 $notifications->system(
                     $b->passenger,
-                    'Trajet démarré !',
+                    '🚀 Trajet démarré !',
                     "Votre trajet $tripLabel vient de démarrer. Suivez la position du chauffeur en direct !",
                     ['trip_id' => $trip->id, 'booking_id' => $b->id]
                 );

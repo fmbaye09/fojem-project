@@ -506,7 +506,7 @@ class BookingController extends Controller
             $tripLabel = ($trip->origin_name ?? 'Départ') . ' → ' . ($trip->destination_name ?? 'Arrivée');
             $this->notifications->system(
                 $passenger,
-                'Présence confirmée à bord',
+                '🎫 Présence confirmée à bord',
                 "Votre présence à bord du trajet $tripLabel a été validée par le chauffeur. Bon voyage !",
                 ['booking_id' => $booking->id, 'trip_id' => $trip->id]
             );

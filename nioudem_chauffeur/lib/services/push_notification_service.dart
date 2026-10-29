@@ -18,8 +18,8 @@ Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
 /// - Demande de permission système (Android 13+ et iOS)
 /// - Enregistrement du token FCM sur le backend
 /// - Réception et affichage des notifications en foreground via flutter_local_notifications
-/// - Poller de synchronisation in-app pour garantir que chaque réservation, message
-///   ou validation de document déclenche une notification système dans la barre d'état
+/// - Une seule source d'affichage : FCM (le système en arrière-plan, l'app au
+///   premier plan). L'ancien poller de l'API doublait chaque notification.
 /// - Gestion du tap sur notification (redirection automatique)
 class PushNotificationService {
   static final PushNotificationService _instance = PushNotificationService._();
@@ -34,8 +34,6 @@ class PushNotificationService {
   bool _initialized = false;
   bool _initialMessageHandled = false;
   final List<StreamSubscription<dynamic>> _subscriptions = [];
-  Timer? _pollerTimer;
-  final Set<String> _notifiedIds = {};
 
   /// Canal Android pour les notifications FOJEM Chauffeur
   static const _androidChannel = AndroidNotificationChannel(
@@ -106,8 +104,6 @@ class PushNotificationService {
       _handleNotificationTap(initialMessage);
     }
 
-    // 7. Démarrer le poller in-app pour garantir l'affichage des notifications système
-    _startNotificationPoller();
   }
 
   Future<void> _setupLocalNotifications() async {
@@ -190,8 +186,10 @@ class PushNotificationService {
       debugPrint('[Push Chauffeur] Foreground FCM: ${notification.title} — ${notification.body}');
     }
 
+    // Même identifiant que la notification en base : jamais affichée deux fois.
+    final notificationId = message.data['notification_id']?.toString();
     showSystemNotification(
-      id: notification.hashCode,
+      id: (notificationId ?? message.messageId ?? notification.title).hashCode,
       title: notification.title ?? 'FOJEM Chauffeur',
       body: notification.body ?? '',
       payload: message.data,
@@ -206,48 +204,7 @@ class PushNotificationService {
     onNotificationTap?.call(message.data);
   }
 
-  void _startNotificationPoller() {
-    _pollerTimer?.cancel();
-    _checkNewNotifications(firstRun: true);
-    _pollerTimer = Timer.periodic(const Duration(seconds: 5), (_) {
-      _checkNewNotifications(firstRun: false);
-    });
-  }
-
-  Future<void> _checkNewNotifications({required bool firstRun}) async {
-    try {
-      final list = await _repository.fetchNotifications(unreadOnly: true, perPage: 15);
-      if (firstRun) {
-        for (final notif in list) {
-          _notifiedIds.add(notif.id);
-        }
-        return;
-      }
-
-      for (final notif in list) {
-        if (!_notifiedIds.contains(notif.id)) {
-          DataRefresh.instance.notify();
-          _notifiedIds.add(notif.id);
-          final payload = Map<String, dynamic>.from(notif.payload);
-          payload['type'] = notif.type;
-          payload['notification_id'] = notif.id;
-          payload['title'] = notif.title;
-          payload['body'] = notif.body;
-          await showSystemNotification(
-            id: notif.id.hashCode,
-            title: notif.title,
-            body: notif.body,
-            payload: payload,
-          );
-        }
-      }
-    } catch (_) {}
-  }
-
   void reset() {
-    _pollerTimer?.cancel();
-    _pollerTimer = null;
-    _notifiedIds.clear();
     _initialized = false;
     // Désabonne les flux FCM pour qu'un nouveau login ne les double pas.
     // `onNotificationTap` est conservé : il est posé une seule fois au

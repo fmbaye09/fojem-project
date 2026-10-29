@@ -31,7 +31,7 @@ class NotificationService
         return $this->create(
             $driver,
             Notification::TYPE_BOOKING_NEW,
-            'Nouvelle réservation',
+            '🚗 Nouvelle réservation',
             $message,
             $bookingData,
         );
@@ -47,7 +47,7 @@ class NotificationService
         return $this->create(
             $passenger,
             Notification::TYPE_BOOKING_CONFIRMED,
-            'Réservation confirmée',
+            '✅ Réservation confirmée',
             "Votre réservation pour $tripLabel a été confirmée. Bon voyage !",
             $bookingData,
         );
@@ -63,7 +63,7 @@ class NotificationService
         return $this->create(
             $passenger,
             Notification::TYPE_BOOKING_REJECTED,
-            'Réservation refusée',
+            '❌ Réservation refusée',
             "Votre demande de réservation pour $tripLabel a été refusée. Essayez un autre trajet.",
             $bookingData,
         );
@@ -79,7 +79,7 @@ class NotificationService
         return $this->create(
             $recipient,
             Notification::TYPE_BOOKING_CANCELLED,
-            'Réservation annulée',
+            '🚫 Réservation annulée',
             "$cancellerName a annulé la réservation pour $tripLabel.",
             $bookingData,
         );
@@ -95,7 +95,7 @@ class NotificationService
         return $this->create(
             $passenger,
             Notification::TYPE_TRIP_CANCELLED,
-            'Trajet annulé',
+            '⚠️ Trajet annulé',
             "Le chauffeur a annulé le trajet $tripLabel. Votre réservation est annulée, recherchez un autre trajet.",
             $bookingData,
         );
@@ -111,29 +111,56 @@ class NotificationService
         return $this->create(
             $passenger,
             Notification::TYPE_BOOKING_COMPLETED,
-            'Trajet terminé',
-            "Votre trajet $tripLabel est terminé. N'oubliez pas de noter votre chauffeur !",
+            '🏁 Trajet terminé',
+            "Votre trajet $tripLabel est terminé. N'oubliez pas de noter votre chauffeur ⭐",
             $bookingData,
         );
     }
 
+    /** Libellés des documents du dossier chauffeur (DriverDocument::REQUIRED_TYPES). */
+    private const DOCUMENT_LABELS = [
+        'permis_recto' => 'permis de conduire (recto)',
+        'permis_verso' => 'permis de conduire (verso)',
+        'carte_grise' => 'carte grise',
+        'vehicule_avant' => 'photo avant du véhicule',
+        'vehicule_arriere' => 'photo arrière du véhicule',
+        'vehicule_gauche' => 'photo côté gauche du véhicule',
+        'vehicule_droite' => 'photo côté droit du véhicule',
+        'selfie_carte_grise' => 'selfie avec la carte grise',
+        'selfie_permis' => 'selfie avec le permis',
+    ];
+
     /**
-     * Notify the driver about a document review result.
+     * A document was rejected: the driver has to upload it again, so each
+     * rejection is notified (approvals are not — see driverApproved()).
      */
-    public function documentStatus(User $driver, string $docType, string $status): Notification
+    public function documentRejected(User $driver, string $docType, ?string $reason = null): Notification
     {
-        $approved = $status === 'approved';
-        $title = $approved ? 'Document approuvé' : 'Document refusé';
-        $body  = $approved
-            ? "Votre $docType a été vérifié et approuvé."
-            : "Votre $docType n'a pas été approuvé. Veuillez soumettre un nouveau document.";
+        $label = self::DOCUMENT_LABELS[$docType] ?? $docType;
+        $body = "Votre $label n'a pas été accepté".($reason ? " : $reason" : '.')
+            .' Envoyez-en un nouveau depuis l\'app.';
 
         return $this->create(
             $driver,
             Notification::TYPE_DOCUMENT_STATUS,
-            $title,
+            '📄 Document à renvoyer',
             $body,
-            ['document_type' => $docType, 'status' => $status],
+            ['document_type' => $docType, 'status' => 'rejected', 'driver_status' => 'rejected'],
+        );
+    }
+
+    /**
+     * Sent once, when the last required document is approved and the
+     * driver account becomes "approved".
+     */
+    public function driverApproved(User $driver): Notification
+    {
+        return $this->create(
+            $driver,
+            Notification::TYPE_DOCUMENT_STATUS,
+            '🎉 Compte chauffeur validé',
+            'Tous vos documents sont approuvés. Vous pouvez maintenant publier vos trajets !',
+            ['status' => 'approved', 'driver_status' => 'approved'],
         );
     }
 
@@ -146,7 +173,7 @@ class NotificationService
         return $this->create(
             $recipient,
             Notification::TYPE_CHAT_MESSAGE,
-            "Message de {$sender->name}",
+            "💬 {$sender->name}",
             $preview,
             [
                 'sender_id' => $sender->id,
@@ -188,8 +215,9 @@ class NotificationService
             'sent_at' => now(),
         ]);
 
-        // Send FCM push notification
-        $this->sendFcmPush($user, $type, $title, $body, $payload);
+        // L'identifiant sert de clé d'affichage côté app : une même
+        // notification ne peut pas apparaître deux fois.
+        $this->sendFcmPush($user, $type, $title, $body, $payload + ['notification_id' => $notification->id]);
 
         return $notification;
     }
@@ -310,9 +338,11 @@ class NotificationService
                 // own default channel in its manifest, and Android uses it.
                 'android' => [
                     'priority' => 'HIGH',
-                    'notification' => [
+                    'notification' => array_filter([
                         'sound' => 'default',
-                    ],
+                        // Même tag = Android remplace au lieu d'empiler.
+                        'tag' => $fcmData['notification_id'] ?? null,
+                    ]),
                 ],
             ],
         ]);

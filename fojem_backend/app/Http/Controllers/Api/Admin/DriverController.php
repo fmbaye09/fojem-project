@@ -88,14 +88,19 @@ class DriverController extends Controller
             ['status' => $document->status, 'rejection_reason' => $document->rejection_reason],
         );
 
+        $wasApproved = $driver->verification_status === Driver::STATUS_APPROVED;
         DriverVerificationService::recompute($driver);
+        $driver->refresh();
 
+        // Pas une notification par document approuvé : une seule quand le
+        // compte passe « approuvé ». Un refus, lui, demande une action.
         if ($driver->user) {
-            app(\App\Services\NotificationService::class)->documentStatus(
-                $driver->user,
-                $document->document_type,
-                $document->status
-            );
+            $notifications = app(\App\Services\NotificationService::class);
+            if ($document->status === DriverDocument::STATUS_REJECTED) {
+                $notifications->documentRejected($driver->user, $document->document_type, $document->rejection_reason);
+            } elseif (! $wasApproved && $driver->verification_status === Driver::STATUS_APPROVED) {
+                $notifications->driverApproved($driver->user);
+            }
         }
 
         return response()->json([

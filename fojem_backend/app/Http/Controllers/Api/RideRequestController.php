@@ -42,7 +42,7 @@ class RideRequestController extends Controller
                         $pct = (int) round((float) $score->compatibility_score);
                         $notifications->system(
                             $driverUser,
-                            "Demande passager compatible ({$pct}%)",
+                            "🙋 Demande passager compatible ({$pct}%)",
                             "{$passengerName} cherche un trajet {$reqLabel} sur votre route.",
                             [
                                 'type' => 'ride_request_match',

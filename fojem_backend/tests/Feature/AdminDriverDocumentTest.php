@@ -7,6 +7,7 @@ use App\Models\AdminRole;
 use App\Models\AdminUser;
 use App\Models\Driver;
 use App\Models\DriverDocument;
+use App\Models\Notification;
 use App\Models\User;
 use App\Models\Wallet;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -64,6 +65,8 @@ class AdminDriverDocumentTest extends TestCase
 
         $driver->refresh();
         $this->assertEquals(Driver::STATUS_PENDING, $driver->verification_status);
+        // Aucun document approuvé ne notifie à lui seul.
+        $this->assertSame(0, Notification::where('user_id', $driver->user_id)->count());
 
         $last = $documents->last();
         $response = $this->patchJson("/api/admin/drivers/{$driver->id}/documents/{$last->id}/review", [
@@ -76,6 +79,11 @@ class AdminDriverDocumentTest extends TestCase
         $driver->refresh();
         $this->assertEquals(Driver::STATUS_APPROVED, $driver->verification_status);
         $this->assertNotNull($driver->verified_at);
+
+        // Une seule notification, au passage « approuvé ».
+        $notifications = Notification::where('user_id', $driver->user_id)->get();
+        $this->assertCount(1, $notifications);
+        $this->assertSame('approved', $notifications->first()->payload['driver_status']);
     }
 
     public function test_rejecting_a_document_sets_driver_to_rejected_with_a_reason(): void
@@ -99,5 +107,9 @@ class AdminDriverDocumentTest extends TestCase
         $response->assertOk();
         $this->assertEquals(Driver::STATUS_REJECTED, $response->json('driver.verification_status'));
         $this->assertEquals('Document illisible.', $response->json('document.rejection_reason'));
+
+        $notification = Notification::where('user_id', $driver->user_id)->sole();
+        $this->assertStringContainsString('permis de conduire (recto)', $notification->payload['body']);
+        $this->assertStringContainsString('Document illisible.', $notification->payload['body']);
     }
 }
