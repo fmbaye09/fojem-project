@@ -15,6 +15,7 @@ import '../../../core/theme/app_text_styles.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/widgets/driver_avatar.dart';
 import '../../../core/widgets/meeting_point_card.dart';
+import '../../../core/widgets/sos.dart';
 import '../../../core/widgets/status_chip.dart';
 import '../../../models/booking.dart';
 import '../../../models/trip.dart';
@@ -22,6 +23,7 @@ import '../../../providers/app_provider.dart';
 import '../../../services/booking_repository.dart';
 import '../../../services/chat_repository.dart';
 import '../../../services/map/osm_map_service.dart';
+import '../../../services/sos_repository.dart';
 import '../../../services/trip_repository.dart';
 
 enum _TrackingStep { confirmed, driverConfirmed, departed, arrived }
@@ -124,6 +126,34 @@ class _TripTrackingScreenState extends State<TripTrackingScreen> with AutoRefres
     return _TrackingStep.confirmed;
   }
 
+  /// SOS visible pendant le trajet et autour du départ (2 h avant à 12 h après).
+  bool get _showSos {
+    final trip = _trip;
+    final booking = _booking;
+    if (trip == null || booking == null || booking.status != BookingStatus.confirmed) return false;
+    if (trip.status == TripStatus.inProgress) return true;
+    if (trip.status != TripStatus.upcoming) return false;
+    final start = booking.boardingStop?.scheduledAt ?? trip.departureTime;
+    final now = DateTime.now();
+    return now.isAfter(start.subtract(const Duration(hours: 2))) &&
+        now.isBefore(start.add(const Duration(hours: 12)));
+  }
+
+  void _openSos() {
+    final trip = _trip!;
+    final stop = _booking?.boardingStop;
+    openSosScreen(
+      context,
+      api: SosRepository(),
+      role: 'passenger',
+      tripId: trip.id,
+      bookingId: _booking?.id,
+      fallbackPosition: trip.currentLat != null && trip.currentLng != null
+          ? (lat: trip.currentLat!, lng: trip.currentLng!)
+          : (stop != null ? (lat: stop.lat, lng: stop.lng) : null),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     if (_isLoading) {
@@ -176,6 +206,10 @@ class _TripTrackingScreenState extends State<TripTrackingScreen> with AutoRefres
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              if (_showSos) ...[
+                SosButton(onTriggered: _openSos),
+                const SizedBox(height: AppSpacing.lg),
+              ],
               if (_booking != null) ...[
                 _QrTicketCard(booking: _booking!, trip: _trip!),
                 const SizedBox(height: AppSpacing.lg),

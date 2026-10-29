@@ -17,6 +17,8 @@ class TriggerSosRequest extends FormRequest
             'lat' => ['required', 'numeric', 'between:-90,90'],
             'lng' => ['required', 'numeric', 'between:-180,180'],
             'booking_id' => ['sometimes', 'nullable', 'uuid', 'exists:bookings,id'],
+            'trip_id' => ['sometimes', 'nullable', 'uuid', 'exists:trips,id'],
+            'role' => ['sometimes', 'in:passenger,driver'],
         ];
     }
 }

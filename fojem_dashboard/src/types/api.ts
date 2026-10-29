@@ -208,15 +208,43 @@ export interface PayoutRequest {
   driver?: Driver;
 }
 
+/** Personne liée à une alerte SOS (auteur, chauffeur, passagers). */
+export interface SosPerson {
+  id: string;
+  full_name: string;
+  phone_number: string | null;
+  emergency_contact: EmergencyContact | null;
+}
+
+/** Fiche d'alerte SOS (GET /admin/sos-alerts, /admin/sos-alerts/:id). */
 export interface SosAlert {
   id: string;
-  user_id: string;
   status: "open" | "in_progress" | "resolved";
-  lat: number;
-  lng: number;
+  role: "passenger" | "driver";
+  triggered_at: string;
+  ended_at: string | null;
+  last_location_at: string | null;
+  last_lat: number | null;
+  last_lng: number | null;
+  /** [lat, lng, horodatage ISO] */
+  path: [number, number, string][];
   resolution_notes: string | null;
-  created_at: string;
-  user?: PlatformUser;
+  handled_by: string | null;
+  user: SosPerson | null;
+  booking_id: string | null;
+  trip: {
+    id: string;
+    origin_name: string | null;
+    destination_name: string | null;
+    status: string;
+    scheduled_at: string | null;
+    current_lat: number | null;
+    current_lng: number | null;
+    vehicle: { label: string; plate_number: string } | null;
+    driver: SosPerson | null;
+    passengers: SosPerson[];
+  } | null;
+  recordings: { id: string; duration_ms: number; created_at: string; file_endpoint: string }[];
 }
 
 export interface Dispute {

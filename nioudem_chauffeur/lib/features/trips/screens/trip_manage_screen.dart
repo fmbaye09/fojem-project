@@ -13,6 +13,7 @@ import '../../../core/theme/app_text_styles.dart';
 import '../../../core/widgets/driver_avatar.dart';
 import '../../../core/widgets/trip_card.dart' show formatDayLabel, formatFcfa;
 import '../../../core/widgets/fojem_button.dart';
+import '../../../core/widgets/sos.dart';
 import '../../../models/booking.dart';
 import '../../../models/trip.dart';
 import '../../../models/trip_stop.dart';
@@ -20,6 +21,7 @@ import '../../../models/vehicle.dart';
 import '../../../providers/app_provider.dart';
 import '../../../services/booking_repository.dart';
 import '../../../services/chat_repository.dart';
+import '../../../services/sos_repository.dart';
 import '../../../services/trip_location_tracker.dart';
 import '../../../services/trip_repository.dart';
 import '../../../services/vehicle_repository.dart';
@@ -279,6 +281,30 @@ class _TripManageScreenState extends State<TripManageScreen> with AutoRefresh<Tr
     }
   }
 
+  /// SOS visible pendant le trajet et autour du départ (2 h avant à 12 h après).
+  bool get _showSos {
+    final trip = _trip;
+    if (trip == null) return false;
+    if (trip.status == TripStatus.inProgress) return true;
+    if (trip.status != TripStatus.upcoming) return false;
+    final now = DateTime.now();
+    return now.isAfter(trip.departureTime.subtract(const Duration(hours: 2))) &&
+        now.isBefore(trip.departureTime.add(const Duration(hours: 12)));
+  }
+
+  void _openSos() {
+    final trip = _trip!;
+    openSosScreen(
+      context,
+      api: SosRepository(),
+      role: 'driver',
+      tripId: trip.id,
+      fallbackPosition: trip.currentLat != null && trip.currentLng != null
+          ? (lat: trip.currentLat!, lng: trip.currentLng!)
+          : null,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -385,6 +411,12 @@ class _TripManageScreenState extends State<TripManageScreen> with AutoRefresh<Tr
                                 permissionDenied: _gpsPermissionDenied,
                                 onForceSend: _broadcastCurrentGps,
                               ),
+                              const SizedBox(height: 16),
+                            ],
+
+                            // ── SOS : trajet en cours ou autour du départ ──
+                            if (_showSos) ...[
+                              SosButton(onTriggered: _openSos),
                               const SizedBox(height: 16),
                             ],
 

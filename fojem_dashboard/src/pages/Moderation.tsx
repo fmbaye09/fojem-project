@@ -14,11 +14,16 @@ import { Pagination } from "../components/ui/Pagination";
 import { Modal } from "../components/ui/Modal";
 import { formatDateTime, cn } from "../lib/utils";
 import { useAuthStore } from "../store/useAuthStore";
+import { useSosWatch } from "../store/useSosWatch";
+import { SosAlertDetail } from "../components/sos/SosAlertDetail";
 
 function SosSection() {
   const canEdit = useAuthStore((s) => s.hasPermission("sos_alerts", "edit"));
+  const refreshWatch = useSosWatch((s) => s.refresh);
+  const openCount = useSosWatch((s) => s.openCount);
   const [status, setStatus] = useState("");
   const [page, setPage] = useState(1);
+  const [viewing, setViewing] = useState<SosAlert | null>(null);
   const [target, setTarget] = useState<SosAlert | null>(null);
   const [notes, setNotes] = useState("");
   const [nextStatus, setNextStatus] = useState<"in_progress" | "resolved">("in_progress");
@@ -28,8 +33,14 @@ function SosSection() {
   const { data, loading, error, reload } = useApi<Paginated<SosAlert>>(
     "/admin/sos-alerts",
     { query: { status: status || undefined, page } },
-    [status, page],
+    // Recharge aussi quand la surveillance voit arriver une alerte.
+    [status, page, openCount],
   );
+
+  function askStatus(a: SosAlert) {
+    setNextStatus(a.status === "open" ? "in_progress" : "resolved");
+    setTarget(a);
+  }
 
   async function confirm() {
     if (!target) return;
@@ -41,8 +52,10 @@ function SosSection() {
         body: { status: nextStatus, ...(notes.trim() ? { resolution_notes: notes.trim() } : {}) },
       });
       setTarget(null);
+      setViewing(null);
       setNotes("");
       reload();
+      void refreshWatch();
     } catch (err) {
       setActionError(err instanceof ApiError ? err.message : "Action impossible.");
     } finally {
@@ -64,7 +77,7 @@ function SosSection() {
         </Select>
       </div>
 
-      {loading ? (
+      {loading && !data ? (
         <div className="p-4 flex flex-col gap-2">
           {Array.from({ length: 3 }).map((_, i) => (
             <Skeleton key={i} className="h-14 rounded-sm" />
@@ -80,32 +93,33 @@ function SosSection() {
             <div
               key={a.id}
               className={cn(
-                "flex items-center justify-between gap-3 px-4 py-3 border-b border-line last:border-0",
+                "flex flex-wrap items-center justify-between gap-3 px-4 py-3 border-b border-line last:border-0",
                 a.status === "open" && "bg-danger-surface/50",
               )}
             >
-              <div className="flex items-center gap-3">
-                {a.status === "open" && <span className="w-2 h-2 rounded-full bg-danger shrink-0" />}
-                <div>
-                  <div className="text-sm font-medium text-ink-primary">{a.user?.full_name ?? "Utilisateur inconnu"}</div>
-                  <div className="text-xs text-ink-muted">{formatDateTime(a.created_at)}</div>
+              <div className="flex items-center gap-3 min-w-0">
+                {a.status === "open" && <span className="w-2 h-2 rounded-full bg-danger shrink-0 animate-pulse" />}
+                <div className="min-w-0">
+                  <div className="text-sm font-medium text-ink-primary">
+                    {a.user?.full_name ?? "Utilisateur inconnu"}{" "}
+                    <span className="text-ink-muted font-normal">· {a.role === "driver" ? "chauffeur" : "passager"}</span>
+                  </div>
+                  <div className="text-xs text-ink-muted truncate">
+                    {formatDateTime(a.triggered_at)}
+                    {a.trip && ` · ${a.trip.origin_name ?? "?"} → ${a.trip.destination_name ?? "?"}`}
+                    {a.trip?.vehicle && ` · ${a.trip.vehicle.plate_number}`}
+                    {` · ${a.recordings.length} enregistrement${a.recordings.length > 1 ? "s" : ""}`}
+                  </div>
                 </div>
               </div>
-              <div className="flex items-center gap-3">
+              <div className="flex items-center gap-2">
+                {a.ended_at ? <Badge tone="success">En sécurité</Badge> : <Badge tone="danger">En cours</Badge>}
                 <Badge tone={a.status === "open" ? "danger" : a.status === "resolved" ? "success" : "neutral"}>
-                  {a.status}
+                  {a.status === "open" ? "Ouverte" : a.status === "resolved" ? "Résolue" : "Prise en charge"}
                 </Badge>
-                {canEdit && a.status !== "resolved" && (
-                  <Button
-                    variant="secondary"
-                    onClick={() => {
-                      setNextStatus(a.status === "open" ? "in_progress" : "resolved");
-                      setTarget(a);
-                    }}
-                  >
-                    {a.status === "open" ? "Prendre en charge" : "Résoudre"}
-                  </Button>
-                )}
+                <Button variant="secondary" onClick={() => setViewing(a)}>
+                  Voir la fiche
+                </Button>
               </div>
             </div>
           ))}
@@ -116,6 +130,21 @@ function SosSection() {
           <Pagination page={data.current_page} lastPage={data.last_page} total={data.total} onChange={setPage} />
         </div>
       )}
+
+      <Modal open={!!viewing} onClose={() => setViewing(null)} title="Alerte SOS" size="lg">
+        {viewing && (
+          <>
+            <SosAlertDetail alertId={viewing.id} />
+            {canEdit && viewing.status !== "resolved" && (
+              <div className="flex justify-end mt-4">
+                <Button onClick={() => askStatus(viewing)}>
+                  {viewing.status === "open" ? "Prendre en charge" : "Marquer comme résolue"}
+                </Button>
+              </div>
+            )}
+          </>
+        )}
+      </Modal>
 
       <Modal open={!!target} onClose={() => setTarget(null)} title="Mettre à jour l'alerte SOS">
         <textarea

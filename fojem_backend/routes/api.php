@@ -99,6 +99,9 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('reviews', [ReviewController::class, 'store']);
 
     Route::post('sos-alerts', [SosAlertController::class, 'store']);
+    Route::post('sos-alerts/{sosAlert}/location', [SosAlertController::class, 'location']);
+    Route::post('sos-alerts/{sosAlert}/recordings', [SosAlertController::class, 'recording']);
+    Route::post('sos-alerts/{sosAlert}/end', [SosAlertController::class, 'end']);
 
     Route::post('disputes', [DisputeController::class, 'store']);
     Route::get('disputes/mine', [DisputeController::class, 'mine']);
@@ -177,6 +180,10 @@ Route::prefix('admin')->group(function () {
 
         Route::middleware('admin.permission:sos_alerts,view')
             ->get('sos-alerts', [AdminSosAlertController::class, 'index']);
+        Route::middleware('admin.permission:sos_alerts,view')->group(function () {
+            Route::get('sos-alerts/{sosAlert}', [AdminSosAlertController::class, 'show']);
+            Route::get('sos-alerts/{sosAlert}/recordings/{recording}', [AdminSosAlertController::class, 'recording']);
+        });
         Route::patch('sos-alerts/{sosAlert}', [AdminSosAlertController::class, 'update'])
             ->middleware('admin.permission:sos_alerts,edit');
 

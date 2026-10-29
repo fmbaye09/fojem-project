@@ -3,6 +3,7 @@ import { motion } from "framer-motion";
 import { cn } from "../../lib/utils";
 import { useAuthStore } from "../../store/useAuthStore";
 import { NAV_ITEMS } from "../../config/nav";
+import { useSosWatch } from "../../store/useSosWatch";
 
 export function Sidebar() {
   // Sélectionne `permissions` (pas la méthode `hasPermission`, dont la
@@ -11,6 +12,7 @@ export function Sidebar() {
   // sans quoi les rubriques restreintes restaient invisibles jusqu'au
   // prochain rechargement complet de la page.
   const permissions = useAuthStore((s) => s.permissions);
+  const sosOpen = useSosWatch((s) => s.openCount);
   const items = NAV_ITEMS.filter(
     (item) =>
       !item.resource ||
@@ -52,6 +54,11 @@ export function Sidebar() {
                 )}
                 <item.icon size={18} strokeWidth={2} className="shrink-0" />
                 <span className="truncate">{item.label}</span>
+                {item.to === "/moderation" && sosOpen > 0 && (
+                  <span className="ml-auto min-w-5 h-5 px-1.5 rounded-full bg-danger text-white text-xs font-semibold flex items-center justify-center">
+                    {sosOpen}
+                  </span>
+                )}
               </>
             )}
           </NavLink>
