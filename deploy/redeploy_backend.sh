@@ -20,6 +20,10 @@ rm -rf backend && mv next/fojem_backend backend && rmdir next
 rsync -rlt --delete --chmod=D2775,F664 \
   --exclude storage/ --exclude .fojem_v2 --exclude public/storage \
   backend/ "$API/"
+# rsync ne garantit pas les droits des fichiers déjà présents : on les force.
+find "$API" -path "$API/storage" -prune -o -user "$(id -un)" -print0 | xargs -0 chgrp -h www-data
+find "$API" -path "$API/storage" -prune -o -type d -user "$(id -un)" -print0 | xargs -0 chmod 2775
+find "$API" -path "$API/storage" -prune -o -type f -user "$(id -un)" -print0 | xargs -0 chmod 664
 chmod 640 "$API/.env"
 
 cd "$API"
