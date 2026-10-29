@@ -28,7 +28,11 @@ class DatabaseSeeder extends Seeder
     public function run(): void
     {
         $this->seedAdminRolesAndPermissions();
-        $this->seedDemoRideData();
+
+        // Sur un serveur public : pas de comptes de démo au mot de passe connu.
+        if (! app()->isProduction()) {
+            $this->seedDemoRideData();
+        }
     }
 
     private function seedAdminRolesAndPermissions(): void
@@ -75,12 +79,30 @@ class DatabaseSeeder extends Seeder
                 ['email' => "{$roleName}@fojem.sn"],
                 [
                     'full_name' => ucfirst(str_replace('_', ' ', $roleName)),
-                    'password_hash' => Hash::make('password'),
+                    'password_hash' => Hash::make($this->adminPassword()),
                     'role_id' => $role->id,
                     'is_active' => true,
                 ]
             );
         }
+    }
+
+    /**
+     * « password » en local ; en production, ADMIN_SEED_PASSWORD est
+     * obligatoire (lu avant la mise en cache de la configuration).
+     */
+    private function adminPassword(): string
+    {
+        if (! app()->isProduction()) {
+            return 'password';
+        }
+
+        $password = (string) env('ADMIN_SEED_PASSWORD');
+        if (strlen($password) < 12) {
+            throw new \RuntimeException('ADMIN_SEED_PASSWORD (12 caractères min.) est requis en production.');
+        }
+
+        return $password;
     }
 
     private function seedDemoRideData(): void
