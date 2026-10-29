@@ -105,6 +105,18 @@ class BookingRepository {
     await _client.post('/bookings/$bookingId/cancel');
   }
 
+  /// Position du passager envoyée à son chauffeur (avant l'embarquement).
+  Future<void> shareLocation(String bookingId, double lat, double lng) =>
+      _client.post('/bookings/$bookingId/location', data: {'lat': lat, 'lng': lng});
+
+  Future<void> stopSharingLocation(String bookingId) => _client.delete('/bookings/$bookingId/location');
+
+  /// Lien de suivi du trajet à envoyer à un proche.
+  Future<String> createShareLink(String bookingId) async {
+    final body = await _client.post('/bookings/$bookingId/share');
+    return body['url'] as String;
+  }
+
   Future<Booking?> fetchActiveForTrip({
     required String tripId,
     required String passengerId,

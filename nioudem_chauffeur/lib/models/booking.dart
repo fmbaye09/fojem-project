@@ -48,6 +48,9 @@ class Booking {
 
   final Trip? trip;
 
+  /// Position partagée par le passager (récente, avant l'embarquement).
+  final ({double lat, double lng, DateTime updatedAt})? passengerLocation;
+
   const Booking({
     required this.id,
     required this.tripId,
@@ -67,6 +70,7 @@ class Booking {
     this.boardingStop,
     this.alightingStop,
     this.trip,
+    this.passengerLocation,
   });
 
   int get seatsBooked => seatCount;
@@ -138,7 +142,17 @@ class Booking {
           ? TripStop.fromJson(json['alighting_stop'] as Map<String, dynamic>)
           : null,
       trip: trip,
+      passengerLocation: _parsePassengerLocation(json['passenger_location']),
     );
+  }
+
+  static ({double lat, double lng, DateTime updatedAt})? _parsePassengerLocation(Object? raw) {
+    if (raw is! Map) return null;
+    final lat = double.tryParse('${raw['lat']}');
+    final lng = double.tryParse('${raw['lng']}');
+    final at = DateTime.tryParse('${raw['updated_at']}');
+    if (lat == null || lng == null || at == null) return null;
+    return (lat: lat, lng: lng, updatedAt: at.toLocal());
   }
 
   Booking copyWith({
@@ -167,6 +181,7 @@ class Booking {
       boardingStop: boardingStop,
       alightingStop: alightingStop,
       trip: trip ?? this.trip,
+      passengerLocation: passengerLocation,
     );
   }
 }

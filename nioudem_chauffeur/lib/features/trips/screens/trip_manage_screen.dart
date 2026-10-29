@@ -1,9 +1,11 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import '../../../core/events/data_refresh.dart';
+import 'package:flutter_map/flutter_map.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
+import 'package:latlong2/latlong.dart' as ll;
 import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../../core/network/api_exception.dart';
@@ -1157,15 +1159,32 @@ class _PassengerTileState extends State<_PassengerTile> {
                             ],
                           ),
                         ),
-                        const SizedBox(width: 8),
-                        Text(
-                          booking.confirmationCode,
-                          style: AppTextStyles.caption.copyWith(
-                            color: AppColors.textMuted,
-                            letterSpacing: 1,
-                            fontSize: 11,
+                        // Le code à 4 chiffres n'est pas affiché ici : il doit
+                        // venir du billet du passager pour prouver sa présence.
+                        if (!isBoarded && booking.passengerLocation != null) ...[
+                          const SizedBox(width: 8),
+                          Flexible(
+                            child: GestureDetector(
+                              onTap: () => _showPassengerLocation(context, booking),
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                                decoration: BoxDecoration(
+                                  color: AppColors.successSurface,
+                                  borderRadius: BorderRadius.circular(6),
+                                ),
+                                child: Text(
+                                  '📍 Position · ${DateFormat('HH:mm').format(booking.passengerLocation!.updatedAt)}',
+                                  overflow: TextOverflow.ellipsis,
+                                  style: AppTextStyles.caption.copyWith(
+                                    color: AppColors.success,
+                                    fontWeight: FontWeight.w700,
+                                    fontSize: 11,
+                                  ),
+                                ),
+                              ),
+                            ),
                           ),
-                        ),
+                        ],
                       ],
                     ),
                   ],
@@ -1362,4 +1381,66 @@ class _StopSection extends StatelessWidget {
       ),
     );
   }
+}
+
+/// Position partagée par un passager avant l'embarquement : carte et
+/// itinéraire jusqu'à lui.
+void _showPassengerLocation(BuildContext context, Booking booking) {
+  final location = booking.passengerLocation;
+  if (location == null) return;
+  final point = ll.LatLng(location.lat, location.lng);
+  showModalBottomSheet<void>(
+    context: context,
+    backgroundColor: AppColors.surface,
+    showDragHandle: true,
+    shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
+    builder: (sheetContext) => Padding(
+      padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('Position de ${booking.passengerName}', style: AppTextStyles.title2),
+          const SizedBox(height: 4),
+          Text(
+            'Partagée par le passager · mise à jour à ${DateFormat('HH:mm').format(location.updatedAt)}',
+            style: AppTextStyles.caption,
+          ),
+          const SizedBox(height: 14),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(18),
+            child: SizedBox(
+              height: 240,
+              child: FlutterMap(
+                options: MapOptions(initialCenter: point, initialZoom: 16),
+                children: [
+                  TileLayer(
+                    urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                    userAgentPackageName: 'sn.fojem.chauffeur',
+                  ),
+                  MarkerLayer(markers: [
+                    Marker(
+                      point: point,
+                      width: 44,
+                      height: 44,
+                      child: const Icon(Icons.person_pin_circle_rounded, color: AppColors.accent, size: 44),
+                    ),
+                  ]),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 14),
+          FojemButton.primary(
+            label: 'Itinéraire jusqu’au passager',
+            prefixIcon: Icons.directions_rounded,
+            onPressed: () => launchUrl(
+              Uri.parse('https://www.google.com/maps/dir/?api=1&destination=${location.lat},${location.lng}'),
+              mode: LaunchMode.externalApplication,
+            ),
+          ),
+        ],
+      ),
+    ),
+  );
 }

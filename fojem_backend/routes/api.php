@@ -27,6 +27,7 @@ use App\Http\Controllers\Api\ReviewController;
 use App\Http\Controllers\Api\RideRequestController;
 use App\Http\Controllers\Api\SosAlertController;
 use App\Http\Controllers\Api\TripController;
+use App\Http\Controllers\Api\TripSharingController;
 use App\Http\Controllers\Api\UserController;
 use App\Http\Controllers\Api\VehicleController;
 use App\Http\Controllers\Api\WalletController;
@@ -48,6 +49,9 @@ Route::prefix('auth')->group(function () {
 // Public trip search does not require auth so both apps can show results
 // before login, but every other trip/booking action does.
 Route::get('trips/search', [TripController::class, 'search']);
+
+// Lien de suivi envoyé à un proche : public, à jeton, limité en débit.
+Route::middleware('throttle:60,1')->get('public/share/{token}', [TripSharingController::class, 'publicShow']);
 
 Route::middleware('auth:sanctum')->group(function () {
     Route::patch('profile', [ProfileController::class, 'update']);
@@ -92,6 +96,9 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('trips/{trip}/board-passenger', [BookingController::class, 'boardPassenger']);
     Route::post('bookings/{booking}/board', [BookingController::class, 'board']);
     Route::post('bookings/{booking}/complete', [BookingController::class, 'complete']);
+    Route::post('bookings/{booking}/location', [TripSharingController::class, 'shareLocation']);
+    Route::delete('bookings/{booking}/location', [TripSharingController::class, 'stopLocation']);
+    Route::post('bookings/{booking}/share', [TripSharingController::class, 'createLink']);
 
     Route::get('wallet', [WalletController::class, 'show']);
     Route::get('wallet/transactions', [WalletController::class, 'transactions']);

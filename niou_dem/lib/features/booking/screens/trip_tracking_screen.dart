@@ -7,6 +7,7 @@ import 'package:intl/intl.dart';
 import 'package:latlong2/latlong.dart' as ll;
 import 'package:provider/provider.dart';
 import 'package:qr_flutter/qr_flutter.dart';
+import 'package:share_plus/share_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../../core/geo/senegal_city_coordinates.dart';
 import '../../../core/theme/app_colors.dart';
@@ -23,6 +24,7 @@ import '../../../providers/app_provider.dart';
 import '../../../services/booking_repository.dart';
 import '../../../services/chat_repository.dart';
 import '../../../services/map/osm_map_service.dart';
+import '../../../services/passenger_location_sharer.dart';
 import '../../../services/sos_repository.dart';
 import '../../../services/trip_repository.dart';
 
@@ -139,6 +141,30 @@ class _TripTrackingScreenState extends State<TripTrackingScreen> with AutoRefres
         now.isBefore(start.add(const Duration(hours: 12)));
   }
 
+  /// Partage de position : réservation confirmée, pas encore à bord, à partir
+  /// d'1 h avant le rendez-vous (ou trajet déjà démarré).
+  bool get _showLocationShare {
+    final trip = _trip;
+    final booking = _booking;
+    if (trip == null || booking == null) return false;
+    if (booking.status != BookingStatus.confirmed || booking.isBoarded) return false;
+    if (trip.status == TripStatus.inProgress) return true;
+    if (trip.status != TripStatus.upcoming) return false;
+    final start = booking.boardingStop?.scheduledAt ?? trip.departureTime;
+    final now = DateTime.now();
+    return now.isAfter(start.subtract(const Duration(hours: 1))) &&
+        now.isBefore(start.add(const Duration(hours: 12)));
+  }
+
+  /// Lien de suivi : réservation active et trajet pas encore terminé.
+  bool get _showShareTrip {
+    final trip = _trip;
+    final booking = _booking;
+    if (trip == null || booking == null) return false;
+    return (booking.status == BookingStatus.pending || booking.status == BookingStatus.confirmed) &&
+        (trip.status == TripStatus.upcoming || trip.status == TripStatus.inProgress);
+  }
+
   void _openSos() {
     final trip = _trip!;
     final stop = _booking?.boardingStop;
@@ -213,6 +239,14 @@ class _TripTrackingScreenState extends State<TripTrackingScreen> with AutoRefres
               if (_booking != null) ...[
                 _QrTicketCard(booking: _booking!, trip: _trip!),
                 const SizedBox(height: AppSpacing.lg),
+                if (_showLocationShare) ...[
+                  _LocationShareCard(booking: _booking!),
+                  const SizedBox(height: AppSpacing.md),
+                ],
+                if (_showShareTrip) ...[
+                  _ShareTripButton(booking: _booking!, trip: _trip!),
+                  const SizedBox(height: AppSpacing.lg),
+                ],
                 // Où retrouver le chauffeur, tant que le passager n'est pas à bord.
                 _EtaCard(trip: _trip!, booking: _booking!),
                 if (_booking!.boardingStop != null &&
@@ -1220,6 +1254,126 @@ class _EtaCard extends StatelessWidget {
           ? 'Arrivée à ${target.name} vers ${time.format(eta)}'
           : 'Le chauffeur arrive à ${target.name} vers ${time.format(eta)} · $inLabel',
       detail: detailParts.join(' · '),
+    );
+  }
+}
+
+/// Partage de la position avec le chauffeur : proposé à partir d'1 h avant
+/// le rendez-vous, sur choix explicite, jusqu'à l'embarquement.
+class _LocationShareCard extends StatelessWidget {
+  final Booking booking;
+
+  const _LocationShareCard({required this.booking});
+
+  Future<void> _toggle(BuildContext context, bool enable) async {
+    final sharer = PassengerLocationSharer.instance;
+    if (!enable) {
+      await sharer.stop();
+      return;
+    }
+    if (!await sharer.ensurePermission()) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Autorisez la localisation pour partager votre position.')),
+      );
+      return;
+    }
+    await sharer.start(booking.id);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: PassengerLocationSharer.instance,
+      builder: (context, _) {
+        final sharer = PassengerLocationSharer.instance;
+        final active = sharer.isSharing(booking.id);
+        final sentAt = sharer.lastSentAt;
+        return NeuBox(
+          padding: const EdgeInsets.fromLTRB(16, 14, 8, 14),
+          child: Row(
+            children: [
+              Container(
+                width: 44,
+                height: 44,
+                decoration: BoxDecoration(
+                  color: (active ? AppColors.success : AppColors.primary).withValues(alpha: 0.12),
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(active ? Icons.my_location_rounded : Icons.location_searching_rounded,
+                    color: active ? AppColors.success : AppColors.primary),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('Partager ma position avec le chauffeur', style: AppTextStyles.bodySemibold),
+                    const SizedBox(height: 2),
+                    Text(
+                      active
+                          ? (sentAt != null
+                              ? 'Partagée · envoyée à ${DateFormat('HH:mm').format(sentAt)}. S’arrête à l’embarquement.'
+                              : 'Partage en cours…')
+                          : 'Pour qu’il vous repère au point de rendez-vous. Uniquement tant que l’app est ouverte.',
+                      style: AppTextStyles.caption,
+                    ),
+                  ],
+                ),
+              ),
+              Switch(
+                value: active,
+                activeThumbColor: AppColors.success,
+                onChanged: (v) => _toggle(context, v),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+}
+
+/// Lien de suivi en direct à envoyer à un proche (WhatsApp, SMS…).
+class _ShareTripButton extends StatefulWidget {
+  final Booking booking;
+  final Trip trip;
+
+  const _ShareTripButton({required this.booking, required this.trip});
+
+  @override
+  State<_ShareTripButton> createState() => _ShareTripButtonState();
+}
+
+class _ShareTripButtonState extends State<_ShareTripButton> {
+  bool _busy = false;
+
+  Future<void> _share() async {
+    setState(() => _busy = true);
+    try {
+      final url = await BookingRepository().createShareLink(widget.booking.id);
+      final from = widget.booking.boardingStop?.name ?? widget.trip.departure;
+      final to = widget.booking.alightingStop?.name ?? widget.trip.arrival;
+      final when = widget.booking.boardingStop?.scheduledAt ?? widget.trip.departureTime;
+      final text = 'Je voyage avec FOJËM : $from → $to, départ ${DateFormat('EEEE d MMMM à HH:mm', 'fr_FR').format(when)}.\n'
+          'Suivez mon trajet en direct : $url';
+      await SharePlus.instance.share(ShareParams(text: text, subject: 'Mon trajet FOJËM'));
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Impossible de créer le lien de suivi. Réessayez.')),
+      );
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return NeuButton(
+      label: _busy ? 'Création du lien…' : 'Partager mon trajet avec un proche',
+      icon: Icons.ios_share_rounded,
+      onPressed: _busy ? null : _share,
     );
   }
 }

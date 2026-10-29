@@ -77,11 +77,17 @@ class ApiClient {
     return result;
   }
 
+  Future<Map<String, dynamic>> delete(String path) async {
+    final result = await _unwrap(() => _dio.delete(path));
+    _signalChange(path);
+    return result;
+  }
+
   /// Une action a abouti : les écrans ouverts se rechargent. Sauf pour les
   /// appels techniques (session, token push, lecture de notifications), qui
   /// ne changent rien à l'affichage.
   void _signalChange(String path) {
-    const technical = ['/auth/', '/fcm-token', '/notifications', '/chat/', '/sos-alerts'];
+    const technical = ['/auth/', '/fcm-token', '/notifications', '/chat/', '/sos-alerts', '/location'];
     if (technical.any(path.contains)) return;
     DataRefresh.instance.notify();
   }

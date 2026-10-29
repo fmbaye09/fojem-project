@@ -26,9 +26,16 @@ class Booking extends Model
         'trip_id', 'boarding_stop_id', 'alighting_stop_id', 'ride_request_id', 'passenger_id',
         'seat_count', 'seat_numbers', 'has_heavy_luggage', 'status',
         'departure_code', 'price_charged', 'confirmed_at', 'started_at', 'completed_at',
+        'passenger_lat', 'passenger_lng', 'passenger_location_at', 'share_token', 'share_expires_at',
     ];
 
-    protected $appends = ['luggage_photos'];
+    /** Au-delà, la position partagée par le passager n'est plus montrée. */
+    public const PASSENGER_LOCATION_FRESH_SECONDS = 180;
+
+    protected $appends = ['luggage_photos', 'passenger_location'];
+
+    // Position brute et lien de partage : exposés uniquement via leurs routes.
+    protected $hidden = ['passenger_lat', 'passenger_lng', 'passenger_location_at', 'share_token', 'share_expires_at'];
 
     /** Where the passenger boards and leaves: shown on every booking. */
     protected $with = ['boardingStop', 'alightingStop'];
@@ -42,7 +49,32 @@ class Booking extends Model
             'confirmed_at' => 'datetime',
             'started_at' => 'datetime',
             'completed_at' => 'datetime',
+            'passenger_location_at' => 'datetime',
+            'share_expires_at' => 'datetime',
         ];
+    }
+
+    /**
+     * Position partagée par le passager, si elle est récente et qu'il n'est
+     * pas encore à bord (après l'embarquement, le chauffeur n'en a plus besoin).
+     */
+    public function getPassengerLocationAttribute(): ?array
+    {
+        $at = $this->passenger_location_at;
+        if ($this->passenger_lat === null || ! $at || $this->started_at
+            || $at->diffInSeconds(now(), true) > self::PASSENGER_LOCATION_FRESH_SECONDS) {
+            return null;
+        }
+
+        return ['lat' => (float) $this->passenger_lat, 'lng' => (float) $this->passenger_lng, 'updated_at' => $at->toIso8601String()];
+    }
+
+    /** Le lien de suivi est valable jusqu'à sa date d'expiration, tant que la réservation tient. */
+    public function shareIsActive(): bool
+    {
+        return $this->share_token !== null
+            && $this->share_expires_at?->isFuture()
+            && in_array($this->status, [self::STATUS_PENDING_DRIVER, self::STATUS_CONFIRMED], true);
     }
 
     public function getLuggagePhotosAttribute()
