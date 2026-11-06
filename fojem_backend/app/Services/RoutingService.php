@@ -21,6 +21,18 @@ class RoutingService
      */
     public function legDurations(array $points): ?array
     {
+        return $this->route($points)['durations'] ?? null;
+    }
+
+    /**
+     * Itinéraire passant par ces points : durée (s) et distance (m) de chaque
+     * tronçon, et, sur demande, le tracé simplifié de la route ([lat, lng]).
+     *
+     * @param  list<array{0: float, 1: float}>  $points  [lat, lng]
+     * @return array{durations: list<float>, distances: list<float>, geometry: list<array{0: float, 1: float}>}|null
+     */
+    public function route(array $points, bool $withGeometry = false): ?array
+    {
         $base = rtrim((string) config('services.osrm.url'), '/');
         if ($base === '' || count($points) < 2) {
             return null;
@@ -35,7 +47,9 @@ class RoutingService
         try {
             $response = Http::timeout((float) config('services.osrm.timeout', 4))
                 ->withUserAgent('FOJEM/1.0 (contact@fojem.sn)')
-                ->get("{$base}/route/v1/driving/{$coordinates}", ['overview' => 'false']);
+                ->get("{$base}/route/v1/driving/{$coordinates}", $withGeometry
+                    ? ['overview' => 'simplified', 'geometries' => 'geojson']
+                    : ['overview' => 'false']);
         } catch (\Throwable $e) {
             Log::info("OSRM unavailable: {$e->getMessage()}");
 
@@ -47,6 +61,17 @@ class RoutingService
             return null;
         }
 
-        return array_map(fn ($leg) => (float) ($leg['duration'] ?? 0), $legs);
+        $geometry = [];
+        foreach ($withGeometry ? (array) $response->json('routes.0.geometry.coordinates') : [] as $c) {
+            if (is_array($c) && isset($c[0], $c[1])) {
+                $geometry[] = [(float) $c[1], (float) $c[0]];
+            }
+        }
+
+        return [
+            'durations' => array_map(fn ($leg) => (float) ($leg['duration'] ?? 0), $legs),
+            'distances' => array_map(fn ($leg) => (float) ($leg['distance'] ?? 0), $legs),
+            'geometry' => $geometry,
+        ];
     }
 }

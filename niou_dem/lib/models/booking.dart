@@ -1,3 +1,4 @@
+import 'proposed_stop.dart';
 import 'trip.dart';
 import 'trip_stop.dart';
 
@@ -46,6 +47,9 @@ class Booking {
   final TripStop? boardingStop;
   final TripStop? alightingStop;
 
+  /// Point que le passager a proposé à la place d'un arrêt du trajet.
+  final ProposedStop? proposedStop;
+
   final Trip? trip;
 
   /// Statut brut de l'API (`cancelled_driver`, `no_show`…) : dit qui a
@@ -72,6 +76,7 @@ class Booking {
     this.startedAt,
     this.boardingStop,
     this.alightingStop,
+    this.proposedStop,
     this.trip,
     this.apiStatus = '',
     this.isReviewed = false,
@@ -89,6 +94,9 @@ class Booking {
   }
   double get totalPrice => price;
   bool get isBoarded => startedAt != null;
+
+  /// Le passager attend que le chauffeur ajoute le point qu'il a proposé.
+  bool get proposesNewStop => proposedStop != null && !proposedStop!.isAdded;
 
   String get statusLabel {
     switch (status) {
@@ -133,6 +141,8 @@ class Booking {
       }
     }
 
+    final proposal = ProposedStop.fromJson(map['proposed_stop']);
+
     final hasHeavy = map['has_heavy_luggage'] == true ||
         map['has_heavy_luggage'] == 1 ||
         photosList.isNotEmpty;
@@ -154,12 +164,15 @@ class Booking {
       hasHeavyLuggage: hasHeavy,
       luggagePhotoUrls: photosList,
       startedAt: DateTime.tryParse(map['started_at'] as String? ?? ''),
+      // Tant que le chauffeur n'a pas ajouté le point proposé, il tient lieu
+      // d'arrêt : le billet l'affiche comme les autres.
       boardingStop: map['boarding_stop'] is Map<String, dynamic>
           ? TripStop.fromJson(map['boarding_stop'] as Map<String, dynamic>)
-          : null,
+          : (proposal?.isBoarding == true ? proposal!.asTripStop(tripObj) : null),
       alightingStop: map['alighting_stop'] is Map<String, dynamic>
           ? TripStop.fromJson(map['alighting_stop'] as Map<String, dynamic>)
-          : null,
+          : (proposal?.isBoarding == false ? proposal!.asTripStop(tripObj) : null),
+      proposedStop: proposal,
       trip: tripObj,
       apiStatus: map['status'] as String? ?? '',
       isReviewed: map['review_exists'] == true,
@@ -190,6 +203,7 @@ class Booking {
       startedAt: startedAt ?? this.startedAt,
       boardingStop: boardingStop,
       alightingStop: alightingStop,
+      proposedStop: proposedStop,
       trip: trip ?? this.trip,
       apiStatus: apiStatus,
       isReviewed: isReviewed,

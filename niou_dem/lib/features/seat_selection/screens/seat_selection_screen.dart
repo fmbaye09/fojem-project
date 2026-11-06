@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 import '../../../../core/theme/app_colors.dart';
+import '../../../models/proposed_stop.dart';
 import '../../../models/trip.dart';
 import '../../../services/trip_repository.dart';
 import '../providers/seat_selection_provider.dart';
@@ -23,8 +24,11 @@ class SeatSelectionScreen extends StatefulWidget {
   final String? boardingStopId;
   final String? alightingStopId;
 
+  /// Point proposé par le passager à la place d'un arrêt.
+  final ProposedStop? proposal;
+
   const SeatSelectionScreen(
-      {super.key, this.tripId, this.boardingStopId, this.alightingStopId});
+      {super.key, this.tripId, this.boardingStopId, this.alightingStopId, this.proposal});
 
   @override
   State<SeatSelectionScreen> createState() => _SeatSelectionScreenState();
@@ -70,6 +74,7 @@ class _SeatSelectionScreenState extends State<SeatSelectionScreen> {
     final segment = _trip!.segment(
       boardingStopId: widget.boardingStopId,
       alightingStopId: widget.alightingStopId,
+      proposal: widget.proposal,
     );
     return ChangeNotifierProvider(
       create: (_) => SeatSelectionProvider.forTrip(_trip!,
@@ -77,8 +82,8 @@ class _SeatSelectionScreenState extends State<SeatSelectionScreen> {
       child: _SeatSelectionContent(
         tripId: _trip!.id,
         segmentQuery: [
-          if (segment.boarding != null) 'board=${segment.boarding!.id}',
-          if (segment.alighting != null) 'alight=${segment.alighting!.id}',
+          if (segment.query.isNotEmpty) segment.query,
+          if (widget.proposal != null) 'proposal=${widget.proposal!.toQuery()}',
         ].join('&'),
       ),
     );

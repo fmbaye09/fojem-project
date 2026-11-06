@@ -20,6 +20,7 @@ import '../../../models/vehicle.dart';
 import '../../../providers/app_provider.dart';
 import '../../../services/map/map_service.dart';
 import '../../../services/map/osm_map_service.dart';
+import '../../../services/meeting_point_repository.dart';
 import '../../../services/trip_repository.dart';
 import '../../../services/vehicle_repository.dart';
 import '../stop_plan.dart';
@@ -61,6 +62,11 @@ class _PublishTripScreenState extends State<PublishTripScreen> {
   bool _isLoadingRoute = false;
   final Map<int, double> _priceOverrides = {};
   final _notesController = TextEditingController();
+
+  // Arrêts suggérés sur la route (lieux connus, arrêts d'autres trajets).
+  List<MeetingPointSuggestion> _suggestions = const [];
+  String? _suggestionsKey;
+  bool _isLoadingSuggestions = false;
 
   bool _isPublishing = false;
   bool _acceptsEnRoute = false;
@@ -158,6 +164,7 @@ class _PublishTripScreenState extends State<PublishTripScreen> {
         return;
       }
       _loadRoute();
+      _loadSuggestions();
     }
     if (_step < 2) setState(() => _step++);
   }
@@ -196,6 +203,46 @@ class _PublishTripScreenState extends State<PublishTripScreen> {
     });
   }
 
+  /// Suggestions pour les points actuels ; rechargées seulement s'ils ont
+  /// changé. Sans réponse, la section reste simplement masquée.
+  Future<void> _loadSuggestions() async {
+    final points = _points;
+    final key = points.map((p) => '${p.lat},${p.lng}').join('|');
+    if (key == _suggestionsKey) return;
+    setState(() {
+      _suggestionsKey = key;
+      _isLoadingSuggestions = true;
+    });
+    List<MeetingPointSuggestion> suggestions;
+    try {
+      suggestions = await MeetingPointRepository().suggestions(points).timeout(const Duration(seconds: 12));
+    } catch (_) {
+      suggestions = const [];
+    }
+    if (!mounted || key != _suggestionsKey) return;
+    setState(() {
+      _suggestions = suggestions;
+      _isLoadingSuggestions = false;
+    });
+  }
+
+  /// Le chauffeur ajoute un arrêt suggéré : heures et prix sont recalculés.
+  void _addSuggestion(MeetingPointSuggestion suggestion) {
+    if (_origin == null) return;
+    setState(() {
+      final ordered = orderAlongRoute(_origin!, [..._intermediate, suggestion.toGeoLocation()]);
+      _intermediate
+        ..clear()
+        ..addAll(ordered);
+      _suggestions = [..._suggestions]..remove(suggestion);
+    });
+    _loadRoute();
+    _loadSuggestions();
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('« ${suggestion.name} » ajouté à vos arrêts.')),
+    );
+  }
+
   Future<void> _publish() async {
     final vehicle = _vehicle;
     if (vehicle == null || _step1Problem != null) return;
@@ -229,6 +276,9 @@ class _PublishTripScreenState extends State<PublishTripScreen> {
   }
 
   static const _stepTitles = ['Itinéraire', 'Arrêts & horaires', 'Récapitulatif'];
+
+  /// Départ et arrivée compris (limite du backend).
+  static const _maxStops = 12;
 
   @override
   Widget build(BuildContext context) {
@@ -334,6 +384,9 @@ class _PublishTripScreenState extends State<PublishTripScreen> {
                       isLoadingRoute: _isLoadingRoute,
                       onEditPrice: _editStopPrice,
                       notesController: _notesController,
+                      suggestions: _suggestions,
+                      isLoadingSuggestions: _isLoadingSuggestions,
+                      onAddSuggestion: _intermediate.length + 2 < _maxStops ? _addSuggestion : null,
                     ),
                   _ => _StepThree(
                       stops: _plannedStops,
@@ -759,6 +812,11 @@ class _StepTwo extends StatelessWidget {
   final bool isLoadingRoute;
   final ValueChanged<int> onEditPrice;
   final TextEditingController notesController;
+  final List<MeetingPointSuggestion> suggestions;
+  final bool isLoadingSuggestions;
+
+  /// Null quand le trajet a déjà le maximum d'arrêts.
+  final ValueChanged<MeetingPointSuggestion>? onAddSuggestion;
 
   const _StepTwo({
     required this.stops,
@@ -766,6 +824,9 @@ class _StepTwo extends StatelessWidget {
     required this.isLoadingRoute,
     required this.onEditPrice,
     required this.notesController,
+    this.suggestions = const [],
+    this.isLoadingSuggestions = false,
+    this.onAddSuggestion,
   });
 
   @override
@@ -868,6 +929,14 @@ class _StepTwo extends StatelessWidget {
             style: AppTextStyles.caption.copyWith(color: AppColors.textMuted),
           ),
         ],
+        if (isLoadingSuggestions || suggestions.isNotEmpty) ...[
+          const SizedBox(height: 24),
+          SuggestedStops(
+            suggestions: suggestions,
+            isLoading: isLoadingSuggestions,
+            onAdd: onAddSuggestion,
+          ),
+        ],
         const SizedBox(height: 24),
         Text('Informations pour les passagers', style: AppTextStyles.bodySemibold),
         const SizedBox(height: 8),
@@ -877,6 +946,101 @@ class _StepTwo extends StatelessWidget {
           maxLines: 4,
         ),
       ],
+    );
+  }
+}
+
+/// Lieux faciles à trouver sur la route, à ajouter comme arrêts d'un geste.
+class SuggestedStops extends StatelessWidget {
+  final List<MeetingPointSuggestion> suggestions;
+  final bool isLoading;
+  final ValueChanged<MeetingPointSuggestion>? onAdd;
+
+  const SuggestedStops({super.key, required this.suggestions, this.isLoading = false, this.onAdd});
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text('Arrêts suggérés sur votre route', style: AppTextStyles.bodySemibold),
+        const SizedBox(height: 2),
+        Text(
+          onAdd == null
+              ? 'Vous avez atteint le nombre maximum d’arrêts.'
+              : 'Des lieux faciles à trouver : chaque arrêt permet à plus de passagers de monter ou descendre.',
+          style: AppTextStyles.caption.copyWith(color: AppColors.textMuted),
+        ),
+        const SizedBox(height: 8),
+        if (isLoading && suggestions.isEmpty)
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 8),
+            child: Text('Recherche de lieux sur votre route…',
+                style: AppTextStyles.caption.copyWith(color: AppColors.textMuted)),
+          )
+        else
+          Container(
+            decoration: AppColors.softCardDecoration,
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+            child: Column(
+              children: [
+                for (var i = 0; i < suggestions.length; i++) ...[
+                  if (i > 0) const Divider(height: 1, color: AppColors.border),
+                  _SuggestionRow(suggestion: suggestions[i], onAdd: onAdd),
+                ],
+              ],
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+class _SuggestionRow extends StatelessWidget {
+  final MeetingPointSuggestion suggestion;
+  final ValueChanged<MeetingPointSuggestion>? onAdd;
+
+  const _SuggestionRow({required this.suggestion, required this.onAdd});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: Row(
+        children: [
+          Container(
+            width: 36,
+            height: 36,
+            decoration: BoxDecoration(
+              color: suggestion.isFrequent ? AppColors.primarySurface : AppColors.background,
+              shape: BoxShape.circle,
+            ),
+            child: Icon(suggestion.icon, size: 19, color: AppColors.primary),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(suggestion.name,
+                    maxLines: 1, overflow: TextOverflow.ellipsis, style: AppTextStyles.bodySemibold),
+                Text(
+                  '${suggestion.detail} · km ${suggestion.kmFromStart}',
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: AppTextStyles.caption.copyWith(color: AppColors.textSecondary),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 8),
+          TextButton.icon(
+            onPressed: onAdd == null ? null : () => onAdd!(suggestion),
+            icon: const Icon(Icons.add_rounded, size: 18),
+            label: const Text('Ajouter'),
+          ),
+        ],
+      ),
     );
   }
 }

@@ -21,6 +21,7 @@ use App\Http\Controllers\Api\DriverController;
 use App\Http\Controllers\Api\DriverDocumentController;
 use App\Http\Controllers\Api\IdentityVerificationController;
 use App\Http\Controllers\Api\MatchingController;
+use App\Http\Controllers\Api\MeetingPointController;
 use App\Http\Controllers\Api\NotificationController;
 use App\Http\Controllers\Api\ProfileController;
 use App\Http\Controllers\Api\ReviewController;
@@ -81,6 +82,10 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::patch('trips/{trip}/en-route', [TripController::class, 'updateEnRoute']);
     Route::get('trips/{trip}/nearby-ride-requests', [RideRequestController::class, 'nearTrip']);
     Route::get('trips/{trip}/bookings', [BookingController::class, 'forTrip']);
+    Route::middleware('throttle:20,1')->group(function () {
+        Route::get('meeting-points/suggestions', [MeetingPointController::class, 'suggestions']);
+        Route::get('trips/{trip}/stop-proposal', [MeetingPointController::class, 'preview']);
+    });
 
     Route::post('ride-requests', [RideRequestController::class, 'store']);
     Route::get('ride-requests/mine', [RideRequestController::class, 'mine']);

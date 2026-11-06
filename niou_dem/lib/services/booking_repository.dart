@@ -2,7 +2,9 @@ import 'dart:io';
 import 'package:dio/dio.dart';
 import '../core/network/api_client.dart';
 import '../core/network/api_exception.dart';
+import '../core/geo/geo_location.dart';
 import '../models/booking.dart';
+import '../models/proposed_stop.dart';
 import '../models/trip.dart';
 import 'trip_repository.dart';
 
@@ -29,11 +31,14 @@ class BookingRepository {
     // sans eux, le backend réserve le trajet complet.
     String? boardingStopId,
     String? alightingStopId,
+    // Point proposé par le passager à la place de la montée ou de la descente.
+    ProposedStop? proposedStop,
   }) async {
     final trip = await _tripRepository.fetch(tripId);
     final stops = <String, dynamic>{
       if (boardingStopId != null) 'boarding_stop_id': boardingStopId,
       if (alightingStopId != null) 'alighting_stop_id': alightingStopId,
+      if (proposedStop != null) 'proposed_stop': proposedStop.toApi(),
     };
 
     dynamic requestData;
@@ -64,6 +69,27 @@ class BookingRepository {
     final response = await _client.post('/bookings', data: requestData);
     final bookingJson = response['booking'] as Map<String, dynamic>;
     return Booking.fromApi(bookingJson, trip: trip);
+  }
+
+  /// Ce que coûterait au chauffeur le point que propose le passager (détour,
+  /// heure, prix). Lève une [ApiException] avec la raison s'il est refusé.
+  Future<ProposedStop> previewProposal({
+    required String tripId,
+    required GeoLocation point,
+    required bool boarding,
+  }) async {
+    final response = await _client.get('/trips/$tripId/stop-proposal', query: {
+      'role': boarding ? 'boarding' : 'alighting',
+      'lat': point.lat,
+      'lng': point.lng,
+      'name': point.shortLabel,
+      'address': point.address,
+    });
+    final proposal = ProposedStop.fromJson(response['proposal']);
+    if (proposal == null) {
+      throw const ApiException('Réponse inattendue du serveur. Réessayez.');
+    }
+    return proposal;
   }
 
   Future<Booking?> fetch(String bookingId) async {

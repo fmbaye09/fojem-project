@@ -51,4 +51,11 @@ return [
         'duration_factor' => (float) env('OSRM_DURATION_FACTOR', 1.0),
     ],
 
+    // Lieux de rendez-vous d'OpenStreetMap (gares routières, stations, péages),
+    // importés une fois par mois pour tout le pays (fojem:import-meeting-places).
+    'overpass' => [
+        'url' => env('OVERPASS_URL', 'https://overpass-api.de/api/interpreter'),
+        'timeout' => (float) env('OVERPASS_TIMEOUT', 200),
+    ],
+
 ];

@@ -13,9 +13,11 @@ import '../../../core/theme/app_spacing.dart';
 import '../../../core/widgets/fojem_button.dart';
 import '../../../core/widgets/meeting_point_card.dart';
 import '../../../core/widgets/price_display.dart';
+import '../../../models/proposed_stop.dart';
 import '../../../models/trip.dart';
 import '../../../providers/app_provider.dart';
 import '../../../services/booking_repository.dart';
+import '../widgets/propose_stop_card.dart' show proposalSummary;
 import '../../../services/trip_repository.dart';
 
 class BookingConfirmationScreen extends StatefulWidget {
@@ -29,12 +31,16 @@ class BookingConfirmationScreen extends StatefulWidget {
   final String? boardingStopId;
   final String? alightingStopId;
 
+  /// Point proposé par le passager : le chauffeur doit accepter de l'ajouter.
+  final ProposedStop? proposal;
+
   const BookingConfirmationScreen({
     super.key,
     required this.tripId,
     required this.seatIds,
     this.boardingStopId,
     this.alightingStopId,
+    this.proposal,
   });
 
   @override
@@ -69,12 +75,14 @@ class _BookingConfirmationScreenState
   TripSegment get _segment => _trip!.segment(
         boardingStopId: widget.boardingStopId,
         alightingStopId: widget.alightingStopId,
+        proposal: widget.proposal,
       );
 
   /// `&board=…&alight=…` pour revenir au plan des sièges sans perdre le tronçon.
   String get _segmentQuery => [
         if (widget.boardingStopId != null) '&board=${widget.boardingStopId}',
         if (widget.alightingStopId != null) '&alight=${widget.alightingStopId}',
+        if (widget.proposal != null) '&proposal=${widget.proposal!.toQuery()}',
       ].join();
 
   Future<void> _pickPhoto(ImageSource source) async {
@@ -170,8 +178,9 @@ class _BookingConfirmationScreenState
         seatIds: widget.seatIds,
         hasHeavyLuggage: _hasHeavyLuggage,
         luggagePhotos: _luggagePhotos,
-        boardingStopId: _segment.boarding?.id,
-        alightingStopId: _segment.alighting?.id,
+        boardingStopId: _segment.boardingStopId,
+        alightingStopId: _segment.alightingStopId,
+        proposedStop: widget.proposal,
       );
       if (!mounted) return;
       context.go('/booking/success?bookingId=${booking.id}');
@@ -246,6 +255,10 @@ class _BookingConfirmationScreenState
                   const SizedBox(height: AppSpacing.lg),
                   if (segment.boarding != null) ...[
                     MeetingPointCard(stop: segment.boarding!),
+                    const SizedBox(height: AppSpacing.lg),
+                  ],
+                  if (widget.proposal != null) ...[
+                    _ProposalNotice(proposal: widget.proposal!),
                     const SizedBox(height: AppSpacing.lg),
                   ],
                   Text(
@@ -747,6 +760,39 @@ class _LuggageChoiceChip extends StatelessWidget {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+/// Rappel avant d'envoyer : le point proposé dépend de l'accord du chauffeur.
+class _ProposalNotice extends StatelessWidget {
+  final ProposedStop proposal;
+
+  const _ProposalNotice({required this.proposal});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: AppColors.primarySurface,
+        borderRadius: BorderRadius.circular(AppSpacing.borderRadiusMd),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Icon(Icons.add_location_alt_rounded, color: AppColors.primary),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              'Vous proposez de ${proposal.isBoarding ? 'monter' : 'descendre'} à ${proposal.name}. '
+              '${proposalSummary(proposal)}',
+              style: AppTextStyles.body.copyWith(fontSize: 13.5),
+            ),
+          ),
+        ],
       ),
     );
   }

@@ -33,6 +33,7 @@ import 'features/chat/screens/chat_screen.dart';
 import 'services/notification_repository.dart';
 import 'services/notification_routes.dart';
 import 'services/push_notification_service.dart';
+import 'models/proposed_stop.dart';
 
 CustomTransitionPage<void> _tabPage(GoRouterState state, Widget child) {
   return CustomTransitionPage<void>(
@@ -125,6 +126,7 @@ GoRouter _buildRouter(AppProvider appProvider) => GoRouter(
           seatIds: seats,
           boardingStopId: state.uri.queryParameters['board'],
           alightingStopId: state.uri.queryParameters['alight'],
+          proposal: ProposedStop.fromQuery(state.uri.queryParameters['proposal']),
         );
       },
     ),
@@ -180,6 +182,7 @@ GoRouter _buildRouter(AppProvider appProvider) => GoRouter(
           tripId: tripId,
           boardingStopId: state.uri.queryParameters['board'],
           alightingStopId: state.uri.queryParameters['alight'],
+          proposal: ProposedStop.fromQuery(state.uri.queryParameters['proposal']),
         );
       },
     ),

@@ -28,6 +28,12 @@ class NotificationService
             ? "$passengerName souhaite réserver une place sur $tripLabel (bagages lourds signalés)."
             : "$passengerName souhaite réserver une place sur $tripLabel.";
 
+        // Arrêt hors de ceux publiés : le chauffeur décide en voyant le détour.
+        if (!empty($bookingData['proposed_stop_name'])) {
+            $detour = isset($bookingData['detour_minutes']) ? " (détour d'environ {$bookingData['detour_minutes']} min)" : '';
+            $message .= " Nouvel arrêt proposé : {$bookingData['proposed_stop_name']}$detour.";
+        }
+
         return $this->create(
             $driver,
             Notification::TYPE_BOOKING_NEW,

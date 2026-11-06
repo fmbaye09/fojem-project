@@ -1,3 +1,4 @@
+import 'proposed_stop.dart';
 import 'trip.dart';
 import 'trip_stop.dart';
 
@@ -58,6 +59,9 @@ class Booking {
   /// nouveau passager.
   final ({int honoredPct, int noShowCount})? reliability;
 
+  /// Point proposé par le passager à la place d'un arrêt du trajet.
+  final ProposedStop? proposedStop;
+
   const Booking({
     required this.id,
     required this.tripId,
@@ -80,12 +84,20 @@ class Booking {
     this.passengerLocation,
     this.apiStatus = '',
     this.reliability,
+    this.proposedStop,
   });
 
   int get seatsBooked => seatCount;
   double get totalPrice => price;
   bool get isBoarded => startedAt != null;
   bool get isNoShow => apiStatus == 'no_show';
+
+  /// Demande avec un point hors des arrêts, que le chauffeur n'a pas encore ajouté.
+  bool get proposesNewStop => proposedStop != null && !proposedStop!.isAdded;
+
+  /// Où il monte / descend : l'arrêt, ou le point qu'il propose.
+  String? get boardingName => boardingStop?.name ?? (proposedStop?.isBoarding == true ? proposedStop!.name : null);
+  String? get alightingName => alightingStop?.name ?? (proposedStop?.isBoarding == false ? proposedStop!.name : null);
 
   String get statusLabel {
     switch (status) {
@@ -155,6 +167,7 @@ class Booking {
       passengerLocation: _parsePassengerLocation(json['passenger_location']),
       apiStatus: json['status'] as String? ?? '',
       reliability: _parseReliability(json['passenger_reliability']),
+      proposedStop: ProposedStop.fromJson(json['proposed_stop']),
     );
   }
 
@@ -211,6 +224,7 @@ class Booking {
       passengerLocation: passengerLocation,
       apiStatus: apiStatus,
       reliability: reliability,
+      proposedStop: proposedStop,
     );
   }
 }

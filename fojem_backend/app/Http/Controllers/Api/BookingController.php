@@ -9,8 +9,10 @@ use App\Models\LuggagePhoto;
 use App\Models\PlatformSetting;
 use App\Models\RideRequest;
 use App\Models\Trip;
+use App\Models\TripStop;
 use App\Services\NotificationService;
 use App\Services\ReputationService;
+use App\Services\StopInsertionPlanner;
 use App\Services\TripLifecycleService;
 use App\Services\TripProgressService;
 use App\Services\WalletService;
@@ -28,6 +30,7 @@ class BookingController extends Controller
         private readonly NotificationService $notifications,
         private readonly ReputationService $reputation,
         private readonly TripProgressService $progress,
+        private readonly StopInsertionPlanner $stopInsertion,
     ) {
     }
     /**
@@ -87,18 +90,42 @@ class BookingController extends Controller
         // Passengers board and leave at the driver's meeting points. Without
         // explicit stops (older app versions) the booking spans the whole trip.
         $stops = $trip->ensureStops()->stops;
-        $boarding = $request->filled('boarding_stop_id')
-            ? $stops->firstWhere('id', $request->input('boarding_stop_id'))
-            : $stops->first();
-        $alighting = $request->filled('alighting_stop_id')
-            ? $stops->firstWhere('id', $request->input('alighting_stop_id'))
-            : $stops->last();
 
-        if (! $boarding || ! $alighting || $boarding->position >= $alighting->position) {
+        // Or at a point they propose instead (before departure only); the
+        // stop is created if the driver accepts.
+        $proposal = null;
+        if ($request->filled('proposed_stop')) {
+            if ($enRoute) {
+                throw ValidationException::withMessages([
+                    'proposed_stop' => 'Le trajet est déjà parti : choisissez un de ses arrêts.',
+                ]);
+            }
+            $input = $request->input('proposed_stop');
+            $proposal = $this->stopInsertion->preview(
+                $trip, $input['role'], (float) $input['lat'], (float) $input['lng'], $input['name'] ?? null, $input['address'] ?? null,
+            );
+        }
+        $proposedRole = $proposal['role'] ?? null;
+
+        $boarding = $proposedRole === StopInsertionPlanner::ROLE_BOARDING ? null : ($request->filled('boarding_stop_id')
+            ? $stops->firstWhere('id', $request->input('boarding_stop_id'))
+            : $stops->first());
+        $alighting = $proposedRole === StopInsertionPlanner::ROLE_ALIGHTING ? null : ($request->filled('alighting_stop_id')
+            ? $stops->firstWhere('id', $request->input('alighting_stop_id'))
+            : $stops->last());
+
+        // The proposed point sits just after the stop it follows.
+        $proposalRank = $proposal ? $stops->firstWhere('id', $proposal['after_stop_id'])->position + 0.5 : null;
+        $boardingRank = $boarding?->position ?? ($proposedRole === StopInsertionPlanner::ROLE_BOARDING ? $proposalRank : null);
+        $alightingRank = $alighting?->position ?? ($proposedRole === StopInsertionPlanner::ROLE_ALIGHTING ? $proposalRank : null);
+
+        if ($boardingRank === null || $alightingRank === null || $boardingRank >= $alightingRank) {
             throw ValidationException::withMessages([
                 'alighting_stop_id' => 'Choisissez un arrêt de montée situé avant votre arrêt de descente, sur ce trajet.',
             ]);
         }
+        $boardingName = $boarding?->name ?? $proposal['name'];
+        $alightingName = $alighting?->name ?? $proposal['name'];
 
         if ($enRoute) {
             if (! $this->progress->canBoardEnRoute($trip, $boarding)) {
@@ -113,12 +140,16 @@ class BookingController extends Controller
             }
         }
 
-        $segmentPrice = bcsub((string) $alighting->price_from_origin, (string) $boarding->price_from_origin, 2);
+        $segmentPrice = bcsub(
+            (string) ($alighting?->price_from_origin ?? $proposal['price_from_origin']),
+            (string) ($boarding?->price_from_origin ?? $proposal['price_from_origin']),
+            2,
+        );
 
         // The seat conflict check and the insert run under a lock on the
         // trip, so two passengers tapping the same seat at once can't both
         // get it.
-        $booking = DB::transaction(function () use ($request, $trip, $seatNumbers, $seatCount, $hasHeavyLuggage, $boarding, $alighting, $segmentPrice, $enRoute) {
+        $booking = DB::transaction(function () use ($request, $trip, $seatNumbers, $seatCount, $hasHeavyLuggage, $boarding, $alighting, $segmentPrice, $enRoute, $proposal) {
             $locked = Trip::whereKey($trip->id)->lockForUpdate()->first();
 
             if ($enRoute) {
@@ -141,8 +172,9 @@ class BookingController extends Controller
 
             $booking = new Booking([
                 'trip_id' => $trip->id,
-                'boarding_stop_id' => $boarding->id,
-                'alighting_stop_id' => $alighting->id,
+                'boarding_stop_id' => $boarding?->id,
+                'alighting_stop_id' => $alighting?->id,
+                'proposed_stop' => $proposal,
                 'ride_request_id' => $request->input('ride_request_id'),
                 'passenger_id' => $request->user()->id,
                 'seat_count' => $seatCount,
@@ -155,7 +187,7 @@ class BookingController extends Controller
             ]);
 
             // The passenger is picked up at the boarding stop.
-            $booking->setPickupPoint($boarding->lat, $boarding->lng);
+            $booking->setPickupPoint($boarding?->lat ?? $proposal['lat'], $boarding?->lng ?? $proposal['lng']);
             $booking->save();
 
             return $booking;
@@ -207,10 +239,13 @@ class BookingController extends Controller
                 'trip_id'           => $trip->id,
                 // The passenger's own segment: the driver needs to know
                 // where they board.
-                'trip_label'        => "{$boarding->name} → {$alighting->name}",
+                'trip_label'        => "{$boardingName} → {$alightingName}",
                 'passenger_name'    => $request->user()->full_name,
                 'has_heavy_luggage' => $hasHeavyLuggage,
-            ]);
+            ] + ($proposal ? [
+                'proposed_stop_name' => $proposal['name'],
+                'detour_minutes'     => $proposal['detour_minutes'],
+            ] : []));
         }
 
         return response()->json(['booking' => $booking->fresh()->load('luggagePhotos')], 201);
@@ -314,11 +349,24 @@ class BookingController extends Controller
             return response()->json(['message' => 'Cette reservation ne peut plus etre acceptee.'], 422);
         }
 
-        DB::transaction(function () use ($booking) {
+        // Un arrêt proposé par le passager s'ajoute au trajet, avant le départ seulement.
+        $proposal = $booking->proposed_stop;
+        $addsStop = is_array($proposal) && empty($proposal['inserted_stop_id']);
+        if ($addsStop && ! in_array($booking->trip->status, [Trip::STATUS_OPEN, Trip::STATUS_FULL], true)) {
+            return response()->json(['message' => 'Le trajet est déjà parti : l’arrêt proposé ne peut plus être ajouté.'], 422);
+        }
+
+        $inserted = null;
+        DB::transaction(function () use ($booking, $addsStop, $proposal, &$inserted) {
             $trip = Trip::where('id', $booking->trip_id)->lockForUpdate()->firstOrFail();
 
             if ($trip->seats_available < $booking->seat_count) {
                 throw ValidationException::withMessages(['seats' => ['Plus assez de places.']]);
+            }
+
+            if ($addsStop) {
+                $inserted = $this->stopInsertion->insert($trip, $proposal);
+                $this->attachInsertedStop($booking, $proposal, $inserted);
             }
 
             $trip->seats_available -= $booking->seat_count;
@@ -328,8 +376,12 @@ class BookingController extends Controller
             }
             $trip->save();
 
-            $booking->update(['status' => Booking::STATUS_CONFIRMED, 'confirmed_at' => now()]);
+            $booking->fill(['status' => Booking::STATUS_CONFIRMED, 'confirmed_at' => now()])->save();
         });
+
+        if ($inserted !== null && $inserted['shift_minutes'] > 0) {
+            $this->notifyLaterPassengers($booking, $inserted['stop'], $inserted['shift_minutes']);
+        }
 
         // Notify the passenger
         $passenger = $booking->passenger;
@@ -394,6 +446,12 @@ class BookingController extends Controller
 
             $booking->update(['status' => $newStatus, 'cancelled_at' => now()]);
         });
+
+        // L'arrêt ajouté pour ce passager quitte le trajet si personne d'autre n'y monte ou n'y descend.
+        $insertedStopId = $booking->proposed_stop['inserted_stop_id'] ?? null;
+        if ($insertedStopId) {
+            $this->stopInsertion->removeIfUnused($booking->trip, $insertedStopId);
+        }
 
         // Une annulation de dernière minute pèse sur la fiabilité du passager.
         if ($isPassenger) {
@@ -520,6 +578,66 @@ class BookingController extends Controller
         }
 
         return response()->json(['booking' => $booking->fresh()]);
+    }
+
+    /**
+     * La réservation monte ou descend désormais à l'arrêt ajouté pour elle :
+     * son prix suit celui de l'arrêt, et le tronçon doit rester dans l'ordre.
+     */
+    private function attachInsertedStop(Booking $booking, array $proposal, array $inserted): void
+    {
+        $stop = $inserted['stop'];
+        if ($proposal['role'] === StopInsertionPlanner::ROLE_BOARDING) {
+            $booking->boarding_stop_id = $stop->id;
+            $booking->setPickupPoint($stop->lat, $stop->lng);
+        } else {
+            $booking->alighting_stop_id = $stop->id;
+        }
+        $booking->unsetRelation('boardingStop')->unsetRelation('alightingStop');
+
+        $boarding = TripStop::find($booking->boarding_stop_id);
+        $alighting = TripStop::find($booking->alighting_stop_id);
+        if (! $boarding || ! $alighting || $boarding->position >= $alighting->position) {
+            throw ValidationException::withMessages([
+                'proposed_stop' => 'L’arrêt proposé ne tombe plus entre la montée et la descente du passager : refusez la demande.',
+            ]);
+        }
+
+        $booking->price_charged = bcmul(
+            bcsub((string) $alighting->price_from_origin, (string) $boarding->price_from_origin, 2),
+            (string) $booking->seat_count,
+            2,
+        );
+        $booking->proposed_stop = [
+            ...$proposal,
+            'inserted_stop_id' => $stop->id,
+            'detour_minutes' => $inserted['shift_minutes'],
+        ];
+    }
+
+    /** Les passagers qui montent après le nouvel arrêt apprennent leur nouvelle heure. */
+    private function notifyLaterPassengers(Booking $booking, TripStop $stop, int $minutes): void
+    {
+        $others = Booking::where('trip_id', $booking->trip_id)
+            ->whereKeyNot($booking->id)
+            ->where('status', Booking::STATUS_CONFIRMED)
+            ->with('passenger')
+            ->get();
+
+        foreach ($others as $other) {
+            $boarding = $other->boardingStop;
+            if (! $other->passenger || ! $boarding || $boarding->position <= $stop->position) {
+                continue;
+            }
+            $this->notifications->system(
+                $other->passenger,
+                '🕒 Horaire modifié',
+                "Le chauffeur ajoute un arrêt à {$stop->name}. Il passera à {$boarding->name}"
+                    .($boarding->scheduled_at ? ' vers '.$boarding->scheduled_at->format('H:i') : '')
+                    .", environ {$minutes} min plus tard que prévu.",
+                ['booking_id' => $other->id, 'trip_id' => $other->trip_id],
+            );
+        }
     }
 
     /** Rend les places d'une réservation confirmée ; un trajet parti reste « en cours ». */

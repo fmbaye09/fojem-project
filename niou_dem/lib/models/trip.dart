@@ -1,6 +1,7 @@
 import '../core/geo/geo_location.dart';
 import '../core/geo/senegal_city_coordinates.dart';
 import 'driver.dart';
+import 'proposed_stop.dart';
 import 'trip_stop.dart';
 import 'vehicle.dart';
 
@@ -127,14 +128,23 @@ class Trip {
   }
 
   /// Tronçon du passager : arrêts demandés, sinon ceux proposés par la
-  /// recherche, sinon le trajet complet.
-  TripSegment segment({String? boardingStopId, String? alightingStopId}) {
-    final boarding = stopById(boardingStopId) ??
-        match?.boardingStop ??
-        (stops.isNotEmpty ? stops.first : null);
-    final alighting = stopById(alightingStopId) ??
-        match?.alightingStop ??
-        (stops.isNotEmpty ? stops.last : null);
+  /// recherche, sinon le trajet complet. Un point qu'il [proposal] propose
+  /// remplace sa montée ou sa descente ; l'autre bout reste du bon côté.
+  TripSegment segment({String? boardingStopId, String? alightingStopId, ProposedStop? proposal}) {
+    final proposed = proposal?.asTripStop(this);
+    var boarding = proposal?.isBoarding == true
+        ? proposed
+        : stopById(boardingStopId) ?? match?.boardingStop ?? (stops.isNotEmpty ? stops.first : null);
+    var alighting = proposal?.isBoarding == false
+        ? proposed
+        : stopById(alightingStopId) ?? match?.alightingStop ?? (stops.isNotEmpty ? stops.last : null);
+    if (proposed != null && boarding != null && alighting != null && boarding.position >= alighting.position) {
+      if (proposal!.isBoarding) {
+        alighting = stops.isNotEmpty ? stops.last : null;
+      } else {
+        boarding = stops.isNotEmpty ? stops.first : null;
+      }
+    }
     return TripSegment(
       boarding: boarding,
       alighting: alighting,
@@ -387,6 +397,16 @@ class TripSegment {
   final double pricePerSeat;
 
   const TripSegment({required this.boarding, required this.alighting, required this.pricePerSeat});
+
+  /// Identifiants à envoyer au backend : pas ceux du point proposé.
+  String? get boardingStopId => boarding?.id == ProposedStop.stopId ? null : boarding?.id;
+  String? get alightingStopId => alighting?.id == ProposedStop.stopId ? null : alighting?.id;
+
+  /// `board=…&alight=…` pour l'écran suivant.
+  String get query => [
+        if (boardingStopId != null) 'board=$boardingStopId',
+        if (alightingStopId != null) 'alight=$alightingStopId',
+      ].join('&');
 }
 
 /// Heure à laquelle le passager monte (arrêt proposé par la recherche),

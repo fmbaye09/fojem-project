@@ -28,6 +28,7 @@ class Booking extends Model
         'departure_code', 'price_charged', 'confirmed_at', 'started_at', 'completed_at',
         'cancelled_at', 'no_show_at', 'reminder_sent_at',
         'passenger_lat', 'passenger_lng', 'passenger_location_at', 'share_token', 'share_expires_at',
+        'proposed_stop',
     ];
 
     /** Au-delà, la position partagée par le passager n'est plus montrée. */
@@ -55,6 +56,9 @@ class Booking extends Model
             'reminder_sent_at' => 'datetime',
             'passenger_location_at' => 'datetime',
             'share_expires_at' => 'datetime',
+            // Arrêt proposé par le passager (StopInsertionPlanner::preview), puis
+            // inserted_stop_id une fois ajouté au trajet par le chauffeur.
+            'proposed_stop' => 'array',
         ];
     }
 

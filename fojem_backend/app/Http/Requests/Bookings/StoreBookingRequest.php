@@ -23,6 +23,14 @@ class StoreBookingRequest extends FormRequest
             // whole trip when omitted.
             'boarding_stop_id' => ['sometimes', 'nullable', 'uuid'],
             'alighting_stop_id' => ['sometimes', 'nullable', 'uuid'],
+            // Or a new point the passenger proposes instead of one of them;
+            // the driver accepts it, with its detour, or not.
+            'proposed_stop' => ['sometimes', 'nullable', 'array'],
+            'proposed_stop.role' => ['required_with:proposed_stop', 'in:boarding,alighting'],
+            'proposed_stop.lat' => ['required_with:proposed_stop', 'numeric', 'between:-90,90'],
+            'proposed_stop.lng' => ['required_with:proposed_stop', 'numeric', 'between:-180,180'],
+            'proposed_stop.name' => ['sometimes', 'nullable', 'string', 'max:120'],
+            'proposed_stop.address' => ['sometimes', 'nullable', 'string', 'max:255'],
             // Ignored since meeting points replaced free pickup points;
             // still accepted from older app versions.
             'pickup_lat' => ['sometimes', 'nullable', 'numeric', 'between:-90,90'],

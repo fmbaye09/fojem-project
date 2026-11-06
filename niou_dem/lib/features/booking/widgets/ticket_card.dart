@@ -137,7 +137,11 @@ class _TicketCardState extends State<TicketCard> {
                     ),
                     const SizedBox(height: 6),
                     Text(
-                      'Le chauffeur a reçu votre demande. Dès qu\'il valide, votre billet et votre code QR d\'embarquement apparaîtront ici.',
+                      booking.proposesNewStop
+                          ? 'Vous avez proposé de ${booking.proposedStop!.isBoarding ? 'monter' : 'descendre'} à '
+                              '${booking.proposedStop!.name}. Le chauffeur décide d\'ajouter cet arrêt à son trajet ; '
+                              's\'il accepte, votre billet et votre code QR d\'embarquement apparaîtront ici.'
+                          : 'Le chauffeur a reçu votre demande. Dès qu\'il valide, votre billet et votre code QR d\'embarquement apparaîtront ici.',
                       textAlign: TextAlign.center,
                       style: AppTextStyles.body.copyWith(
                         fontSize: 13,

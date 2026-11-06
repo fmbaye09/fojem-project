@@ -15,8 +15,10 @@ import '../../../core/widgets/fojem_button.dart';
 import '../../../core/widgets/stop_segment.dart';
 import '../../../models/booking.dart';
 import '../../../models/trip.dart';
+import '../../../models/trip_stop.dart';
 import '../../../services/booking_repository.dart';
 import '../../../services/trip_repository.dart';
+import '../widgets/proposed_stop_notice.dart';
 
 /// Demandes de réservation reçues sur un trajet (design/screens/
 /// fojem_booking_requests.png) : en-tête, résumé du trajet, une carte par
@@ -92,6 +94,11 @@ class _BookingRequestsScreenState extends State<BookingRequestsScreen> with Auto
   }
 
   Future<void> _respond(Booking booking, {required bool accept}) async {
+    // Accepter un point proposé ajoute un arrêt au trajet : le chauffeur confirme.
+    if (accept && booking.proposesNewStop && !await confirmAddProposedStop(context, booking.proposedStop!)) {
+      return;
+    }
+    if (!mounted) return;
     setState(() => _processingIds.add(booking.id));
     try {
       if (accept) {
@@ -107,15 +114,17 @@ class _BookingRequestsScreenState extends State<BookingRequestsScreen> with Auto
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(accept
-              ? 'Réservation acceptée.'
+              ? (booking.proposesNewStop
+                  ? 'Réservation acceptée : ${booking.proposedStop!.name} est ajouté à votre trajet.'
+                  : 'Réservation acceptée.')
               : 'Réservation refusée.'),
         ),
       );
-    } catch (_) {
+    } catch (e) {
       if (!mounted) return;
       setState(() => _processingIds.remove(booking.id));
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Échec de la mise à jour. Réessayez.')),
+        SnackBar(content: Text(e is ApiException ? e.message : 'Échec de la mise à jour. Réessayez.')),
       );
     }
   }
@@ -156,6 +165,7 @@ class _BookingRequestsScreenState extends State<BookingRequestsScreen> with Auto
                             final booking = _pending[index];
                             return _RequestCard(
                               booking: booking,
+                              tripStops: _trip?.stops ?? const [],
                               isProcessing: _processingIds.contains(booking.id),
                               onAccept: () => _respond(booking, accept: true),
                               onRefuse: () => _respond(booking, accept: false),
@@ -248,12 +258,14 @@ class _TripSummaryBar extends StatelessWidget {
 
 class _RequestCard extends StatefulWidget {
   final Booking booking;
+  final List<TripStop> tripStops;
   final bool isProcessing;
   final VoidCallback onAccept;
   final VoidCallback onRefuse;
 
   const _RequestCard({
     required this.booking,
+    this.tripStops = const [],
     required this.isProcessing,
     required this.onAccept,
     required this.onRefuse,
@@ -264,6 +276,13 @@ class _RequestCard extends StatefulWidget {
 }
 
 class _RequestCardState extends State<_RequestCard> {
+  /// Le point proposé à la place de l'arrêt de montée ou de descente.
+  TripStop? _proposed({required bool boarding}) {
+    final proposal = widget.booking.proposedStop;
+    if (proposal == null || proposal.isAdded || proposal.isBoarding != boarding) return null;
+    return proposedAsStop(proposal);
+  }
+
   void _showPhotoDialog(BuildContext context, String url) {
     showDialog(
       context: context,
@@ -354,11 +373,15 @@ class _RequestCardState extends State<_RequestCard> {
           ),
           const SizedBox(height: 14),
           StopSegment(
-            boarding: widget.booking.boardingStop,
-            alighting: widget.booking.alightingStop,
+            boarding: widget.booking.boardingStop ?? _proposed(boarding: true),
+            alighting: widget.booking.alightingStop ?? _proposed(boarding: false),
           ),
           if (widget.booking.boardingStop != null || widget.booking.alightingStop != null)
             const SizedBox(height: 12),
+          if (widget.booking.proposesNewStop) ...[
+            ProposedStopNotice(proposal: widget.booking.proposedStop!, tripStops: widget.tripStops),
+            const SizedBox(height: 12),
+          ],
           Row(
             children: [
               const Icon(Icons.event_seat_outlined, size: 18, color: AppColors.textSecondary),

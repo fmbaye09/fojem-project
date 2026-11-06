@@ -11,7 +11,11 @@ import '../../../core/widgets/star_rating.dart';
 import '../../../core/widgets/glow.dart';
 import '../../../core/widgets/price_display.dart';
 import '../../../core/widgets/trip_card.dart' show formatFcfa;
+import '../../../core/geo/geo_location.dart';
+import '../../../core/network/api_exception.dart';
+import '../../../core/widgets/location_picker_screen.dart';
 import '../../../core/widgets/meeting_point_card.dart';
+import '../../../models/proposed_stop.dart';
 import '../../../models/trip.dart';
 import '../../../models/trip_stop.dart';
 import '../../../models/driver.dart';
@@ -20,6 +24,7 @@ import '../../../providers/app_provider.dart';
 import '../../../services/chat_repository.dart';
 import '../../../services/trip_repository.dart';
 import '../../../services/booking_repository.dart';
+import '../widgets/propose_stop_card.dart';
 
 class TripDetailScreen extends StatefulWidget {
   final String tripId;
@@ -49,6 +54,9 @@ class _TripDetailScreenState extends State<TripDetailScreen> with AutoRefresh<Tr
   late String? _boardId = widget.boardingStopId;
   late String? _alightId = widget.alightingStopId;
 
+  /// Point proposé par le passager à la place de sa montée ou de sa descente.
+  ProposedStop? _proposal;
+
   @override
   void initState() {
     super.initState();
@@ -56,7 +64,77 @@ class _TripDetailScreenState extends State<TripDetailScreen> with AutoRefresh<Tr
   }
 
   TripSegment get _segment =>
-      _trip!.segment(boardingStopId: _boardId, alightingStopId: _alightId);
+      _trip!.segment(boardingStopId: _boardId, alightingStopId: _alightId, proposal: _proposal);
+
+  /// Un point se propose avant le départ, sur un trajet qui a encore des places.
+  bool get _canPropose {
+    final trip = _trip;
+    return trip != null &&
+        trip.status == TripStatus.upcoming &&
+        !trip.isFull &&
+        trip.stops.length >= 2 &&
+        trip.match?.enRoute != true &&
+        _existingBooking == null;
+  }
+
+  /// Monter ou descendre ailleurs : le passager choisit le point, le backend
+  /// dit ce qu'il coûte au chauffeur, puis le passager le retient ou non.
+  Future<void> _proposeStop() async {
+    final boarding = await showModalBottomSheet<bool>(
+      context: context,
+      backgroundColor: AppColors.surface,
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              title: Text('Proposer un point de rendez-vous', style: AppTextStyles.bodyLargeSemibold),
+              subtitle: const Text('Sur la route du chauffeur, loin de ses arrêts.'),
+            ),
+            const Divider(height: 1, color: AppColors.border),
+            ListTile(
+              leading: const Icon(Icons.login_rounded, color: AppColors.primary),
+              title: const Text('Je monte ailleurs'),
+              onTap: () => Navigator.pop(ctx, true),
+            ),
+            ListTile(
+              leading: const Icon(Icons.logout_rounded, color: AppColors.primary),
+              title: const Text('Je descends ailleurs'),
+              onTap: () => Navigator.pop(ctx, false),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (boarding == null || !mounted) return;
+
+    final point = await Navigator.push<GeoLocation>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => LocationPickerScreen(title: boarding ? 'Où voulez-vous monter ?' : 'Où voulez-vous descendre ?'),
+      ),
+    );
+    if (point == null || !mounted) return;
+
+    final trip = _trip!;
+    final ProposedStop proposal;
+    try {
+      proposal = await BookingRepository().previewProposal(tripId: trip.id, point: point, boarding: boarding);
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(e is ApiException && e.message.isNotEmpty ? e.message : 'Impossible d’évaluer ce point. Réessayez.'),
+      ));
+      return;
+    }
+    if (!mounted) return;
+    final price = trip
+        .segment(boardingStopId: _boardId, alightingStopId: _alightId, proposal: proposal)
+        .pricePerSeat;
+    if (await confirmProposal(context, proposal, segmentPrice: price) && mounted) {
+      setState(() => _proposal = proposal);
+    }
+  }
 
   /// Le passager change d'arrêt de montée ou de descente : la montée doit
   /// rester avant la descente.
@@ -96,10 +174,12 @@ class _TripDetailScreenState extends State<TripDetailScreen> with AutoRefresh<Tr
     setState(() {
       if (choice == 'board') {
         _boardId = stop.id;
-        _alightId ??= seg.alighting?.id;
+        _alightId ??= seg.alightingStopId;
+        if (_proposal?.isBoarding == true) _proposal = null;
       } else {
         _alightId = stop.id;
-        _boardId ??= seg.boarding?.id;
+        _boardId ??= seg.boardingStopId;
+        if (_proposal?.isBoarding == false) _proposal = null;
       }
     });
   }
@@ -108,8 +188,8 @@ class _TripDetailScreenState extends State<TripDetailScreen> with AutoRefresh<Tr
     final seg = _segment;
     final params = [
       'tripId=${_trip!.id}',
-      if (seg.boarding != null) 'board=${seg.boarding!.id}',
-      if (seg.alighting != null) 'alight=${seg.alighting!.id}',
+      if (seg.query.isNotEmpty) seg.query,
+      if (_proposal != null) 'proposal=${_proposal!.toQuery()}',
     ].join('&');
     context.push('/seat-selection?$params');
   }
@@ -146,6 +226,13 @@ class _TripDetailScreenState extends State<TripDetailScreen> with AutoRefresh<Tr
                   trip: _trip!,
                   segment: _segment,
                   onStopTap: _chooseStop,
+                  proposeStop: _canPropose || _proposal != null
+                      ? ProposeStopCard(
+                          proposal: _proposal,
+                          onPropose: _proposeStop,
+                          onClear: () => setState(() => _proposal = null),
+                        )
+                      : null,
                   onMessageDriver: _trip!.driver != null ? () => _messageDriver(context) : null,
                 ),
       bottomNavigationBar: _trip == null
@@ -180,11 +267,15 @@ class _TripContent extends StatelessWidget {
   final ValueChanged<TripStop> onStopTap;
   final VoidCallback? onMessageDriver;
 
+  /// Proposer un autre point de rendez-vous (avant le départ seulement).
+  final Widget? proposeStop;
+
   const _TripContent({
     required this.trip,
     required this.segment,
     required this.onStopTap,
     required this.onMessageDriver,
+    this.proposeStop,
   });
 
   @override
@@ -216,6 +307,10 @@ class _TripContent extends StatelessWidget {
         if (trip.stops.length >= 2) ...[
           _StopsTimeline(trip: trip, segment: segment, onStopTap: onStopTap),
           const SizedBox(height: AppSpacing.md),
+          if (proposeStop != null) ...[
+            proposeStop!,
+            const SizedBox(height: AppSpacing.md),
+          ],
         ] else if (trip.waypointLocations.isNotEmpty) ...[
           _RouteTimeline(trip: trip),
           const SizedBox(height: AppSpacing.md),
@@ -291,8 +386,24 @@ class _StopsTimeline extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final timeFormat = DateFormat('HH:mm');
-    final boardPos = segment.boarding?.position ?? 0;
-    final alightPos = segment.alighting?.position ?? trip.stops.last.position;
+    // Rang le long du trajet : un point proposé se range juste après
+    // l'arrêt qu'il suit, entre deux arrêts du chauffeur.
+    final boarding = segment.boarding;
+    final alighting = segment.alighting;
+    double rank(TripStop stop) {
+      if (stop.id != ProposedStop.stopId) return stop.position.toDouble();
+      return stop == boarding ? stop.position + 0.5 : stop.position - 0.5;
+    }
+
+    final boardRank = boarding == null ? 0.0 : rank(boarding);
+    final alightRank = alighting == null ? trip.stops.last.position.toDouble() : rank(alighting);
+    final proposed = boarding?.id == ProposedStop.stopId
+        ? boarding
+        : (alighting?.id == ProposedStop.stopId ? alighting : null);
+    final rows = [
+      for (final stop in trip.stops) (stop: stop, rank: stop.position.toDouble()),
+      if (proposed != null) (stop: proposed, rank: rank(proposed)),
+    ]..sort((a, b) => a.rank.compareTo(b.rank));
     return Container(
       width: double.infinity,
       padding: AppSpacing.cardPadding,
@@ -307,22 +418,23 @@ class _StopsTimeline extends StatelessWidget {
             style: AppTextStyles.caption.copyWith(color: AppColors.textMuted),
           ),
           const SizedBox(height: AppSpacing.md),
-          for (final stop in trip.stops)
+          for (var i = 0; i < rows.length; i++)
             InkWell(
-              onTap: () => onStopTap(stop),
+              onTap: rows[i].stop == proposed ? null : () => onStopTap(rows[i].stop),
               child: Opacity(
                 // Hors de son tronçon : visible mais estompé.
-                opacity: stop.position >= boardPos && stop.position <= alightPos ? 1 : 0.45,
+                opacity: rows[i].rank >= boardRank && rows[i].rank <= alightRank ? 1 : 0.45,
                 child: _TimelineRow(
-                  label: stop.name,
+                  label: rows[i].stop.name,
                   time: [
-                    if (stop.scheduledAt != null) timeFormat.format(stop.scheduledAt!),
-                    if (stop.position == boardPos) 'Vous montez',
-                    if (stop.position == alightPos) 'Vous descendez',
-                    if (stop.displayAddress != stop.name) stop.displayAddress,
+                    if (rows[i].stop.scheduledAt != null) timeFormat.format(rows[i].stop.scheduledAt!),
+                    if (rows[i].rank == boardRank) 'Vous montez',
+                    if (rows[i].rank == alightRank) 'Vous descendez',
+                    if (rows[i].stop == proposed) 'point proposé, à confirmer par le chauffeur',
+                    if (rows[i].stop.displayAddress != rows[i].stop.name) rows[i].stop.displayAddress,
                   ].join(' · '),
-                  isFirst: stop.position == trip.stops.first.position,
-                  isLast: stop.position == trip.stops.last.position,
+                  isFirst: i == 0,
+                  isLast: i == rows.length - 1,
                 ),
               ),
             ),
