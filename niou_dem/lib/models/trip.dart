@@ -350,12 +350,19 @@ class TripMatch {
   final int alightingDistanceM;
   final double segmentPrice;
 
+  /// Trajet déjà parti : le chauffeur passe à l'arrêt de montée vers
+  /// [boardingEta], et la réservation est confirmée d'office.
+  final bool enRoute;
+  final DateTime? boardingEta;
+
   const TripMatch({
     required this.boardingStop,
     required this.alightingStop,
     required this.boardingDistanceM,
     required this.alightingDistanceM,
     required this.segmentPrice,
+    this.enRoute = false,
+    this.boardingEta,
   });
 
   factory TripMatch.fromJson(Map<String, dynamic> json) {
@@ -366,6 +373,8 @@ class TripMatch {
       boardingDistanceM: int.tryParse('${json['boarding_distance_m'] ?? 0}') ?? 0,
       alightingDistanceM: int.tryParse('${json['alighting_distance_m'] ?? 0}') ?? 0,
       segmentPrice: double.tryParse('${json['segment_price'] ?? 0}') ?? 0,
+      enRoute: json['en_route'] == true,
+      boardingEta: DateTime.tryParse('${json['boarding_eta'] ?? ''}')?.toLocal(),
     );
   }
 }

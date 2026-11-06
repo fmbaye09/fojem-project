@@ -17,7 +17,39 @@ use Carbon\CarbonImmutable;
 class TripProgressService
 {
     /** A stop counts as reached within this distance. */
-    private const STOP_REACHED_METERS = 400;
+    public const STOP_REACHED_METERS = 400;
+
+    /** Before this, being near a stop (e.g. the driver lives there) is not an arrival. */
+    private const ARRIVAL_WINDOW_HOURS = 2;
+
+    /** A trip already on the road is booked at least this long before it reaches the stop. */
+    public const EN_ROUTE_LEAD_MINUTES = 15;
+
+    /** When the driver should reach this stop: live ETA during the trip, else the published time. */
+    public function etaFor(Trip $trip, TripStop $stop, ?CarbonImmutable $now = null): ?CarbonImmutable
+    {
+        $eta = collect($this->live($trip, $now)['etas'])->firstWhere('stop_id', $stop->id);
+        if ($eta !== null) {
+            return CarbonImmutable::parse($eta['eta']);
+        }
+
+        return $stop->scheduled_at ? CarbonImmutable::instance($stop->scheduled_at) : null;
+    }
+
+    /**
+     * Un passager peut monter en route à cet arrêt : le chauffeur ne l'a pas
+     * encore atteint et y passe dans au moins 15 min, le temps de le rejoindre.
+     */
+    public function canBoardEnRoute(Trip $trip, TripStop $stop, ?CarbonImmutable $now = null): bool
+    {
+        $now ??= CarbonImmutable::now();
+        if ($stop->position <= ($trip->last_passed_stop_position ?? 0)) {
+            return false;
+        }
+        $eta = $this->etaFor($trip, $stop, $now);
+
+        return $eta !== null && $eta->greaterThanOrEqualTo($now->addMinutes(self::EN_ROUTE_LEAD_MINUTES));
+    }
 
     /** A GPS fix older than this is no longer "live". */
     private const FRESH_SECONDS = 180;
@@ -25,9 +57,29 @@ class TripProgressService
     private const ROAD_FACTOR = 1.25;
     private const AVERAGE_SPEED_KMH = 50;
 
-    /** Marks the furthest stop the driver is now close to as reached. */
+    /**
+     * Records the driver's arrival at the stops they are near (trip started
+     * or not, so the departure point counts too), then, during the trip,
+     * marks the furthest one as passed.
+     */
     public function recordPosition(Trip $trip, float $lat, float $lng): void
     {
+        $now = CarbonImmutable::now();
+        foreach ($trip->stops as $stop) {
+            $scheduled = $stop->scheduled_at ?? $trip->scheduled_at;
+            if ($stop->reached_at === null
+                && ($scheduled === null || $now->greaterThanOrEqualTo(CarbonImmutable::instance($scheduled)->subHours(self::ARRIVAL_WINDOW_HOURS)))
+                && Trip::haversineMeters($lat, $lng, $stop->lat, $stop->lng) <= self::STOP_REACHED_METERS) {
+                $stop->update(['reached_at' => $now]);
+                // Les passagers qui montent ici savent jusqu'à quand il attend.
+                app(TripReminderService::class)->driverArrived($trip, $stop, $now);
+            }
+        }
+
+        if ($trip->status !== Trip::STATUS_IN_PROGRESS) {
+            return;
+        }
+
         $passed = $trip->last_passed_stop_position ?? 0;
         $reached = $trip->stops
             ->filter(fn (TripStop $s) => $s->position > $passed

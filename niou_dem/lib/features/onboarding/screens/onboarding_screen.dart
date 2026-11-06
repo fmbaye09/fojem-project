@@ -60,24 +60,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                 Expanded(
                   child: RiseIn(
                     key: ValueKey(_index),
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        OnboardingArt(index: _index),
-                        const SizedBox(height: 48),
-                        Text(
-                          slide.title,
-                          textAlign: TextAlign.center,
-                          style: AppTextStyles.display.copyWith(fontSize: 30, height: 1.15),
-                        ),
-                        const SizedBox(height: 16),
-                        Text(
-                          slide.body,
-                          textAlign: TextAlign.center,
-                          style: AppTextStyles.bodyLarge.copyWith(color: AppColors.textSecondary),
-                        ),
-                      ],
-                    ),
+                    child: _SlideContent(index: _index, title: slide.title, body: slide.body),
                   ),
                 ),
                 Row(
@@ -107,6 +90,54 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
           ),
         ),
       ),
+    );
+  }
+}
+
+/// Illustration + texte d'une slide. Sur un écran court (petit téléphone,
+/// émulateur), l'illustration rétrécit et les marges se resserrent ; le
+/// texte défile en dernier recours (police système agrandie).
+class _SlideContent extends StatelessWidget {
+  final int index;
+  final String title;
+  final String body;
+
+  const _SlideContent({required this.index, required this.title, required this.body});
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final height = constraints.maxHeight;
+        final compact = height < 560;
+        final artSize = (height * 0.45).clamp(120.0, 256.0);
+        return SingleChildScrollView(
+          child: ConstrainedBox(
+            constraints: BoxConstraints(minHeight: height),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                SizedBox.square(
+                  dimension: artSize,
+                  child: FittedBox(child: OnboardingArt(index: index)),
+                ),
+                SizedBox(height: compact ? 28 : 48),
+                Text(
+                  title,
+                  textAlign: TextAlign.center,
+                  style: AppTextStyles.display.copyWith(fontSize: compact ? 26 : 30, height: 1.15),
+                ),
+                SizedBox(height: compact ? 12 : 16),
+                Text(
+                  body,
+                  textAlign: TextAlign.center,
+                  style: AppTextStyles.bodyLarge.copyWith(color: AppColors.textSecondary),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
     );
   }
 }

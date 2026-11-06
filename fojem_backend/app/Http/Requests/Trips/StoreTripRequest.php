@@ -24,6 +24,7 @@ class StoreTripRequest extends FormRequest
             'seats_available' => ['required', 'integer', 'min:1', 'max:25'],
             'is_recurring' => ['sometimes', 'boolean'],
             'women_only' => ['sometimes', 'boolean'],
+            'accepts_en_route' => ['sometimes', 'boolean'],
 
             // Meeting points, departure first and arrival last.
             'stops' => ['required_without:origin_lat', 'array', 'min:2', 'max:12'],

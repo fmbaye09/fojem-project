@@ -48,6 +48,13 @@ class Booking {
 
   final Trip? trip;
 
+  /// Statut brut de l'API (`cancelled_driver`, `no_show`…) : dit qui a
+  /// annulé une réservation [BookingStatus.cancelled].
+  final String apiStatus;
+
+  /// Le passager a déjà noté ce trajet.
+  final bool isReviewed;
+
   const Booking({
     required this.id,
     required this.tripId,
@@ -66,6 +73,8 @@ class Booking {
     this.boardingStop,
     this.alightingStop,
     this.trip,
+    this.apiStatus = '',
+    this.isReviewed = false,
   });
 
   int get seatsBooked => int.tryParse(seatId) ?? 1;
@@ -152,6 +161,8 @@ class Booking {
           ? TripStop.fromJson(map['alighting_stop'] as Map<String, dynamic>)
           : null,
       trip: tripObj,
+      apiStatus: map['status'] as String? ?? '',
+      isReviewed: map['review_exists'] == true,
     );
   }
 
@@ -180,6 +191,8 @@ class Booking {
       boardingStop: boardingStop,
       alightingStop: alightingStop,
       trip: trip ?? this.trip,
+      apiStatus: apiStatus,
+      isReviewed: isReviewed,
     );
   }
 }

@@ -7,6 +7,7 @@ import '../../../core/theme/app_text_styles.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../models/app_notification.dart';
 import '../../../services/notification_repository.dart';
+import '../../../services/notification_routes.dart';
 
 class NotificationsScreen extends StatefulWidget {
   const NotificationsScreen({super.key});
@@ -77,25 +78,9 @@ class _NotificationsScreenState extends State<NotificationsScreen> with AutoRefr
       _repository.markAsRead(notif.id);
     }
 
-    // Navigation contextuelle
-    final type = notif.type;
-    final payload = notif.payload;
-    final tripId = (payload['trip_id'] ?? '').toString();
-
-    if (type == 'chat_message' && payload['conversation_id'] != null) {
-      final senderName = payload['sender_name']?.toString() ?? 'Utilisateur';
-      final senderId = payload['sender_id']?.toString();
-      final convId = payload['conversation_id'].toString();
-      context.push('/chat/$convId?name=${Uri.encodeComponent(senderName)}&otherId=${senderId ?? ''}');
-    } else if (type == 'booking_completed' && tripId.isNotEmpty) {
-      context.push('/rate/$tripId');
-    } else if (type == 'booking_confirmed') {
-      context.go('/my-trips');
-    } else if (tripId.isNotEmpty) {
-      context.push('/trip/$tripId');
-    } else if (type.startsWith('booking_')) {
-      context.go('/my-trips');
-    }
+    // Même page que depuis la notification système.
+    final location = notificationLocation({...notif.payload, 'type': notif.type});
+    if (location != null) context.push(location);
   }
 
   @override
@@ -203,6 +188,7 @@ class _NotificationCard extends StatelessWidget {
         return Icons.check_circle_outline_rounded;
       case 'booking_rejected':
       case 'booking_cancelled':
+      case 'trip_cancelled':
         return Icons.cancel_outlined;
       case 'booking_completed':
         return Icons.flag_outlined;
@@ -224,6 +210,7 @@ class _NotificationCard extends StatelessWidget {
         return const Color(0xFFE8F5E9);
       case 'booking_rejected':
       case 'booking_cancelled':
+      case 'trip_cancelled':
         return const Color(0xFFFFEBEE);
       case 'chat_message':
         return const Color(0xFFE3F2FD);
@@ -241,6 +228,7 @@ class _NotificationCard extends StatelessWidget {
         return const Color(0xFF2E7D32);
       case 'booking_rejected':
       case 'booking_cancelled':
+      case 'trip_cancelled':
         return AppColors.danger;
       case 'chat_message':
         return const Color(0xFF1976D2);

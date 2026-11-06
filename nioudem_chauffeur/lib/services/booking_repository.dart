@@ -76,4 +76,11 @@ class BookingRepository {
     final body = await _client.post('/bookings/$bookingId/board');
     return Booking.fromApiJson(body['booking'] as Map<String, dynamic>);
   }
+
+  /// Passager absent au point de rendez-vous. Le backend vérifie la position
+  /// du chauffeur et l'attente ; son refus explique ce qui manque.
+  Future<Booking> markNoShow(String bookingId) async {
+    final body = await _client.post('/bookings/$bookingId/no-show');
+    return Booking.fromApiJson(body['booking'] as Map<String, dynamic>);
+  }
 }

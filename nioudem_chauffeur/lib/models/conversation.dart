@@ -5,11 +5,15 @@ class ChatMessage {
   final DateTime timestamp;
   final bool read;
 
-  /// `text` ou `voice`. Un message vocal porte l'URL de son fichier audio
-  /// (hébergé par le backend) et sa durée.
+  /// `text`, `voice`, `image` ou `file`. Un message vocal porte l'URL de son
+  /// fichier audio (hébergé par le backend) et sa durée ; une photo ou un
+  /// document, l'URL du fichier, son nom d'origine et sa taille en octets.
   final String type;
   final String? audioUrl;
   final int? durationMs;
+  final String? fileUrl;
+  final String? fileName;
+  final int? fileSize;
 
   const ChatMessage({
     required this.id,
@@ -20,9 +24,14 @@ class ChatMessage {
     this.type = 'text',
     this.audioUrl,
     this.durationMs,
+    this.fileUrl,
+    this.fileName,
+    this.fileSize,
   });
 
   bool get isVoice => type == 'voice' && audioUrl != null;
+  bool get isImage => type == 'image' && fileUrl != null;
+  bool get isFile => type == 'file' && fileUrl != null;
 
   factory ChatMessage.fromMap(String id, Map<String, dynamic> map) {
     return ChatMessage(
@@ -34,6 +43,9 @@ class ChatMessage {
       type: map['type'] as String? ?? 'text',
       audioUrl: map['audioUrl'] as String?,
       durationMs: (map['durationMs'] as num?)?.toInt(),
+      fileUrl: map['fileUrl'] as String?,
+      fileName: map['fileName'] as String?,
+      fileSize: (map['fileSize'] as num?)?.toInt(),
     );
   }
 
@@ -46,6 +58,9 @@ class ChatMessage {
       'type': type,
       if (audioUrl != null) 'audioUrl': audioUrl,
       if (durationMs != null) 'durationMs': durationMs,
+      if (fileUrl != null) 'fileUrl': fileUrl,
+      if (fileName != null) 'fileName': fileName,
+      if (fileSize != null) 'fileSize': fileSize,
     };
   }
 }

@@ -7,10 +7,31 @@ use Illuminate\Http\Request;
 
 /**
  * Pièces jointes du chat. Les messages eux-mêmes vivent dans Firestore ;
- * le backend n'héberge que les fichiers audio des messages vocaux.
+ * le backend n'héberge que leurs fichiers : messages vocaux, photos et
+ * documents.
  */
 class ChatController extends Controller
 {
+    /** Photos et documents : 10 Mo, la limite d'upload du serveur. */
+    public function uploadAttachment(Request $request)
+    {
+        $request->validate([
+            'file' => ['required', 'file', 'mimes:jpg,jpeg,png,webp,heic,heif,pdf,doc,docx,xls,xlsx,ppt,pptx,txt', 'max:10240'],
+        ]);
+
+        $file = $request->file('file');
+        $isImage = str_starts_with((string) $file->getMimeType(), 'image/');
+        $path = $file->store('chat-attachments', 'public');
+
+        return response()->json([
+            'url' => $request->schemeAndHttpHost().'/storage/'.$path,
+            'kind' => $isImage ? 'image' : 'file',
+            // Nom affiché dans la bulle ; le fichier est stocké sous un nom aléatoire.
+            'name' => mb_substr(basename($file->getClientOriginalName()), 0, 120),
+            'size' => $file->getSize(),
+        ], 201);
+    }
+
     /** Messages vocaux : 5 Mo couvrent largement 2 minutes d'AAC. */
     public function uploadVoice(Request $request)
     {

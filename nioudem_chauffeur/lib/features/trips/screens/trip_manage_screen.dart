@@ -1,18 +1,16 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import '../../../core/events/data_refresh.dart';
-import 'package:flutter_map/flutter_map.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
-import 'package:latlong2/latlong.dart' as ll;
-import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../../core/network/api_exception.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_text_styles.dart';
-import '../../../core/widgets/driver_avatar.dart';
+import '../../../core/widgets/countdown.dart';
+import '../../../core/widgets/en_route_switch.dart';
 import '../../../core/widgets/trip_card.dart' show formatDayLabel, formatFcfa;
 import '../../../core/widgets/fojem_button.dart';
 import '../../../core/widgets/sos.dart';
@@ -20,13 +18,13 @@ import '../../../models/booking.dart';
 import '../../../models/trip.dart';
 import '../../../models/trip_stop.dart';
 import '../../../models/vehicle.dart';
-import '../../../providers/app_provider.dart';
 import '../../../services/booking_repository.dart';
-import '../../../services/chat_repository.dart';
 import '../../../services/sos_repository.dart';
 import '../../../services/trip_location_tracker.dart';
 import '../../../services/trip_repository.dart';
 import '../../../services/vehicle_repository.dart';
+import '../departure_status.dart';
+import '../widgets/passenger_tile.dart';
 
 /// Détail d'un trajet côté chauffeur : carte récapitulative enrichie,
 /// itinéraire visuel, véhicule, émission GPS temps réel quand le trajet est
@@ -89,13 +87,71 @@ class _TripManageScreenState extends State<TripManageScreen> with AutoRefresh<Tr
     });
   }
 
-  /// Aligne le suivi GPS sur le statut du trajet.
+  /// Dernière position envoyée avant le départ (au plus une par minute).
+  DateTime? _lastPreDepartureFixAt;
+
+  /// Aligne le suivi GPS sur le statut du trajet. Avant le départ, à
+  /// l'approche de l'heure, une position par minute : l'arrivée au point de
+  /// rendez-vous est enregistrée, preuve d'une éventuelle absence.
   void _syncTracking(Trip? trip) {
     if (trip == null) return;
     if (trip.status == TripStatus.inProgress) {
       _tracker.start(trip.id);
     } else if (_tracker.activeTripId == trip.id) {
       _tracker.stop();
+    }
+
+    final now = DateTime.now();
+    final nearDeparture = now.isAfter(trip.departureTime.subtract(const Duration(hours: 1))) &&
+        now.isBefore(trip.departureTime.add(const Duration(hours: 2)));
+    final lastFix = _lastPreDepartureFixAt;
+    if (trip.status == TripStatus.upcoming &&
+        nearDeparture &&
+        (lastFix == null || now.difference(lastFix) >= const Duration(minutes: 1))) {
+      _lastPreDepartureFixAt = now;
+      _broadcastCurrentGps();
+    }
+  }
+
+  /// « Passager absent » : une position fraîche d'abord (preuve d'être au
+  /// point de rendez-vous), puis la déclaration ; le backend dit s'il faut
+  /// encore attendre.
+  Future<void> _markAbsent(Booking booking) async {
+    final name = booking.passengerName.isEmpty ? 'ce passager' : booking.passengerName;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppSpacing.borderRadiusMd)),
+        title: Text('Passager absent ?', style: AppTextStyles.title2),
+        content: Text(
+          'Déclarez $name absent seulement après l’avoir attendu au point de rendez-vous, '
+          'au moins 5 min après l’heure prévue. Sa place sera libérée et il sera prévenu.',
+          style: AppTextStyles.body.copyWith(color: AppColors.textSecondary),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Retour')),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: Text('Déclarer absent', style: AppTextStyles.bodySemibold.copyWith(color: AppColors.danger)),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+
+    await _broadcastCurrentGps();
+    try {
+      await BookingRepository().markNoShow(booking.id);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Absence enregistrée : vous pouvez reprendre la route.')),
+      );
+      _load(silent: true);
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
+      // L'arrivée vient peut-être d'être enregistrée : le décompte apparaît.
+      _load(silent: true);
     }
   }
 
@@ -294,6 +350,28 @@ class _TripManageScreenState extends State<TripManageScreen> with AutoRefresh<Tr
         now.isBefore(trip.departureTime.add(const Duration(hours: 12)));
   }
 
+  bool _isSavingEnRoute = false;
+
+  /// Affiché tout de suite, annulé si le backend refuse.
+  Future<void> _setAcceptsEnRoute(bool value) async {
+    setState(() {
+      _isSavingEnRoute = true;
+      _trip = _trip?.copyWith(acceptsEnRoute: value);
+    });
+    try {
+      await TripRepository().setAcceptsEnRoute(widget.tripId, value);
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      setState(() => _trip = _trip?.copyWith(acceptsEnRoute: !value));
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
+    } finally {
+      if (mounted) setState(() => _isSavingEnRoute = false);
+    }
+  }
+
+  /// Un passager ne peut être déclaré absent que sur un trajet pas terminé.
+  bool get _canMarkAbsent => _trip?.status == TripStatus.upcoming || _trip?.status == TripStatus.inProgress;
+
   void _openSos() {
     final trip = _trip!;
     openSosScreen(
@@ -406,6 +484,16 @@ class _TripManageScreenState extends State<TripManageScreen> with AutoRefresh<Tr
                         padding: const EdgeInsets.all(AppSpacing.md),
                         sliver: SliverList(
                           delegate: SliverChildListDelegate([
+                            // ── Le temps : départ, attente au point de rendez-vous ──
+                            EverySecond(builder: (context, now) {
+                              final status = departureStatus(_trip!, _confirmed, now);
+                              if (status == null) return const SizedBox.shrink();
+                              return Padding(
+                                padding: const EdgeInsets.only(bottom: 16),
+                                child: TimeStatusCard(status: status),
+                              );
+                            }),
+
                             // ── Live GPS Broadcast Banner when inProgress ──
                             if (_trip!.status == TripStatus.inProgress) ...[
                               _LiveGpsBanner(
@@ -466,6 +554,11 @@ class _TripManageScreenState extends State<TripManageScreen> with AutoRefresh<Tr
                                   ),
                                 ],
                               ),
+                              const SizedBox(height: 16),
+                              EnRouteSwitch(
+                                value: _trip!.acceptsEnRoute,
+                                onChanged: _isSavingEnRoute ? null : _setAcceptsEnRoute,
+                              ),
                               const SizedBox(height: 24),
                             ],
 
@@ -516,9 +609,7 @@ class _TripManageScreenState extends State<TripManageScreen> with AutoRefresh<Tr
                                   isLast: stop.position == _trip!.stops.last.position,
                                   boarding: [
                                     for (final b in _confirmed)
-                                      if (b.boardingStop?.id == stop.id ||
-                                          (b.boardingStop == null && stop.position == 0))
-                                        b,
+                                      if (boardsAt(b, stop)) b,
                                   ],
                                   alighting: [
                                     for (final b in _confirmed)
@@ -527,11 +618,17 @@ class _TripManageScreenState extends State<TripManageScreen> with AutoRefresh<Tr
                                         b,
                                   ],
                                   tripId: widget.tripId,
+                                  onMarkAbsent: _canMarkAbsent ? _markAbsent : null,
                                 )
                             else
                               ..._confirmed.map((b) => Padding(
                                     padding: const EdgeInsets.only(bottom: AppSpacing.sm),
-                                    child: _PassengerTile(booking: b, tripId: widget.tripId),
+                                    child: PassengerTile(
+                                      booking: b,
+                                      tripId: widget.tripId,
+                                      waitUntil: b.boardingStop?.waitUntil,
+                                      onMarkAbsent: _canMarkAbsent ? _markAbsent : null,
+                                    ),
                                   )),
 
                             const SizedBox(height: 20),
@@ -902,9 +999,14 @@ class _VehicleCard extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text('${vehicle.brand} ${vehicle.model}',
-                    style: AppTextStyles.bodyLargeSemibold),
+                    maxLines: 1, overflow: TextOverflow.ellipsis, style: AppTextStyles.bodyLargeSemibold),
                 const SizedBox(height: 3),
-                Row(
+                // Plaque puis couleur, qui passe à la ligne à côté d'un
+                // badge large (« Minibus 15 places »).
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 4,
+                  crossAxisAlignment: WrapCrossAlignment.center,
                   children: [
                     Container(
                       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
@@ -920,26 +1022,30 @@ class _VehicleCard extends StatelessWidget {
                             color: AppColors.textSecondary,
                           )),
                     ),
-                    const SizedBox(width: 8),
-                    if (vehicle.color.isNotEmpty) ...[
-                      Container(
-                        width: 14,
-                        height: 14,
-                        decoration: BoxDecoration(
-                          color: AppColors.textMuted,
-                          shape: BoxShape.circle,
-                          border: Border.all(color: AppColors.border),
-                        ),
+                    if (vehicle.color.isNotEmpty)
+                      Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Container(
+                            width: 14,
+                            height: 14,
+                            decoration: BoxDecoration(
+                              color: AppColors.textMuted,
+                              shape: BoxShape.circle,
+                              border: Border.all(color: AppColors.border),
+                            ),
+                          ),
+                          const SizedBox(width: 5),
+                          Text(vehicle.color,
+                              style: AppTextStyles.body.copyWith(fontSize: 13, color: AppColors.textSecondary)),
+                        ],
                       ),
-                      const SizedBox(width: 5),
-                      Text(vehicle.color,
-                          style: AppTextStyles.body.copyWith(fontSize: 13, color: AppColors.textSecondary)),
-                    ],
                   ],
                 ),
               ],
             ),
           ),
+          const SizedBox(width: 8),
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
             decoration: BoxDecoration(
@@ -1058,213 +1164,6 @@ class _EmptyPassengerCard extends StatelessWidget {
   }
 }
 
-class _PassengerTile extends StatefulWidget {
-  final Booking booking;
-  final String tripId;
-
-  const _PassengerTile({required this.booking, required this.tripId});
-
-  @override
-  State<_PassengerTile> createState() => _PassengerTileState();
-}
-
-class _PassengerTileState extends State<_PassengerTile> {
-  bool _isOpeningChat = false;
-
-  Future<void> _openChat() async {
-    final driverId = context.read<AppProvider>().user?.id;
-    if (driverId == null) return;
-    setState(() => _isOpeningChat = true);
-    try {
-      final conversation = await ChatRepository().findOrCreate(
-        userIdA: driverId,
-        userIdB: widget.booking.passengerId,
-        relatedTripId: widget.tripId,
-      );
-      if (!mounted) return;
-      setState(() => _isOpeningChat = false);
-      context.push(
-        '/chat/${conversation.id}?name=${Uri.encodeComponent(widget.booking.passengerName)}&otherId=${widget.booking.passengerId}',
-      );
-    } catch (_) {
-      if (!mounted) return;
-      setState(() => _isOpeningChat = false);
-    }
-  }
-
-  void _callPassenger() {
-    final phone = widget.booking.passengerPhone;
-    if (phone.isNotEmpty) {
-      launchUrl(Uri.parse('tel:$phone'));
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final booking = widget.booking;
-    final isBoarded = booking.isBoarded;
-
-    return Container(
-      decoration: BoxDecoration(
-        color: AppColors.surface,
-        borderRadius: BorderRadius.circular(AppSpacing.borderRadiusCard),
-        border: Border.all(
-          color: isBoarded ? AppColors.primary.withOpacity(0.3) : AppColors.border,
-        ),
-        boxShadow: const [
-          BoxShadow(color: Color(0x06000000), blurRadius: 4, offset: Offset(0, 1)),
-        ],
-      ),
-      padding: const EdgeInsets.all(14),
-      child: Column(
-        children: [
-          Row(
-            children: [
-              DriverAvatar(name: booking.passengerName, size: 46),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(booking.passengerName,
-                        style: AppTextStyles.bodyLargeSemibold.copyWith(fontSize: 15)),
-                    const SizedBox(height: 3),
-                    Row(
-                      children: [
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
-                          decoration: BoxDecoration(
-                            color: isBoarded
-                                ? AppColors.primary.withOpacity(0.1)
-                                : const Color(0xFFFFF3E0),
-                            borderRadius: BorderRadius.circular(6),
-                          ),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Icon(
-                                isBoarded ? Icons.check_circle_rounded : Icons.hourglass_top_rounded,
-                                size: 12,
-                                color: isBoarded ? AppColors.primary : const Color(0xFFE67E22),
-                              ),
-                              const SizedBox(width: 4),
-                              Text(
-                                isBoarded ? 'À bord' : 'En attente',
-                                style: AppTextStyles.caption.copyWith(
-                                  color: isBoarded ? AppColors.primary : const Color(0xFFE67E22),
-                                  fontWeight: FontWeight.w600,
-                                  fontSize: 11,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                        // Le code à 4 chiffres n'est pas affiché ici : il doit
-                        // venir du billet du passager pour prouver sa présence.
-                        if (!isBoarded && booking.passengerLocation != null) ...[
-                          const SizedBox(width: 8),
-                          Flexible(
-                            child: GestureDetector(
-                              onTap: () => _showPassengerLocation(context, booking),
-                              child: Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
-                                decoration: BoxDecoration(
-                                  color: AppColors.successSurface,
-                                  borderRadius: BorderRadius.circular(6),
-                                ),
-                                child: Text(
-                                  '📍 Position · ${DateFormat('HH:mm').format(booking.passengerLocation!.updatedAt)}',
-                                  overflow: TextOverflow.ellipsis,
-                                  style: AppTextStyles.caption.copyWith(
-                                    color: AppColors.success,
-                                    fontWeight: FontWeight.w700,
-                                    fontSize: 11,
-                                  ),
-                                ),
-                              ),
-                            ),
-                          ),
-                        ],
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 10),
-          Row(
-            children: [
-              Expanded(
-                child: _SmallActionButton(
-                  icon: Icons.phone_outlined,
-                  label: 'Appeler',
-                  onTap: _callPassenger,
-                ),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: _SmallActionButton(
-                  icon: Icons.chat_bubble_outline_rounded,
-                  label: 'Message',
-                  isLoading: _isOpeningChat,
-                  onTap: _isOpeningChat ? null : _openChat,
-                ),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _SmallActionButton extends StatelessWidget {
-  final IconData icon;
-  final String label;
-  final VoidCallback? onTap;
-  final bool isLoading;
-
-  const _SmallActionButton({
-    required this.icon,
-    required this.label,
-    this.onTap,
-    this.isLoading = false,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(8),
-      child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 8),
-        decoration: BoxDecoration(
-          color: AppColors.background,
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: AppColors.border),
-        ),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            if (isLoading)
-              const SizedBox(
-                width: 14,
-                height: 14,
-                child: CircularProgressIndicator(strokeWidth: 1.5, color: AppColors.primary),
-              )
-            else
-              Icon(icon, size: 16, color: AppColors.primary),
-            const SizedBox(width: 6),
-            Text(label,
-                style: AppTextStyles.bodySemibold.copyWith(fontSize: 12, color: AppColors.primary)),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
 /// Un point de rendez-vous du trajet : heure, adresse, accès à l'itinéraire,
 /// passagers qui montent (avec leurs actions) et qui descendent.
 class _StopSection extends StatelessWidget {
@@ -1274,6 +1173,7 @@ class _StopSection extends StatelessWidget {
   final List<Booking> boarding;
   final List<Booking> alighting;
   final String tripId;
+  final Future<void> Function(Booking)? onMarkAbsent;
 
   const _StopSection({
     required this.stop,
@@ -1282,6 +1182,7 @@ class _StopSection extends StatelessWidget {
     required this.boarding,
     required this.alighting,
     required this.tripId,
+    this.onMarkAbsent,
   });
 
   Future<void> _openDirections() async {
@@ -1356,7 +1257,12 @@ class _StopSection extends StatelessWidget {
             for (final b in boarding)
               Padding(
                 padding: const EdgeInsets.only(bottom: AppSpacing.sm),
-                child: _PassengerTile(booking: b, tripId: tripId),
+                child: PassengerTile(
+                  booking: b,
+                  tripId: tripId,
+                  waitUntil: stop.waitUntil,
+                  onMarkAbsent: onMarkAbsent,
+                ),
               ),
           ],
           if (alighting.isNotEmpty) ...[
@@ -1381,66 +1287,4 @@ class _StopSection extends StatelessWidget {
       ),
     );
   }
-}
-
-/// Position partagée par un passager avant l'embarquement : carte et
-/// itinéraire jusqu'à lui.
-void _showPassengerLocation(BuildContext context, Booking booking) {
-  final location = booking.passengerLocation;
-  if (location == null) return;
-  final point = ll.LatLng(location.lat, location.lng);
-  showModalBottomSheet<void>(
-    context: context,
-    backgroundColor: AppColors.surface,
-    showDragHandle: true,
-    shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
-    builder: (sheetContext) => Padding(
-      padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text('Position de ${booking.passengerName}', style: AppTextStyles.title2),
-          const SizedBox(height: 4),
-          Text(
-            'Partagée par le passager · mise à jour à ${DateFormat('HH:mm').format(location.updatedAt)}',
-            style: AppTextStyles.caption,
-          ),
-          const SizedBox(height: 14),
-          ClipRRect(
-            borderRadius: BorderRadius.circular(18),
-            child: SizedBox(
-              height: 240,
-              child: FlutterMap(
-                options: MapOptions(initialCenter: point, initialZoom: 16),
-                children: [
-                  TileLayer(
-                    urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-                    userAgentPackageName: 'sn.fojem.chauffeur',
-                  ),
-                  MarkerLayer(markers: [
-                    Marker(
-                      point: point,
-                      width: 44,
-                      height: 44,
-                      child: const Icon(Icons.person_pin_circle_rounded, color: AppColors.accent, size: 44),
-                    ),
-                  ]),
-                ],
-              ),
-            ),
-          ),
-          const SizedBox(height: 14),
-          FojemButton.primary(
-            label: 'Itinéraire jusqu’au passager',
-            prefixIcon: Icons.directions_rounded,
-            onPressed: () => launchUrl(
-              Uri.parse('https://www.google.com/maps/dir/?api=1&destination=${location.lat},${location.lng}'),
-              mode: LaunchMode.externalApplication,
-            ),
-          ),
-        ],
-      ),
-    ),
-  );
 }

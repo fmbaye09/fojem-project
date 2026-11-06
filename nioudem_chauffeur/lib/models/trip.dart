@@ -48,6 +48,10 @@ class Trip {
   /// Points de rendez-vous, départ en premier, arrivée en dernier.
   final List<TripStop> stops;
 
+  /// Des passagers peuvent réserver une fois le trajet parti, à un arrêt pas
+  /// encore atteint ; leur réservation est confirmée d'office.
+  final bool acceptsEnRoute;
+
   const Trip({
     required this.id,
     required this.driverId,
@@ -72,6 +76,7 @@ class Trip {
     this.currentHeading,
     this.locationUpdatedAt,
     this.stops = const [],
+    this.acceptsEnRoute = false,
   });
 
   String get durationLabel {
@@ -212,6 +217,7 @@ class Trip {
       currentHeading: currentHeading,
       locationUpdatedAt: locationUpdatedAt,
       stops: stops,
+      acceptsEnRoute: json['accepts_en_route'] == true,
     );
   }
 
@@ -222,6 +228,7 @@ class Trip {
     double? currentLng,
     double? currentHeading,
     DateTime? locationUpdatedAt,
+    bool? acceptsEnRoute,
   }) {
     return Trip(
       id: id,
@@ -247,6 +254,7 @@ class Trip {
       currentHeading: currentHeading ?? this.currentHeading,
       locationUpdatedAt: locationUpdatedAt ?? this.locationUpdatedAt,
       stops: stops,
+      acceptsEnRoute: acceptsEnRoute ?? this.acceptsEnRoute,
     );
   }
 }

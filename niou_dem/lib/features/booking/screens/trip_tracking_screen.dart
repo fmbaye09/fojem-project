@@ -6,27 +6,31 @@ import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 import 'package:latlong2/latlong.dart' as ll;
 import 'package:provider/provider.dart';
-import 'package:qr_flutter/qr_flutter.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
+import '../../../core/geo/geo_location.dart';
 import '../../../core/geo/senegal_city_coordinates.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/widgets/glow.dart';
 import '../../../core/theme/app_text_styles.dart';
 import '../../../core/theme/app_spacing.dart';
+import '../../../core/widgets/countdown.dart';
 import '../../../core/widgets/driver_avatar.dart';
 import '../../../core/widgets/meeting_point_card.dart';
 import '../../../core/widgets/sos.dart';
-import '../../../core/widgets/status_chip.dart';
 import '../../../models/booking.dart';
 import '../../../models/trip.dart';
+import '../../../models/trip_stop.dart';
 import '../../../providers/app_provider.dart';
+import '../../../providers/search_provider.dart';
 import '../../../services/booking_repository.dart';
 import '../../../services/chat_repository.dart';
 import '../../../services/map/osm_map_service.dart';
 import '../../../services/passenger_location_sharer.dart';
 import '../../../services/sos_repository.dart';
 import '../../../services/trip_repository.dart';
+import '../meeting_status.dart';
+import '../widgets/ticket_card.dart';
 
 enum _TrackingStep { confirmed, driverConfirmed, departed, arrived }
 
@@ -126,6 +130,13 @@ class _TripTrackingScreenState extends State<TripTrackingScreen> with AutoRefres
       return _TrackingStep.driverConfirmed;
     }
     return _TrackingStep.confirmed;
+  }
+
+  /// Réservation refusée ou annulée (par le passager, le chauffeur ou avec
+  /// le trajet) : ni billet ni suivi, seulement ce qui s'est passé.
+  bool get _isClosed {
+    final status = _booking?.status;
+    return status == BookingStatus.refused || status == BookingStatus.cancelled;
   }
 
   /// SOS visible pendant le trajet et autour du départ (2 h avant à 12 h après).
@@ -236,8 +247,13 @@ class _TripTrackingScreenState extends State<TripTrackingScreen> with AutoRefres
                 SosButton(onTriggered: _openSos),
                 const SizedBox(height: AppSpacing.lg),
               ],
-              if (_booking != null) ...[
-                _QrTicketCard(booking: _booking!, trip: _trip!),
+              if (_isClosed) ...[
+                _ClosedBookingCard(booking: _booking!, trip: _trip!),
+                const SizedBox(height: AppSpacing.lg),
+              ] else if (_booking != null) ...[
+                // Le temps d'abord : rendez-vous, attente du chauffeur, passage.
+                _EtaCard(trip: _trip!, booking: _booking!),
+                TicketCard(booking: _booking!, trip: _trip!),
                 const SizedBox(height: AppSpacing.lg),
                 if (_showLocationShare) ...[
                   _LocationShareCard(booking: _booking!),
@@ -248,7 +264,6 @@ class _TripTrackingScreenState extends State<TripTrackingScreen> with AutoRefres
                   const SizedBox(height: AppSpacing.lg),
                 ],
                 // Où retrouver le chauffeur, tant que le passager n'est pas à bord.
-                _EtaCard(trip: _trip!, booking: _booking!),
                 if (_booking!.boardingStop != null &&
                     !_booking!.isBoarded &&
                     (_booking!.status == BookingStatus.pending ||
@@ -257,14 +272,16 @@ class _TripTrackingScreenState extends State<TripTrackingScreen> with AutoRefres
                   const SizedBox(height: AppSpacing.lg),
                 ],
               ],
-              _LiveTrackingMap(trip: _trip!),
-              const SizedBox(height: AppSpacing.lg),
-              _DriverContactCard(trip: _trip!),
-              const SizedBox(height: AppSpacing.lg),
-              Text('Statut du trajet', style: AppTextStyles.title2),
-              const SizedBox(height: AppSpacing.md),
-              _TrackingTimeline(currentStep: _stepFor(_trip!, _booking)),
-              const SizedBox(height: AppSpacing.lg),
+              if (!_isClosed) ...[
+                _LiveTrackingMap(trip: _trip!),
+                const SizedBox(height: AppSpacing.lg),
+                _DriverContactCard(trip: _trip!),
+                const SizedBox(height: AppSpacing.lg),
+                Text('Statut du trajet', style: AppTextStyles.title2),
+                const SizedBox(height: AppSpacing.md),
+                _TrackingTimeline(currentStep: _stepFor(_trip!, _booking)),
+                const SizedBox(height: AppSpacing.lg),
+              ],
               _TripInfoCard(trip: _trip!),
               const SizedBox(height: AppSpacing.lg),
               const _SupportSection(),
@@ -277,220 +294,74 @@ class _TripTrackingScreenState extends State<TripTrackingScreen> with AutoRefres
   }
 }
 
-class _QrTicketCard extends StatelessWidget {
+/// Réservation refusée ou annulée : ce qui s'est passé, et de quoi repartir
+/// (les notifications invitent à chercher un autre trajet).
+class _ClosedBookingCard extends StatelessWidget {
   final Booking booking;
   final Trip trip;
 
-  const _QrTicketCard({required this.booking, required this.trip});
+  const _ClosedBookingCard({required this.booking, required this.trip});
+
+  (String, String) get _texts {
+    if (booking.status == BookingStatus.refused) {
+      return ('Réservation refusée', 'Le chauffeur n’a pas accepté votre demande pour ce trajet.');
+    }
+    if (trip.status == TripStatus.cancelled) {
+      return ('Trajet annulé', 'Le chauffeur a annulé ce trajet : votre réservation est annulée.');
+    }
+    switch (booking.apiStatus) {
+      case 'cancelled_passenger':
+        return ('Réservation annulée', 'Vous avez annulé cette réservation.');
+      case 'no_show':
+        return ('Réservation annulée', 'Vous n’étiez pas au point de rendez-vous au moment du départ.');
+      default:
+        return ('Réservation annulée', 'Le chauffeur a annulé votre réservation.');
+    }
+  }
+
+  /// Même tronçon dans la recherche, le jour prévu s'il n'est pas passé.
+  void _searchAgain(BuildContext context) {
+    GeoLocation point(TripStop? stop, GeoLocation fallback) => stop == null
+        ? fallback
+        : GeoLocation(lat: stop.lat, lng: stop.lng, address: stop.address ?? stop.name, locality: stop.name);
+    final now = DateTime.now();
+    context.read<SearchProvider>()
+      ..setOrigin(point(booking.boardingStop, trip.origin))
+      ..setDestination(point(booking.alightingStop, trip.destination))
+      ..setDate(trip.departureTime.isAfter(now) ? trip.departureTime : now);
+    context.push('/search');
+  }
 
   @override
   Widget build(BuildContext context) {
-    final isCompleted = booking.status == BookingStatus.completed;
-    final isConfirmed = booking.status == BookingStatus.confirmed;
-    final isBoarded = booking.isBoarded;
-
-    final Color primaryColor = isCompleted
-        ? const Color(0xFF2E7D32)
-        : (isBoarded
-            ? const Color(0xFF2E7D32)
-            : (isConfirmed ? AppColors.primary : const Color(0xFFF59E0B)));
-
-    final Color bgColor = isCompleted
-        ? const Color(0xFFE8F5E9)
-        : (isBoarded
-            ? const Color(0xFFE8F5E9)
-            : (isConfirmed ? AppColors.primarySurface : const Color(0xFFFFFBEB)));
-
-    final String titleText = isCompleted
-        ? 'Trajet terminé avec succès'
-        : (isBoarded
-            ? 'Présence validée à bord'
-            : (isConfirmed ? 'Billet & Code QR d\'embarquement' : 'Réservation en attente'));
-
-    final IconData titleIcon = isCompleted
-        ? Icons.task_alt_rounded
-        : (isBoarded
-            ? Icons.check_circle_rounded
-            : (isConfirmed ? Icons.qr_code_2_rounded : Icons.hourglass_top_rounded));
-
+    final (title, detail) = _texts;
     return Container(
       width: double.infinity,
+      padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
         color: AppColors.surface,
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: primaryColor, width: 1.5),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.06),
-            blurRadius: 10,
-            offset: const Offset(0, 3),
-          ),
-        ],
+        border: Border.all(color: AppColors.danger, width: 1.5),
       ),
       child: Column(
         children: [
-          // En-tête ticket
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-            decoration: BoxDecoration(
-              color: bgColor,
-              borderRadius: const BorderRadius.vertical(top: Radius.circular(14)),
-            ),
-            child: Row(
-              children: [
-                Icon(titleIcon, color: primaryColor, size: 22),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    titleText,
-                    style: AppTextStyles.bodySemibold.copyWith(color: primaryColor),
-                  ),
-                ),
-                StatusChip(
-                  variant: (isCompleted || isBoarded)
-                      ? StatusChipVariant.completed
-                      : (isConfirmed ? StatusChipVariant.confirmed : StatusChipVariant.pending),
-                ),
-              ],
-            ),
+          const Icon(Icons.event_busy_rounded, size: 44, color: AppColors.danger),
+          const SizedBox(height: 12),
+          Text(title, style: AppTextStyles.title2, textAlign: TextAlign.center),
+          const SizedBox(height: 6),
+          Text(
+            detail,
+            textAlign: TextAlign.center,
+            style: AppTextStyles.body.copyWith(fontSize: 13, color: AppColors.textSecondary),
           ),
-
-          Padding(
-            padding: const EdgeInsets.all(20),
-            child: Column(
-              children: [
-                if (isCompleted) ...[
-                  const Icon(Icons.check_circle_outline_rounded, size: 54, color: Color(0xFF2E7D32)),
-                  const SizedBox(height: 12),
-                  Text('Bon retour !', style: AppTextStyles.title2),
-                  const SizedBox(height: 6),
-                  Text(
-                    'Votre voyage s\'est bien terminé. Nous espérons que vous avez passé un excellent trajet.',
-                    textAlign: TextAlign.center,
-                    style: AppTextStyles.body.copyWith(fontSize: 13, color: AppColors.textSecondary),
-                  ),
-                ] else if (isConfirmed) ...[
-                  // QR Code
-                  Container(
-                    width: 170,
-                    height: 170,
-                    padding: const EdgeInsets.all(10),
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: AppColors.border),
-                    ),
-                    child: QrImageView(
-                      data: 'FOJEM:${booking.id}:${booking.confirmationCode}',
-                      backgroundColor: Colors.white,
-                      padding: EdgeInsets.zero,
-                    ),
-                  ),
-                  const SizedBox(height: 14),
-
-                  // Code de confirmation en grand
-                  Text(
-                    'Code d\'embarquement',
-                    style: AppTextStyles.caption.copyWith(color: AppColors.textSecondary),
-                  ),
-                  const SizedBox(height: 4),
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                    decoration: BoxDecoration(
-                      color: AppColors.background,
-                      borderRadius: BorderRadius.circular(8),
-                      border: Border.all(color: AppColors.border),
-                    ),
-                    child: Text(
-                      booking.confirmationCode.isNotEmpty
-                          ? booking.confirmationCode
-                          : (booking.id.length >= 8 ? booking.id.substring(0, 8).toUpperCase() : booking.id),
-                      style: AppTextStyles.display.copyWith(
-                        fontSize: 30,
-                        letterSpacing: 10,
-                        color: AppColors.primary,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  Text(
-                    isBoarded
-                        ? 'Votre présence a été validée par le chauffeur.'
-                        : 'Présentez ce QR code au chauffeur, ou donnez-lui ce code à 4 chiffres s’il ne peut pas scanner.',
-                    textAlign: TextAlign.center,
-                    style: AppTextStyles.body.copyWith(
-                      fontSize: 12.5,
-                      color: isBoarded ? const Color(0xFF2E7D32) : AppColors.textSecondary,
-                      fontWeight: isBoarded ? FontWeight.w600 : FontWeight.normal,
-                    ),
-                  ),
-                ] else ...[
-                  const Icon(Icons.hourglass_top_rounded, size: 40, color: Color(0xFFD97706)),
-                  const SizedBox(height: 12),
-                  Text(
-                    'En attente d\'acceptation',
-                    style: AppTextStyles.bodyLargeSemibold,
-                  ),
-                  const SizedBox(height: 6),
-                  Text(
-                    'Le chauffeur a reçu votre demande. Dès qu\'il valide, votre billet et votre code QR d\'embarquement apparaîtront ici.',
-                    textAlign: TextAlign.center,
-                    style: AppTextStyles.body.copyWith(
-                      fontSize: 13,
-                      color: AppColors.textSecondary,
-                    ),
-                  ),
-                ],
-
-                const SizedBox(height: 16),
-                const Divider(height: 1, color: AppColors.border),
-                const SizedBox(height: 12),
-
-                // Récapitulatif rapide
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceAround,
-                  children: [
-                    _DetailItem(
-                      label: 'Places',
-                      value: '${booking.seatsBooked} place${booking.seatsBooked > 1 ? 's' : ''}',
-                    ),
-                    Container(height: 24, width: 1, color: AppColors.border),
-                    _DetailItem(
-                      label: 'Prix payé',
-                      value: '${booking.totalPrice.toInt()} FCFA',
-                    ),
-                    Container(height: 24, width: 1, color: AppColors.border),
-                    _DetailItem(
-                      label: 'Départ',
-                      value: DateFormat('HH:mm').format(trip.departureTime),
-                    ),
-                  ],
-                ),
-              ],
-            ),
+          const SizedBox(height: 18),
+          GlowButton(
+            label: 'Trouver un autre trajet',
+            leadingIcon: Icons.search_rounded,
+            onPressed: () => _searchAgain(context),
           ),
         ],
       ),
-    );
-  }
-}
-
-class _DetailItem extends StatelessWidget {
-  final String label;
-  final String value;
-
-  const _DetailItem({required this.label, required this.value});
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Text(label, style: AppTextStyles.caption.copyWith(fontSize: 11)),
-        const SizedBox(height: 2),
-        Text(value, style: AppTextStyles.bodySemibold.copyWith(fontSize: 13)),
-      ],
     );
   }
 }
@@ -1156,10 +1027,10 @@ class _LiveTrackingMapState extends State<_LiveTrackingMap> {
   }
 }
 
-/// « Le chauffeur arrive à votre point de rendez-vous vers 09:12 » puis,
-/// une fois à bord, l'heure d'arrivée à l'arrêt de descente. Les heures
-/// viennent du serveur (`live`) : d'après la position GPS quand elle est
-/// récente, sinon d'après l'horaire publié — et l'écran le dit.
+/// Le temps qui reste, recalculé chaque seconde ([meetingStatus]) :
+/// rendez-vous, attente du chauffeur arrivé, passage puis arrivée estimés.
+/// Les estimations viennent du serveur (`live`) : d'après la position GPS
+/// quand elle est récente, sinon d'après l'horaire publié — et l'écran le dit.
 class _EtaCard extends StatelessWidget {
   final Trip trip;
   final Booking booking;
@@ -1168,93 +1039,14 @@ class _EtaCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final message = _message();
-    if (message == null) return const SizedBox.shrink();
-    return Padding(
-      padding: const EdgeInsets.only(bottom: AppSpacing.lg),
-      child: Container(
-        width: double.infinity,
-        padding: AppSpacing.cardPadding,
-        decoration: BoxDecoration(
-          color: AppColors.primarySurface,
-          borderRadius: BorderRadius.circular(AppSpacing.borderRadiusMd),
-          border: Border.all(color: AppColors.primary.withValues(alpha: 0.25)),
-        ),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Icon(message.icon, color: AppColors.primary, size: 26),
-            const SizedBox(width: AppSpacing.md),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(message.title, style: AppTextStyles.bodyLargeSemibold),
-                  if (message.detail != null) ...[
-                    const SizedBox(height: 2),
-                    Text(message.detail!, style: AppTextStyles.caption.copyWith(color: AppColors.textSecondary)),
-                  ],
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  ({IconData icon, String title, String? detail})? _message() {
-    final time = DateFormat('HH:mm');
-    final boarding = booking.boardingStop;
-    final alighting = booking.alightingStop;
-    final live = trip.live;
-    if (booking.status != BookingStatus.confirmed && booking.status != BookingStatus.pending) return null;
-
-    if (trip.status == TripStatus.upcoming) {
-      final at = boarding?.scheduledAt ?? trip.departureTime;
-      return (
-        icon: Icons.schedule_rounded,
-        title: 'Rendez-vous à ${time.format(at)}${boarding != null ? ' · ${boarding.name}' : ''}',
-        detail: 'Le chauffeur n’a pas encore démarré le trajet.',
+    return EverySecond(builder: (context, now) {
+      final status = meetingStatus(trip, booking, now);
+      if (status == null) return const SizedBox.shrink();
+      return Padding(
+        padding: const EdgeInsets.only(bottom: AppSpacing.lg),
+        child: TimeStatusCard(status: status),
       );
-    }
-    if (trip.status != TripStatus.inProgress) return null;
-
-    // Après la montée : arrivée à l'arrêt de descente.
-    final target = booking.isBoarded ? alighting : boarding;
-    if (target == null) return null;
-    final eta = live?.etas[target.id];
-    final passedTarget = (live?.lastPassedStopPosition ?? 0) >= target.position;
-
-    if (!booking.isBoarded && passedTarget) {
-      return (
-        icon: Icons.where_to_vote_rounded,
-        title: 'Le chauffeur est à votre point de rendez-vous',
-        detail: '${target.name} · ${target.displayAddress}. Présentez votre QR code.',
-      );
-    }
-    if (eta == null) {
-      return (
-        icon: Icons.sensors_off_rounded,
-        title: booking.isBoarded ? 'En route vers ${target.name}' : 'Le chauffeur est en route',
-        detail: 'Heure d’arrivée indisponible pour le moment.',
-      );
-    }
-
-    final minutes = eta.difference(DateTime.now()).inMinutes;
-    final inLabel = minutes <= 1 ? 'd’un instant à l’autre' : 'dans $minutes min';
-    final delay = live?.delayMinutes ?? 0;
-    final detailParts = [
-      if (live?.isLiveEstimate == true) 'Estimation d’après la position du chauffeur' else 'Estimation d’après l’horaire prévu (position indisponible)',
-      if (delay >= 5) 'environ $delay min de retard',
-    ];
-    return (
-      icon: booking.isBoarded ? Icons.flag_rounded : Icons.directions_car_filled_rounded,
-      title: booking.isBoarded
-          ? 'Arrivée à ${target.name} vers ${time.format(eta)}'
-          : 'Le chauffeur arrive à ${target.name} vers ${time.format(eta)} · $inLabel',
-      detail: detailParts.join(' · '),
-    );
+    });
   }
 }
 

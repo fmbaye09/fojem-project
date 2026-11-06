@@ -3,7 +3,6 @@ import 'package:flutter/material.dart';
 import '../../../core/events/data_refresh.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
-import '../../../core/geo/senegal_city_coordinates.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_text_styles.dart';
 import '../../../core/widgets/bottom_nav_bar.dart';
@@ -41,23 +40,52 @@ class _HomeScreenState extends State<HomeScreen> with AutoRefresh<HomeScreen> {
   Booking? _activeBooking;
   Timer? _pollTimer;
 
+  late final SearchProvider _search;
+
+  /// Points de la dernière recherche lancée : la réponse d'une recherche
+  /// dont le départ ou l'arrivée a changé depuis est ignorée.
+  bool _requested = false;
+  GeoLocation? _loadedOrigin;
+  GeoLocation? _loadedDestination;
+
   @override
   void initState() {
     super.initState();
-    _loadNearby();
+    _search = context.read<SearchProvider>()..addListener(_onSearchChanged);
+    // Après la première image : la localisation notifie le provider.
+    WidgetsBinding.instance.addPostFrameCallback((_) => _start());
     _pollTimer = Timer.periodic(const Duration(seconds: 15), (_) => _loadNearby(silent: true));
   }
 
   @override
   void dispose() {
+    _search.removeListener(_onSearchChanged);
     _pollTimer?.cancel();
     super.dispose();
   }
 
+  /// Le départ par défaut est la position actuelle : les prochains départs
+  /// sont ceux qui passent près du passager.
+  Future<void> _start() async {
+    await _search.locateOrigin();
+    if (mounted && !_requested) await _loadNearby();
+  }
+
+  static bool _samePoint(GeoLocation? a, GeoLocation? b) => a?.lat == b?.lat && a?.lng == b?.lng;
+
+  bool _isLatest(GeoLocation? origin, GeoLocation? destination) =>
+      _samePoint(origin, _loadedOrigin) && _samePoint(destination, _loadedDestination);
+
+  void _onSearchChanged() {
+    if (!_isLatest(_search.origin, _search.destination)) _loadNearby(silent: true);
+  }
+
   Future<void> _loadNearby({bool silent = false}) async {
-    final search = context.read<SearchProvider>();
-    final origin = search.origin ?? coordinatesForCity('Dakar');
-    final destination = search.destination ?? coordinatesForCity('Thiès');
+    final origin = _search.origin;
+    final destination = _search.destination;
+    _requested = true;
+    _loadedOrigin = origin;
+    _loadedDestination = destination;
 
     final userId = context.read<AppProvider>().user?.id;
     Booking? activeBooking;
@@ -79,7 +107,7 @@ class _HomeScreenState extends State<HomeScreen> with AutoRefresh<HomeScreen> {
           .timeout(const Duration(seconds: 15));
       final nearby = trips.where((t) => !t.isFull).toList()
         ..sort((a, b) => a.departureTime.compareTo(b.departureTime));
-      if (!mounted) return;
+      if (!mounted || !_isLatest(origin, destination)) return;
       setState(() {
         _activeBooking = activeBooking;
         _nearby = nearby.take(3).toList();
@@ -87,13 +115,20 @@ class _HomeScreenState extends State<HomeScreen> with AutoRefresh<HomeScreen> {
         _hasError = false;
       });
     } catch (_) {
-      if (!mounted) return;
+      if (!mounted || !_isLatest(origin, destination)) return;
       setState(() {
         _activeBooking = activeBooking;
         _isLoading = false;
         _hasError = true;
       });
     }
+  }
+
+  /// Message sans résultat, selon ce que la dernière recherche couvrait.
+  String get _emptyText {
+    if (_loadedDestination != null) return 'Aucun trajet prévu sur cet itinéraire pour le moment.';
+    if (_loadedOrigin != null) return 'Aucun départ prévu près de vous pour le moment.';
+    return 'Aucun trajet prévu pour le moment.';
   }
 
   @override
@@ -135,9 +170,7 @@ class _HomeScreenState extends State<HomeScreen> with AutoRefresh<HomeScreen> {
               text: 'Impossible de charger les trajets. Tirez vers le bas pour réessayer.',
             )
           else if (_nearby.isEmpty)
-            const _InlineNotice(
-              text: 'Aucun trajet prévu sur cet itinéraire pour le moment.',
-            )
+            _InlineNotice(text: _emptyText)
           else
             for (var i = 0; i < _nearby.length; i++) ...[
               RiseIn(
@@ -198,6 +231,17 @@ class _SearchCard extends StatelessWidget {
     isDeparture ? search.setOrigin(picked) : search.setDestination(picked);
   }
 
+  /// Il manque le départ ou l'arrivée : le bouton fait d'abord choisir le
+  /// lieu manquant, puis lance la recherche.
+  Future<void> _startSearch(BuildContext context) async {
+    final search = context.read<SearchProvider>();
+    if (search.origin == null) await _pickPlace(context, isDeparture: true);
+    if (!context.mounted || search.origin == null) return;
+    if (search.destination == null) await _pickPlace(context, isDeparture: false);
+    if (!context.mounted || !search.hasSearch) return;
+    context.push('/search');
+  }
+
   Future<void> _pickDate(BuildContext context) async {
     final search = context.read<SearchProvider>();
     final now = DateTime.now();
@@ -234,10 +278,12 @@ class _SearchCard extends StatelessWidget {
               Column(
                 children: [
                   _PlaceField(
-                    icon: Icons.radio_button_unchecked_rounded,
+                    icon: search.isCurrentPosition(search.origin)
+                        ? Icons.my_location_rounded
+                        : Icons.radio_button_unchecked_rounded,
                     iconColor: AppColors.primary,
                     value: search.departure,
-                    placeholder: 'D’où partez-vous ?',
+                    placeholder: search.isLocating ? 'Localisation en cours…' : 'D’où partez-vous ?',
                     onTap: () => _pickPlace(context, isDeparture: true),
                   ),
                   const SizedBox(height: 12),
@@ -281,7 +327,7 @@ class _SearchCard extends StatelessWidget {
           GlowButton(
             label: 'Rechercher un trajet',
             leadingIcon: Icons.search_rounded,
-            onPressed: search.hasSearch ? () => context.push('/search') : null,
+            onPressed: () => _startSearch(context),
           ),
         ],
       ),

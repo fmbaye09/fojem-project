@@ -1,3 +1,5 @@
+import 'package:flutter/foundation.dart';
+
 /// Configuration centralisée du backend Laravel FOJËM.
 ///
 /// [baseUrl] pointe par défaut vers le serveur ; voir sa documentation pour
@@ -5,13 +7,19 @@
 class ApiConfig {
   ApiConfig._();
 
-  /// Adresse de l'API, choisie à la compilation. Par défaut : le serveur de
-  /// test. En local : `flutter run --dart-define=API_BASE_URL=http://192.168.137.1:8000/api`
-  /// (ou `http://10.0.2.2:8000/api` depuis un émulateur Android).
-  static const String baseUrl = String.fromEnvironment(
-    'API_BASE_URL',
-    defaultValue: 'http://169.58.156.95:8081/api',
-  );
+  static const String _override = String.fromEnvironment('API_BASE_URL');
+
+  /// Adresse de l'API, choisie à la compilation :
+  /// - debug (Run d'Android Studio) : le backend Docker du poste, sur le
+  ///   partage de connexion Windows auquel le téléphone est connecté ;
+  /// - release (APK App Tester) : le serveur de test ;
+  /// - `--dart-define=API_BASE_URL=...` l'emporte sur les deux
+  ///   (`http://10.0.2.2:8000/api` depuis un émulateur Android).
+  static const String baseUrl = _override != ''
+      ? _override
+      : kDebugMode
+          ? 'http://192.168.137.1:8000/api'
+          : 'http://169.58.156.95:8081/api';
 
   /// Délai avant abandon d'une requête — l'app doit rester utilisable même
   /// avec un réseau mobile médiocre, sans attendre indéfiniment non plus.

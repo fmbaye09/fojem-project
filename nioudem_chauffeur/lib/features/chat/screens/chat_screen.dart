@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_text_styles.dart';
+import '../../../core/widgets/chat_attachment.dart';
 import '../../../core/widgets/driver_avatar.dart';
 import '../../../core/widgets/voice_message.dart';
 import '../../../models/app_user.dart';
@@ -17,7 +19,8 @@ import '../../../services/user_repository.dart';
 /// Conversation — fidèle à la maquette : en-tête (retour, photo, nom,
 /// statut, menu), séparateurs de jour, bulles marine (envoyées) et pêche
 /// (reçues) avec heure et accusé de lecture, champ de saisie avec trombone
-/// et bouton rond : micro (message vocal) quand le champ est vide, envoi sinon. Temps réel via Firestore `snapshots()` ; la
+/// (photo ou document) et bouton rond : micro (message vocal) quand le champ
+/// est vide, envoi sinon. Temps réel via Firestore `snapshots()` ; la
 /// notification push à la réception nécessite une Cloud Function côté
 /// serveur.
 class ChatScreen extends StatefulWidget {
@@ -44,7 +47,7 @@ class _ChatScreenState extends State<ChatScreen> {
   AppUser? _otherUser;
   bool _canSend = false;
   bool _isRecording = false;
-  bool _isSendingVoice = false;
+  bool _isUploading = false;
 
   @override
   void initState() {
@@ -130,7 +133,7 @@ class _ChatScreenState extends State<ChatScreen> {
     final userId = context.read<AppProvider>().user?.id;
     setState(() {
       _isRecording = false;
-      _isSendingVoice = true;
+      _isUploading = true;
     });
     try {
       if (userId == null) throw StateError('not signed in');
@@ -156,7 +159,64 @@ class _ChatScreenState extends State<ChatScreen> {
       }
     } finally {
       recording.file.delete().ignore();
-      if (mounted) setState(() => _isSendingVoice = false);
+      if (mounted) setState(() => _isUploading = false);
+    }
+  }
+
+  /// Photo ou document : choix de la source, envoi du fichier au backend
+  /// puis publication du message dans Firestore.
+  Future<void> _attach() async {
+    final source = await showAttachmentSheet(context);
+    if (source == null || !mounted) return;
+    final PickedAttachment? picked;
+    try {
+      picked = await pickAttachment(source);
+    } on PlatformException {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(source == AttachmentSource.camera
+              ? 'Autorisez l’accès à l’appareil photo pour envoyer une photo.'
+              : 'Impossible d’ouvrir ce fichier.'),
+        ));
+      }
+      return;
+    }
+    if (picked == null || !mounted) return;
+    if (picked.size > kChatAttachmentMaxBytes) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Fichier trop lourd : 10 Mo au maximum.')),
+      );
+      return;
+    }
+
+    final userId = context.read<AppProvider>().user?.id;
+    setState(() => _isUploading = true);
+    try {
+      if (userId == null) throw StateError('not signed in');
+      final file = await _media.uploadAttachment(picked.path, picked.name);
+      await _repository.sendAttachment(
+        conversationId: widget.conversationId,
+        senderId: userId,
+        url: file.url,
+        isImage: file.isImage,
+        name: file.name,
+        size: file.size,
+      );
+      if (widget.otherUserId != null && widget.otherUserId!.isNotEmpty) {
+        NotificationRepository().sendChatNotification(
+          recipientId: widget.otherUserId!,
+          message: attachmentPreview(isImage: file.isImage, name: file.name),
+          conversationId: widget.conversationId,
+        );
+      }
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Pièce jointe non envoyée. Vérifiez votre connexion.')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isUploading = false);
     }
   }
 
@@ -239,7 +299,7 @@ class _ChatScreenState extends State<ChatScreen> {
                 },
               ),
             ),
-            if (_isSendingVoice)
+            if (_isUploading)
               const LinearProgressIndicator(minHeight: 2, color: AppColors.primary, backgroundColor: Colors.transparent),
             if (_isRecording)
               VoiceRecorderBar(
@@ -251,11 +311,8 @@ class _ChatScreenState extends State<ChatScreen> {
                 controller: _textController,
                 canSend: _canSend,
                 onSend: _send,
-                onMic: _isSendingVoice ? null : _startRecording,
-                onAttach: () => ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                      content: Text('L’envoi de pièces jointes arrive bientôt.')),
-                ),
+                onMic: _isUploading ? null : _startRecording,
+                onAttach: _isUploading ? null : _attach,
               ),
           ],
         ),
@@ -396,14 +453,36 @@ class _MessageList extends StatelessWidget {
   }
 }
 
-Widget _voicePlayer(ChatMessage message, Color color) => VoiceMessagePlayer(
+/// Contenu d'une bulle : message vocal, photo, document ou texte.
+Widget _messageContent(ChatMessage message, Color color) {
+  if (message.isVoice) {
+    return VoiceMessagePlayer(
       url: message.audioUrl!,
       duration: Duration(milliseconds: message.durationMs ?? 0),
       color: color,
     );
+  }
+  if (message.isImage) return ChatImageAttachment(url: message.fileUrl!);
+  if (message.isFile) {
+    return ChatFileAttachment(
+      url: message.fileUrl!,
+      name: message.fileName ?? 'Document',
+      size: message.fileSize,
+      color: color,
+    );
+  }
+  return Text(
+    message.text,
+    style: AppTextStyles.bodyLarge.copyWith(fontSize: 15, color: color, height: 1.45),
+  );
+}
 
 const _bubbleRadius = BorderRadius.all(Radius.circular(14));
 const _bubblePadding = EdgeInsets.symmetric(horizontal: 16, vertical: 12);
+
+/// Une photo occupe presque toute sa bulle.
+EdgeInsets _paddingFor(ChatMessage message) =>
+    message.isImage ? const EdgeInsets.all(4) : _bubblePadding;
 
 class _SentBubble extends StatelessWidget {
   final ChatMessage message;
@@ -424,14 +503,8 @@ class _SentBubble extends StatelessWidget {
               borderRadius: _bubbleRadius,
             ),
             child: Padding(
-              padding: _bubblePadding,
-              child: message.isVoice
-                  ? _voicePlayer(message, Colors.white)
-                  : Text(
-                message.text,
-                style: AppTextStyles.bodyLarge
-                    .copyWith(fontSize: 15, color: Colors.white, height: 1.45),
-              ),
+              padding: _paddingFor(message),
+              child: _messageContent(message, Colors.white),
             ),
           ),
         ),
@@ -494,17 +567,8 @@ class _ReceivedBubble extends StatelessWidget {
                     borderRadius: _bubbleRadius,
                   ),
                   child: Padding(
-                    padding: _bubblePadding,
-                    child: message.isVoice
-                        ? _voicePlayer(message, const Color(0xFF1C1C1A))
-                        : Text(
-                      message.text,
-                      style: AppTextStyles.bodyLarge.copyWith(
-                        fontSize: 15,
-                        color: const Color(0xFF1C1C1A),
-                        height: 1.45,
-                      ),
-                    ),
+                    padding: _paddingFor(message),
+                    child: _messageContent(message, const Color(0xFF1C1C1A)),
                   ),
                 ),
               ),
@@ -567,7 +631,7 @@ class _Composer extends StatelessWidget {
   final bool canSend;
   final VoidCallback onSend;
   final VoidCallback? onMic;
-  final VoidCallback onAttach;
+  final VoidCallback? onAttach;
 
   const _Composer({
     required this.controller,

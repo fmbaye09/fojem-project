@@ -32,7 +32,32 @@ services:
       APP_NAME: FOJEM
       APP_ENV: local
       APP_DEBUG: "true"
-      APP_URL: http://192.168.1.4:8000
+      APP_URL: http://192.168.137.1:8000
+      DB_CONNECTION: pgsql
+      DB_HOST: db
+      DB_PORT: 5432
+      DB_DATABASE: fojem
+      DB_USERNAME: fojem
+      DB_PASSWORD: fojem_local_dev
+    volumes:
+      - .:/var/www/html
+      - fojem_vendor:/var/www/html/vendor
+      - ./docker/php/uploads.ini:/usr/local/etc/php/conf.d/uploads.ini:ro
+
+  # Tâches planifiées (rappels de départ, cycle de vie) chaque minute, comme
+  # le cron du serveur. Pas d'entrypoint : le backend migre et seede déjà.
+  scheduler:
+    image: fojem_backend-backend
+    container_name: fojem_scheduler
+    restart: unless-stopped
+    depends_on:
+      - backend
+    entrypoint: ["php", "artisan", "schedule:work"]
+    environment:
+      APP_NAME: FOJEM
+      APP_ENV: local
+      APP_DEBUG: "true"
+      APP_URL: http://192.168.137.1:8000
       DB_CONNECTION: pgsql
       DB_HOST: db
       DB_PORT: 5432

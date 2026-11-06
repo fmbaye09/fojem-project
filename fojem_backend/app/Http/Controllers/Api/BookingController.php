@@ -10,27 +10,41 @@ use App\Models\PlatformSetting;
 use App\Models\RideRequest;
 use App\Models\Trip;
 use App\Services\NotificationService;
+use App\Services\ReputationService;
 use App\Services\TripLifecycleService;
+use App\Services\TripProgressService;
 use App\Services\WalletService;
+use Carbon\CarbonImmutable;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
 class BookingController extends Controller
 {
-    public function __construct(private readonly NotificationService $notifications)
-    {
+    /** Une position plus ancienne ne prouve pas que le chauffeur est sur place. */
+    private const NO_SHOW_FIX_SECONDS = 120;
+
+    public function __construct(
+        private readonly NotificationService $notifications,
+        private readonly ReputationService $reputation,
+        private readonly TripProgressService $progress,
+    ) {
     }
     /**
      * Passenger requests a seat on a trip. Does NOT touch seats_available
      * yet - the seat is only actually blocked when the driver accepts
      * (see accept()), so a flood of pending requests can't starve a trip.
+     *
+     * A trip already on the road (if its driver accepts it) is booked at a
+     * stop not reached yet; the booking is confirmed at once and its seats
+     * taken, so the driver has nothing to accept while driving.
      */
     public function store(StoreBookingRequest $request)
     {
         $trip = Trip::findOrFail($request->input('trip_id'));
+        $enRoute = $trip->status === Trip::STATUS_IN_PROGRESS && $trip->accepts_en_route;
 
-        if ($trip->status !== Trip::STATUS_OPEN) {
+        if ($trip->status !== Trip::STATUS_OPEN && ! $enRoute) {
             return response()->json(['message' => 'Ce trajet n\'accepte plus de reservations.'], 422);
         }
 
@@ -86,13 +100,33 @@ class BookingController extends Controller
             ]);
         }
 
+        if ($enRoute) {
+            if (! $this->progress->canBoardEnRoute($trip, $boarding)) {
+                throw ValidationException::withMessages([
+                    'boarding_stop_id' => "Le chauffeur passe trop tôt à {$boarding->name} : choisissez un arrêt plus loin sur son trajet.",
+                ]);
+            }
+            if ($this->reputation->recentNoShows($user) >= ReputationService::NO_SHOW_LIMIT) {
+                return response()->json([
+                    'message' => 'Après plusieurs absences récentes, vous ne pouvez plus réserver un trajet déjà parti. Réservez un trajet avant son départ.',
+                ], 422);
+            }
+        }
+
         $segmentPrice = bcsub((string) $alighting->price_from_origin, (string) $boarding->price_from_origin, 2);
 
         // The seat conflict check and the insert run under a lock on the
         // trip, so two passengers tapping the same seat at once can't both
         // get it.
-        $booking = DB::transaction(function () use ($request, $trip, $seatNumbers, $seatCount, $hasHeavyLuggage, $boarding, $alighting, $segmentPrice) {
-            Trip::whereKey($trip->id)->lockForUpdate()->first();
+        $booking = DB::transaction(function () use ($request, $trip, $seatNumbers, $seatCount, $hasHeavyLuggage, $boarding, $alighting, $segmentPrice, $enRoute) {
+            $locked = Trip::whereKey($trip->id)->lockForUpdate()->first();
+
+            if ($enRoute) {
+                if ($locked->seats_available < $seatCount) {
+                    throw ValidationException::withMessages(['seats' => 'Pas assez de places disponibles.']);
+                }
+                $locked->decrement('seats_available', $seatCount);
+            }
 
             if ($seatNumbers !== null) {
                 $taken = array_values(array_intersect($seatNumbers, Booking::occupiedSeatNumbers($trip->id)));
@@ -114,7 +148,8 @@ class BookingController extends Controller
                 'seat_count' => $seatCount,
                 'seat_numbers' => $seatNumbers,
                 'has_heavy_luggage' => $hasHeavyLuggage,
-                'status' => Booking::STATUS_PENDING_DRIVER,
+                'status' => $enRoute ? Booking::STATUS_CONFIRMED : Booking::STATUS_PENDING_DRIVER,
+                'confirmed_at' => $enRoute ? now() : null,
                 'departure_code' => Booking::generateDepartureCode(),
                 'price_charged' => bcmul($segmentPrice, (string) $seatCount, 2),
             ]);
@@ -148,9 +183,25 @@ class BookingController extends Controller
                 ->update(['status' => RideRequest::STATUS_MATCHED]);
         }
 
-        // Notify the trip's driver about the new booking request
         $driverUser = $trip->driverProfile?->user;
-        if ($driverUser) {
+        if ($enRoute) {
+            // Rien à valider en roulant : le chauffeur est seulement prévenu.
+            $eta = $this->progress->etaFor($trip, $boarding);
+            if ($driverUser) {
+                $this->notifications->system(
+                    $driverUser,
+                    '🚗 Nouveau passager en route',
+                    "{$user->full_name} monte à {$boarding->name}".($eta ? ' vers '.$eta->format('H:i') : '').'. Réservation confirmée automatiquement.',
+                    ['booking_id' => $booking->id, 'trip_id' => $trip->id],
+                );
+            }
+            $this->notifications->bookingConfirmed($user, [
+                'booking_id' => $booking->id,
+                'trip_id' => $trip->id,
+                'trip_label' => "{$boarding->name} → {$alighting->name}",
+            ]);
+        } elseif ($driverUser) {
+            // Notify the trip's driver about the new booking request
             $this->notifications->bookingNew($driverUser, [
                 'booking_id'        => $booking->id,
                 'trip_id'           => $trip->id,
@@ -169,8 +220,10 @@ class BookingController extends Controller
     {
         TripLifecycleService::sync();
 
+        // review_exists : l'app n'ouvre pas la notation d'un trajet déjà noté.
         $bookings = Booking::where('passenger_id', $request->user()->id)
             ->with(['trip.driverProfile.user', 'trip.vehicle', 'luggagePhotos'])
+            ->withExists('review')
             ->orderByDesc('created_at')
             ->paginate(20);
 
@@ -200,7 +253,10 @@ class BookingController extends Controller
             $query->where('status', $status);
         }
 
-        return response()->json($query->paginate($request->integer('per_page', 20)));
+        $page = $query->paginate($request->integer('per_page', 20));
+        $this->reputation->attachTo($page->getCollection());
+
+        return response()->json($page);
     }
 
     /** Bookings on one specific trip - only that trip's driver may list them. */
@@ -222,7 +278,10 @@ class BookingController extends Controller
             $query->where('status', $status);
         }
 
-        return response()->json($query->paginate($request->integer('per_page', 20)));
+        $page = $query->paginate($request->integer('per_page', 20));
+        $this->reputation->attachTo($page->getCollection());
+
+        return response()->json($page);
     }
 
     /** A single booking - visible to its passenger or the trip's driver only. */
@@ -263,7 +322,10 @@ class BookingController extends Controller
             }
 
             $trip->seats_available -= $booking->seat_count;
-            $trip->status = $trip->seats_available === 0 ? Trip::STATUS_FULL : $trip->status;
+            // Un trajet déjà parti reste « en cours », même plein.
+            if ($trip->seats_available === 0 && $trip->status === Trip::STATUS_OPEN) {
+                $trip->status = Trip::STATUS_FULL;
+            }
             $trip->save();
 
             $booking->update(['status' => Booking::STATUS_CONFIRMED, 'confirmed_at' => now()]);
@@ -327,13 +389,16 @@ class BookingController extends Controller
 
         DB::transaction(function () use ($booking, $wasConfirmed, $newStatus) {
             if ($wasConfirmed) {
-                // give the seat back
-                Trip::where('id', $booking->trip_id)->lockForUpdate()->increment('seats_available', $booking->seat_count);
-                Trip::where('id', $booking->trip_id)->where('status', Trip::STATUS_FULL)->update(['status' => Trip::STATUS_OPEN]);
+                $this->releaseSeats($booking);
             }
 
-            $booking->update(['status' => $newStatus]);
+            $booking->update(['status' => $newStatus, 'cancelled_at' => now()]);
         });
+
+        // Une annulation de dernière minute pèse sur la fiabilité du passager.
+        if ($isPassenger) {
+            $this->reputation->refresh($user);
+        }
 
         // Notify the other party
         $trip = $booking->trip;
@@ -382,6 +447,7 @@ class BookingController extends Controller
         // Notify the passenger the trip is done
         $passenger = $booking->passenger;
         if ($passenger) {
+            $this->reputation->refresh($passenger);
             $trip = $booking->trip;
             $this->notifications->bookingCompleted($passenger, [
                 'booking_id' => $booking->id,
@@ -391,6 +457,76 @@ class BookingController extends Controller
         }
 
         return response()->json(['booking' => $booking->fresh()]);
+    }
+
+    /**
+     * Le chauffeur déclare un passager absent. Il doit être au point de
+     * rendez-vous (position récente, que l'app envoie juste avant) et y avoir
+     * attendu 5 min, comptées depuis l'heure prévue ou depuis son arrivée si
+     * elle est plus tardive : un chauffeur en retard ne peut pas déclarer
+     * absent un passager qui l'a attendu.
+     */
+    public function noShow(Request $request, Booking $booking)
+    {
+        $this->authorizeDriverForBooking($request, $booking);
+
+        if ($booking->status !== Booking::STATUS_CONFIRMED || $booking->started_at !== null) {
+            return response()->json(['message' => 'Seul un passager confirmé, pas encore à bord, peut être déclaré absent.'], 422);
+        }
+
+        $trip = $booking->trip;
+        $stop = $booking->boardingStop ?? $trip->ensureStops()->stops->first();
+        $now = CarbonImmutable::now();
+
+        $fixAt = $trip->location_updated_at ? CarbonImmutable::instance($trip->location_updated_at) : null;
+        $onSite = $stop?->reached_at !== null
+            && $fixAt !== null
+            && $trip->current_lat !== null
+            && $fixAt->diffInSeconds($now, true) <= self::NO_SHOW_FIX_SECONDS
+            && Trip::haversineMeters((float) $trip->current_lat, (float) $trip->current_lng, $stop->lat, $stop->lng)
+                <= TripProgressService::STOP_REACHED_METERS;
+
+        if (! $onSite) {
+            return response()->json([
+                'message' => 'Rendez-vous au point de rendez-vous ('.($stop?->name ?? 'montée').') avec la localisation activée pour déclarer une absence.',
+            ], 422);
+        }
+
+        $allowedAt = $stop->waitUntil($trip->scheduled_at);
+
+        if ($now->lessThan($allowedAt)) {
+            $minutes = (int) ceil($now->diffInSeconds($allowedAt, true) / 60);
+
+            return response()->json([
+                'message' => "Attendez encore {$minutes} min : le passager a jusqu'à {$allowedAt->format('H:i')} pour vous rejoindre.",
+                'allowed_at' => $allowedAt->toIso8601String(),
+            ], 422);
+        }
+
+        DB::transaction(function () use ($booking) {
+            $this->releaseSeats($booking);
+            $booking->update(['status' => Booking::STATUS_NO_SHOW, 'no_show_at' => now()]);
+        });
+
+        $passenger = $booking->passenger;
+        if ($passenger) {
+            $this->reputation->refresh($passenger);
+            $this->notifications->system(
+                $passenger,
+                '🚫 Absence signalée',
+                "Le chauffeur ne vous a pas trouvé au point de rendez-vous ({$stop->name}) et a repris la route. Votre réservation est annulée.",
+                ['booking_id' => $booking->id, 'trip_id' => $trip->id],
+            );
+        }
+
+        return response()->json(['booking' => $booking->fresh()]);
+    }
+
+    /** Rend les places d'une réservation confirmée ; un trajet parti reste « en cours ». */
+    private function releaseSeats(Booking $booking): void
+    {
+        Trip::where('id', $booking->trip_id)->lockForUpdate()->increment('seats_available', $booking->seat_count);
+        Trip::where('id', $booking->trip_id)->where('status', Trip::STATUS_FULL)->update(['status' => Trip::STATUS_OPEN]);
     }
 
     /**

@@ -30,6 +30,8 @@ import 'features/ride_request/screens/create_ride_request_screen.dart';
 import 'features/ride_request/screens/my_ride_requests_screen.dart';
 import 'features/chat/screens/conversation_list_screen.dart';
 import 'features/chat/screens/chat_screen.dart';
+import 'services/notification_repository.dart';
+import 'services/notification_routes.dart';
 import 'services/push_notification_service.dart';
 
 CustomTransitionPage<void> _tabPage(GoRouterState state, Widget child) {
@@ -236,44 +238,40 @@ class _FojemAppState extends State<FojemApp> with WidgetsBindingObserver {
       widget.createAppProvider?.call() ?? AppProvider();
   late final GoRouter _router = _buildRouter(_appProvider);
 
+  /// Page demandée par une notification touchée pendant le démarrage :
+  /// ouverte par-dessus l'accueil une fois le splash terminé (le splash
+  /// remplace la pile en allant à l'accueil).
+  String? _pendingLocation;
+
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    _router.routerDelegate.addListener(_openPendingLocation);
     PushNotificationService().onNotificationTap = (data) {
-      final convId = data['conversation_id'] as String?;
-      final senderName = (data['sender_name'] as String?) ?? 'Message';
-      final senderId = data['sender_id'] as String?;
-
-      if (convId != null && convId.isNotEmpty) {
-        _router.push('/chat/$convId?name=${Uri.encodeComponent(senderName)}&otherId=${senderId ?? ''}');
-        return;
-      }
-
-      final tripId = (data['trip_id'] ?? '').toString();
-      final type = (data['type'] ?? '').toString();
-
-      if (type == 'booking_completed' && tripId.isNotEmpty) {
-        _router.push('/rate/$tripId');
-        return;
-      }
-
-      // Une réservation se consulte dans l’onglet « Réservations ».
-      if (type == 'booking_confirmed' ||
-          type == 'booking_rejected' ||
-          type == 'booking_cancelled' ||
-          type == 'trip_cancelled') {
-        _router.go('/my-trips');
-        return;
-      }
-
-      if (tripId.isNotEmpty) {
-        _router.push('/trip/$tripId');
-        return;
-      }
-
-      _router.push('/notifications');
+      final id = (data['notification_id'] ?? '').toString();
+      if (id.isNotEmpty) NotificationRepository().markAsRead(id);
+      _pendingLocation = notificationLocation(data) ?? '/notifications';
+      _openPendingLocation();
     };
+  }
+
+  void _openPendingLocation() {
+    final location = _pendingLocation;
+    if (location == null) return;
+    final current = _router.routerDelegate.currentConfiguration.uri.path;
+    // Démarrage en cours ou session pas encore ouverte : on attend l'accueil.
+    if (current.isEmpty || current == '/splash' || _publicPaths.contains(current) || !_appProvider.isLoggedIn) {
+      return;
+    }
+    _pendingLocation = null;
+    // Hors de la notification du routeur, qui vient peut-être de naviguer.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      // Déjà ouverte (même conversation, même billet) : elle se rafraîchit seule.
+      if (_router.routerDelegate.currentConfiguration.uri.path == Uri.parse(location).path) return;
+      _router.push(location);
+    });
+    WidgetsBinding.instance.scheduleFrame();
   }
 
   @override
@@ -288,6 +286,7 @@ class _FojemAppState extends State<FojemApp> with WidgetsBindingObserver {
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _router.routerDelegate.removeListener(_openPendingLocation);
     _appProvider.dispose();
     super.dispose();
   }

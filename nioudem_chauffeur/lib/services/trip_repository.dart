@@ -21,6 +21,7 @@ class TripRepository {
     required int seatsTotal,
     required VehicleType vehicleType,
     String? notes,
+    bool acceptsEnRoute = false,
   }) async {
     final first = stops.first;
     final last = stops.last;
@@ -31,6 +32,7 @@ class TripRepository {
       'price_per_seat': last.priceFromOrigin,
       'seats_available': seatsTotal,
       'stops': [for (final s in stops) s.toApi()],
+      'accepts_en_route': acceptsEnRoute,
     });
 
     final json = body['trip'] as Map<String, dynamic>;
@@ -90,6 +92,11 @@ class TripRepository {
         'Cette transition de statut n\'est pas prise en charge.',
       );
     }
+  }
+
+  /// Accepter, ou non, des passagers une fois le trajet parti.
+  Future<void> setAcceptsEnRoute(String tripId, bool accepts) async {
+    await _client.patch('/trips/$tripId/en-route', data: {'accepts_en_route': accepts});
   }
 
   /// Envoie la position GPS actuelle du chauffeur pendant le trajet en cours.

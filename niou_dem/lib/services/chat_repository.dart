@@ -13,6 +13,10 @@ import '../models/conversation.dart';
 /// Aperçu d'un message vocal (liste des conversations, notification).
 const kVoiceMessagePreview = '🎤 Message vocal';
 
+/// Aperçu d'une photo ou d'un document (liste des conversations, notification).
+String attachmentPreview({required bool isImage, required String name}) =>
+    isImage ? '📷 Photo' : '📎 $name';
+
 class ChatRepository {
   final FirebaseFirestore? _injectedFirestore;
   FirebaseFirestore get _firestore => _injectedFirestore ?? FirebaseFirestore.instance;
@@ -135,6 +139,28 @@ class ChatRepository {
         type: 'voice',
         audioUrl: audioUrl,
         durationMs: durationMs,
+      ));
+
+  /// Photo ou document : le fichier est déjà en ligne ([url]) ; le texte
+  /// sert d'aperçu dans la liste des conversations.
+  Future<void> sendAttachment({
+    required String conversationId,
+    required String senderId,
+    required String url,
+    required bool isImage,
+    required String name,
+    required int size,
+  }) =>
+      _send(conversationId, ChatMessage(
+        id: '',
+        senderId: senderId,
+        text: attachmentPreview(isImage: isImage, name: name),
+        timestamp: DateTime.now(),
+        read: false,
+        type: isImage ? 'image' : 'file',
+        fileUrl: url,
+        fileName: name,
+        fileSize: size,
       ));
 
   Future<void> _send(String conversationId, ChatMessage message) async {

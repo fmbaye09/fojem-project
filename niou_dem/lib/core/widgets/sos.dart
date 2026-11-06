@@ -375,9 +375,12 @@ class _SosScreenState extends State<SosScreen> {
                       Icon(_recording ? Icons.fiber_manual_record_rounded : Icons.mic_off_rounded,
                           color: _recording ? Colors.redAccent.shade100 : Colors.white54, size: 18),
                       const SizedBox(width: 6),
-                      Text(
-                        _recording ? 'Enregistrement en cours · $_elapsed' : 'Micro non autorisé · $_elapsed',
-                        style: AppTextStyles.bodySemibold.copyWith(color: Colors.white),
+                      Flexible(
+                        child: Text(
+                          _recording ? 'Enregistrement en cours · $_elapsed' : 'Micro non autorisé · $_elapsed',
+                          textAlign: TextAlign.center,
+                          style: AppTextStyles.bodySemibold.copyWith(color: Colors.white),
+                        ),
                       ),
                     ],
                   ),

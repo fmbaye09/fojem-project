@@ -91,9 +91,13 @@ class _SearchPreview extends StatelessWidget {
   Widget build(BuildContext context) {
     return Row(
       children: [
-        Text(
-          departure,
-          style: AppTextStyles.bodySemibold,
+        Flexible(
+          child: Text(
+            departure,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: AppTextStyles.bodySemibold,
+          ),
         ),
         if (arrival != null) ...[
           const Padding(
@@ -104,9 +108,13 @@ class _SearchPreview extends StatelessWidget {
               color: AppColors.textSecondary,
             ),
           ),
-          Text(
-            arrival!,
-            style: AppTextStyles.bodySemibold,
+          Flexible(
+            child: Text(
+              arrival!,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: AppTextStyles.bodySemibold,
+            ),
           ),
         ],
       ],

@@ -18,6 +18,13 @@ class TripStop {
   final double lng;
   final DateTime? scheduledAt;
 
+  /// Première position du chauffeur à cet arrêt (null tant qu'il n'y est pas).
+  final DateTime? reachedAt;
+
+  /// Jusqu'à quand il y attend ses passagers avant de pouvoir les déclarer
+  /// absents (calculé par le backend).
+  final DateTime? waitUntil;
+
   /// Prix par place depuis le départ : un tronçon i → j coûte
   /// `priceFromOrigin[j] - priceFromOrigin[i]`.
   final double priceFromOrigin;
@@ -30,6 +37,8 @@ class TripStop {
     required this.lat,
     required this.lng,
     this.scheduledAt,
+    this.reachedAt,
+    this.waitUntil,
     required this.priceFromOrigin,
   });
 
@@ -47,6 +56,8 @@ class TripStop {
       lat: double.tryParse('${json['lat'] ?? ''}') ?? 0,
       lng: double.tryParse('${json['lng'] ?? ''}') ?? 0,
       scheduledAt: DateTime.tryParse('${json['scheduled_at'] ?? ''}')?.toLocal(),
+      reachedAt: DateTime.tryParse('${json['reached_at'] ?? ''}')?.toLocal(),
+      waitUntil: DateTime.tryParse('${json['wait_until'] ?? ''}')?.toLocal(),
       priceFromOrigin: double.tryParse('${json['price_from_origin'] ?? 0}') ?? 0,
     );
   }

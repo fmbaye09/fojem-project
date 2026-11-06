@@ -10,6 +10,7 @@ import '../../../core/widgets/star_rating.dart';
 import '../../../core/widgets/fojem_button.dart';
 import '../../../models/driver.dart';
 import '../../../providers/app_provider.dart';
+import '../../../services/booking_repository.dart';
 import '../../../services/review_repository.dart';
 import '../../../services/trip_repository.dart';
 
@@ -28,6 +29,10 @@ class _RatingScreenState extends State<RatingScreen> {
   bool _isSubmitting = false;
   bool _isLoading = true;
 
+  /// Trajet déjà noté (notification ou réservation rouverte) : pas de
+  /// second formulaire, que le backend refuserait.
+  bool _alreadyRated = false;
+
   Driver? _driver;
   String _routeLabel = '';
 
@@ -38,11 +43,22 @@ class _RatingScreenState extends State<RatingScreen> {
   }
 
   Future<void> _load() async {
+    final userId = context.read<AppProvider>().user?.id;
     final trip = await TripRepository().fetch(widget.tripId);
+    var alreadyRated = false;
+    if (userId != null) {
+      try {
+        final bookings = await BookingRepository().fetchForPassenger(userId);
+        alreadyRated = bookings.any((b) => b.tripId == widget.tripId && b.isReviewed);
+      } catch (_) {
+        // Sans la liste, le formulaire reste proposé.
+      }
+    }
     if (!mounted) return;
     setState(() {
       _driver = trip?.driver;
       _routeLabel = trip == null ? '' : '${trip.departure} → ${trip.arrival}';
+      _alreadyRated = alreadyRated;
       _isLoading = false;
     });
   }
@@ -115,6 +131,36 @@ class _RatingScreenState extends State<RatingScreen> {
         backgroundColor: AppColors.background,
         appBar: AppBar(title: const Text('Évaluer le trajet')),
         body: const Center(child: Text('Trajet introuvable')),
+      );
+    }
+    if (_alreadyRated) {
+      return Scaffold(
+        backgroundColor: AppColors.background,
+        appBar: AppBar(title: const Text('Évaluer le trajet')),
+        body: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(AppSpacing.lg),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(Icons.star_rounded, size: 56, color: AppColors.accent),
+                const SizedBox(height: AppSpacing.md),
+                Text('Merci pour votre avis !', style: AppTextStyles.title2, textAlign: TextAlign.center),
+                const SizedBox(height: AppSpacing.sm),
+                Text(
+                  'Vous avez déjà noté ce trajet avec ${driver.name}.',
+                  style: AppTextStyles.body.copyWith(color: AppColors.textSecondary),
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: AppSpacing.lg),
+                FojemButton.primary(
+                  label: 'Retour',
+                  onPressed: () => context.canPop() ? context.pop() : context.go('/home'),
+                ),
+              ],
+            ),
+          ),
+        ),
       );
     }
 

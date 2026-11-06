@@ -291,6 +291,8 @@ class _BookingConfirmationScreenState
             total: segment.pricePerSeat * widget.seatIds.length,
             isLoading: _isConfirming,
             onConfirm: _confirm,
+            // Trajet déjà parti : réservation confirmée d'office.
+            instant: trip.status == TripStatus.inProgress,
           ),
         ],
       ),
@@ -475,11 +477,13 @@ class _ConfirmBar extends StatelessWidget {
   final double total;
   final bool isLoading;
   final VoidCallback onConfirm;
+  final bool instant;
 
   const _ConfirmBar({
     required this.total,
     required this.isLoading,
     required this.onConfirm,
+    this.instant = false,
   });
 
   /// Barre fixe du bas : total et envoi de la demande.
@@ -499,7 +503,7 @@ class _ConfirmBar extends StatelessWidget {
                 ),
               ),
               GlowButton(
-                label: 'Envoyer la demande',
+                label: instant ? 'Réserver' : 'Envoyer la demande',
                 expanded: false,
                 isLoading: isLoading,
                 padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 15),

@@ -9,6 +9,7 @@ import '../../../core/network/api_exception.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_text_styles.dart';
+import '../../../core/widgets/en_route_switch.dart';
 import '../../../core/widgets/location_picker_screen.dart';
 import '../../../core/widgets/option_sheet.dart';
 import '../../../core/widgets/trip_card.dart' show formatDayLabel, formatFcfa;
@@ -62,6 +63,7 @@ class _PublishTripScreenState extends State<PublishTripScreen> {
   final _notesController = TextEditingController();
 
   bool _isPublishing = false;
+  bool _acceptsEnRoute = false;
 
   @override
   void initState() {
@@ -206,6 +208,7 @@ class _PublishTripScreenState extends State<PublishTripScreen> {
         seatsTotal: _seats,
         vehicleType: vehicle.type,
         notes: _notesController.text.trim().isEmpty ? null : _notesController.text.trim(),
+        acceptsEnRoute: _acceptsEnRoute,
       );
       if (!mounted) return;
       context.go('/home');
@@ -337,6 +340,8 @@ class _PublishTripScreenState extends State<PublishTripScreen> {
                       seats: _seats,
                       vehicle: _vehicle,
                       notes: _notesController.text.trim(),
+                      acceptsEnRoute: _acceptsEnRoute,
+                      onAcceptsEnRouteChanged: (v) => setState(() => _acceptsEnRoute = v),
                     ),
                 },
               ),
@@ -963,12 +968,16 @@ class _StepThree extends StatelessWidget {
   final int seats;
   final Vehicle? vehicle;
   final String notes;
+  final bool acceptsEnRoute;
+  final ValueChanged<bool> onAcceptsEnRouteChanged;
 
   const _StepThree({
     required this.stops,
     required this.seats,
     required this.vehicle,
     required this.notes,
+    required this.acceptsEnRoute,
+    required this.onAcceptsEnRouteChanged,
   });
 
   @override
@@ -1038,6 +1047,8 @@ class _StepThree extends StatelessWidget {
             ],
           ),
         ),
+        const SizedBox(height: 16),
+        EnRouteSwitch(value: acceptsEnRoute, onChanged: onAcceptsEnRouteChanged),
       ],
     );
   }
@@ -1331,10 +1342,12 @@ class _SummaryRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Icon(icon, size: 19, color: AppColors.textSecondary),
         const SizedBox(width: 12),
-        Text(text, style: AppTextStyles.bodyLarge.copyWith(fontSize: 15)),
+        // Passe à la ligne sur un écran étroit (prix + « trajet complet »).
+        Expanded(child: Text(text, style: AppTextStyles.bodyLarge.copyWith(fontSize: 15))),
       ],
     );
   }

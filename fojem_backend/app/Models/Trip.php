@@ -23,10 +23,10 @@ class Trip extends Model
     protected $fillable = [
         'driver_id', 'vehicle_id', 'departure_type', 'scheduled_at',
         'price_per_seat', 'toll_fees', 'seats_available', 'is_recurring',
-        'recurrence_rule', 'status', 'closed_by', 'women_only',
+        'recurrence_rule', 'status', 'closed_by', 'women_only', 'accepts_en_route',
         'origin_name', 'destination_name',
         'current_lat', 'current_lng', 'current_heading', 'location_updated_at', 'waypoints',
-        'last_passed_stop_position',
+        'last_passed_stop_position', 'reminder_sent_at',
     ];
 
     protected $appends = [
@@ -42,10 +42,12 @@ class Trip extends Model
         return [
             'scheduled_at' => 'datetime',
             'location_updated_at' => 'datetime',
+            'reminder_sent_at' => 'datetime',
             'price_per_seat' => 'decimal:2',
             'toll_fees' => 'decimal:2',
             'is_recurring' => 'boolean',
             'women_only' => 'boolean',
+            'accepts_en_route' => 'boolean',
             'origin_lat' => 'float',
             'origin_lng' => 'float',
             'destination_lat' => 'float',

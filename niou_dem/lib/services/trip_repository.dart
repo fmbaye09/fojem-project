@@ -6,13 +6,10 @@ import 'driver_repository.dart';
 
 /// Trajets via l'API Laravel (`/api/trips/*`).
 ///
-/// Le backend n'a pas d'endpoint "liste tous les trajets ouverts" — seul
-/// `GET /trips/search` existe, et il exige un couple origine+destination
-/// (recherche géographique par rayon, voir `TripController::search()` /
-/// `Trip::scopeNear()`). Les écrans qui avaient besoin d'un univers de
-/// trajets "actifs à venir" (accueil, onglet Trajets) ont donc été adaptés
-/// pour passer par [search] avec les coordonnées choisies, plutôt que de
-/// filtrer côté client une liste globale qui n'existe plus.
+/// Le backend n'a pas d'endpoint "liste tous les trajets ouverts" : tout
+/// passe par `GET /trips/search` (voir `TripController::search()`), dont le
+/// départ et l'arrivée sont facultatifs. L'accueil s'en sert pour les
+/// départs proches du passager avant qu'il ait choisi une destination.
 class TripSearchResult {
   final List<Trip> trips;
   final List<Trip> suggestions;
@@ -31,18 +28,20 @@ class TripRepository {
   /// Recherche publique : trajets dont un point de rendez-vous est à moins
   /// de [radiusM] mètres de [origin] et un point suivant à moins de [radiusM]
   /// de [destination] (chaque résultat porte son `match`), avec suggestions
-  /// de repli si aucun trajet ne correspond.
+  /// de repli si aucun trajet ne correspond. Sans [origin], le passager
+  /// monte au premier arrêt ; sans [destination], il va jusqu'au dernier.
   Future<TripSearchResult> searchWithSuggestions({
-    required GeoLocation origin,
-    required GeoLocation destination,
+    required GeoLocation? origin,
+    required GeoLocation? destination,
     int radiusM = 15000,
     bool womenOnly = false,
   }) async {
     final response = await _client.get('/trips/search', query: {
-      'origin_lat': origin.lat,
-      'origin_lng': origin.lng,
-      'destination_lat': destination.lat,
-      'destination_lng': destination.lng,
+      if (origin != null) ...{'origin_lat': origin.lat, 'origin_lng': origin.lng},
+      if (destination != null) ...{
+        'destination_lat': destination.lat,
+        'destination_lng': destination.lng,
+      },
       'radius_m': radiusM,
       if (womenOnly) 'women_only': true,
     });
@@ -66,8 +65,8 @@ class TripRepository {
 
   /// Comme [searchWithSuggestions], sans les suggestions.
   Future<List<Trip>> search({
-    required GeoLocation origin,
-    required GeoLocation destination,
+    required GeoLocation? origin,
+    required GeoLocation? destination,
     int radiusM = 15000,
     bool womenOnly = false,
   }) async {

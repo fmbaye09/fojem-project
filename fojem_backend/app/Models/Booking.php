@@ -26,6 +26,7 @@ class Booking extends Model
         'trip_id', 'boarding_stop_id', 'alighting_stop_id', 'ride_request_id', 'passenger_id',
         'seat_count', 'seat_numbers', 'has_heavy_luggage', 'status',
         'departure_code', 'price_charged', 'confirmed_at', 'started_at', 'completed_at',
+        'cancelled_at', 'no_show_at', 'reminder_sent_at',
         'passenger_lat', 'passenger_lng', 'passenger_location_at', 'share_token', 'share_expires_at',
     ];
 
@@ -49,6 +50,9 @@ class Booking extends Model
             'confirmed_at' => 'datetime',
             'started_at' => 'datetime',
             'completed_at' => 'datetime',
+            'cancelled_at' => 'datetime',
+            'no_show_at' => 'datetime',
+            'reminder_sent_at' => 'datetime',
             'passenger_location_at' => 'datetime',
             'share_expires_at' => 'datetime',
         ];

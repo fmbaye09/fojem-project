@@ -202,25 +202,43 @@ class _TripSummaryBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Trajet puis date ; la date passe sous le trajet quand la ligne est
+    // trop étroite (villes longues, petit écran).
     return Container(
+      width: double.infinity,
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
       decoration: AppColors.softCardDecoration,
-      child: Row(
+      child: Wrap(
+        crossAxisAlignment: WrapCrossAlignment.center,
+        spacing: 12,
+        runSpacing: 4,
         children: [
-          Text(trip.departure, style: AppTextStyles.bodyLargeSemibold),
-          const Padding(
-            padding: EdgeInsets.symmetric(horizontal: 8),
-            child: Icon(Icons.arrow_forward_rounded, size: 16, color: AppColors.primary),
+          Text.rich(
+            TextSpan(children: [
+              TextSpan(text: trip.departure),
+              const WidgetSpan(
+                alignment: PlaceholderAlignment.middle,
+                child: Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 8),
+                  child: Icon(Icons.arrow_forward_rounded, size: 16, color: AppColors.primary),
+                ),
+              ),
+              TextSpan(text: trip.arrival),
+            ]),
+            style: AppTextStyles.bodyLargeSemibold,
           ),
-          Text(trip.arrival, style: AppTextStyles.bodyLargeSemibold),
-          const SizedBox(width: 8),
-          Text('·', style: AppTextStyles.body.copyWith(color: AppColors.textMuted)),
-          const SizedBox(width: 8),
-          Text(
-            '${formatDayLabel(trip.departureTime)} · '
-            '${trip.departureTime.hour.toString().padLeft(2, '0')}:'
-            '${trip.departureTime.minute.toString().padLeft(2, '0')}',
-            style: AppTextStyles.body.copyWith(color: AppColors.textSecondary, fontSize: 13.5),
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(Icons.schedule_rounded, size: 14, color: AppColors.textMuted),
+              const SizedBox(width: 4),
+              Text(
+                '${formatDayLabel(trip.departureTime)} · '
+                '${trip.departureTime.hour.toString().padLeft(2, '0')}:'
+                '${trip.departureTime.minute.toString().padLeft(2, '0')}',
+                style: AppTextStyles.body.copyWith(color: AppColors.textSecondary, fontSize: 13.5),
+              ),
+            ],
           ),
         ],
       ),
@@ -310,10 +328,26 @@ class _RequestCardState extends State<_RequestCard> {
               DriverAvatar(name: name, size: 52),
               const SizedBox(width: 14),
               Expanded(
-                child: Text(name,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: AppTextStyles.bodyLargeSemibold.copyWith(fontSize: 17)),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(name,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: AppTextStyles.bodyLargeSemibold.copyWith(fontSize: 17)),
+                    const SizedBox(height: 2),
+                    // Fiabilité : réservations honorées et absences passées.
+                    Text(
+                      widget.booking.reliabilityLabel,
+                      style: AppTextStyles.caption.copyWith(
+                        fontWeight: FontWeight.w600,
+                        color: widget.booking.reliability == null
+                            ? AppColors.textSecondary
+                            : (widget.booking.reliability!.noShowCount > 0 ? AppColors.danger : AppColors.success),
+                      ),
+                    ),
+                  ],
+                ),
               ),
               const _PendingChip(),
             ],

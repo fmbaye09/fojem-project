@@ -74,10 +74,14 @@ class TripCard extends StatelessWidget {
                           children: [
                             const Icon(Icons.star_rounded, size: 14, color: AppColors.accent),
                             const SizedBox(width: 3),
-                            Text(
-                              '${driver.rating.toStringAsFixed(1).replaceAll('.', ',')}'
-                              '${driver.totalTrips > 0 ? ' · ${driver.totalTrips} trajets' : ''}',
-                              style: AppTextStyles.caption,
+                            Flexible(
+                              child: Text(
+                                '${driver.rating.toStringAsFixed(1).replaceAll('.', ',')}'
+                                '${driver.totalTrips > 0 ? ' · ${driver.totalTrips} trajets' : ''}',
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: AppTextStyles.caption,
+                              ),
                             ),
                           ],
                         ),
@@ -88,6 +92,10 @@ class TripCard extends StatelessWidget {
                 _Price(amount: seg.pricePerSeat),
               ],
             ),
+            if (match != null && match.enRoute) ...[
+              const SizedBox(height: 12),
+              _EnRouteBadge(stop: seg.boarding?.name ?? trip.departure, eta: match.boardingEta),
+            ],
             const SizedBox(height: 14),
             NeuInset(
               radius: 18,
@@ -154,6 +162,40 @@ class TripCard extends StatelessWidget {
     if (d.inHours == 0) return '${d.inMinutes}min';
     final m = d.inMinutes.remainder(60);
     return m == 0 ? '${d.inHours}h' : '${d.inHours}h${m.toString().padLeft(2, '0')}';
+  }
+}
+
+/// Trajet déjà parti, réservable à un arrêt qu'il n'a pas encore atteint.
+class _EnRouteBadge extends StatelessWidget {
+  final String stop;
+  final DateTime? eta;
+
+  const _EnRouteBadge({required this.stop, required this.eta});
+
+  @override
+  Widget build(BuildContext context) {
+    final when = eta == null ? '' : ' vers ${DateFormat('HH:mm').format(eta!)}';
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: AppColors.successSurface,
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.alt_route_rounded, size: 16, color: AppColors.success),
+          const SizedBox(width: 6),
+          Expanded(
+            child: Text(
+              'En route · passe à $stop$when',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: AppTextStyles.caption.copyWith(color: AppColors.success, fontWeight: FontWeight.w700),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 }
 

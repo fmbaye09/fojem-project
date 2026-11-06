@@ -98,13 +98,27 @@ class PushNotificationService {
 
     // 6. Vérifier si l'app a été lancée par un tap sur notif FCM — une seule
     // fois par lancement, sinon une reconnexion rejouerait cette notification.
-    final initialMessage =
-        _initialMessageHandled ? null : await _messaging.getInitialMessage();
+    final firstLaunch = !_initialMessageHandled;
     _initialMessageHandled = true;
+    final initialMessage = firstLaunch ? await _messaging.getInitialMessage() : null;
     if (initialMessage != null) {
       _handleNotificationTap(initialMessage);
+    } else if (firstLaunch) {
+      await _openLaunchingLocalNotification();
     }
+  }
 
+  /// Notification affichée par l'app au premier plan, puis touchée une fois
+  /// l'app fermée : elle relance l'app sans passer par FCM.
+  Future<void> _openLaunchingLocalNotification() async {
+    try {
+      final launch = await _localNotifications.getNotificationAppLaunchDetails();
+      final payload = launch?.notificationResponse?.payload;
+      if (launch?.didNotificationLaunchApp != true || payload == null || payload.isEmpty) return;
+      onNotificationTap?.call(jsonDecode(payload) as Map<String, dynamic>);
+    } catch (_) {
+      // Pas de page à ouvrir : l'app démarre normalement.
+    }
   }
 
   /// Configure flutter_local_notifications pour Android et iOS.

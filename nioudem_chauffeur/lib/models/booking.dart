@@ -13,9 +13,9 @@ BookingStatus _statusFromApi(String? value) {
       return BookingStatus.refused;
     case 'cancelled_passenger':
     case 'cancelled_driver':
+    case 'no_show':
       return BookingStatus.cancelled;
     case 'completed':
-    case 'no_show':
       return BookingStatus.completed;
     default:
       return BookingStatus.pending;
@@ -51,6 +51,13 @@ class Booking {
   /// Position partagée par le passager (récente, avant l'embarquement).
   final ({double lat, double lng, DateTime updatedAt})? passengerLocation;
 
+  /// Statut brut de l'API : distingue une absence (`no_show`) d'une annulation.
+  final String apiStatus;
+
+  /// Fiabilité du passager (réservations honorées, absences) ; null pour un
+  /// nouveau passager.
+  final ({int honoredPct, int noShowCount})? reliability;
+
   const Booking({
     required this.id,
     required this.tripId,
@@ -71,11 +78,14 @@ class Booking {
     this.alightingStop,
     this.trip,
     this.passengerLocation,
+    this.apiStatus = '',
+    this.reliability,
   });
 
   int get seatsBooked => seatCount;
   double get totalPrice => price;
   bool get isBoarded => startedAt != null;
+  bool get isNoShow => apiStatus == 'no_show';
 
   String get statusLabel {
     switch (status) {
@@ -86,7 +96,7 @@ class Booking {
       case BookingStatus.refused:
         return 'Refusé';
       case BookingStatus.cancelled:
-        return 'Annulé';
+        return isNoShow ? 'Absent' : 'Annulé';
       case BookingStatus.completed:
         return 'Terminé';
     }
@@ -143,7 +153,24 @@ class Booking {
           : null,
       trip: trip,
       passengerLocation: _parsePassengerLocation(json['passenger_location']),
+      apiStatus: json['status'] as String? ?? '',
+      reliability: _parseReliability(json['passenger_reliability']),
     );
+  }
+
+  static ({int honoredPct, int noShowCount})? _parseReliability(Object? raw) {
+    if (raw is! Map) return null;
+    final honored = int.tryParse('${raw['honored_pct']}');
+    if (honored == null) return null;
+    return (honoredPct: honored, noShowCount: int.tryParse('${raw['no_show_count']}') ?? 0);
+  }
+
+  /// « Fiable à 95 % · 1 absence », ou « Nouveau passager ».
+  String get reliabilityLabel {
+    final r = reliability;
+    if (r == null) return 'Nouveau passager';
+    final absences = r.noShowCount == 0 ? '' : ' · ${r.noShowCount} absence${r.noShowCount > 1 ? 's' : ''}';
+    return 'Fiable à ${r.honoredPct} %$absences';
   }
 
   static ({double lat, double lng, DateTime updatedAt})? _parsePassengerLocation(Object? raw) {
@@ -182,6 +209,8 @@ class Booking {
       alightingStop: alightingStop,
       trip: trip ?? this.trip,
       passengerLocation: passengerLocation,
+      apiStatus: apiStatus,
+      reliability: reliability,
     );
   }
 }

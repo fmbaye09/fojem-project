@@ -78,6 +78,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('trips/{trip}/start', [TripController::class, 'start']);
     Route::post('trips/{trip}/complete', [TripController::class, 'complete']);
     Route::post('trips/{trip}/location', [TripController::class, 'updateLocation']);
+    Route::patch('trips/{trip}/en-route', [TripController::class, 'updateEnRoute']);
     Route::get('trips/{trip}/nearby-ride-requests', [RideRequestController::class, 'nearTrip']);
     Route::get('trips/{trip}/bookings', [BookingController::class, 'forTrip']);
 
@@ -96,6 +97,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('trips/{trip}/board-passenger', [BookingController::class, 'boardPassenger']);
     Route::post('bookings/{booking}/board', [BookingController::class, 'board']);
     Route::post('bookings/{booking}/complete', [BookingController::class, 'complete']);
+    Route::post('bookings/{booking}/no-show', [BookingController::class, 'noShow']);
     Route::post('bookings/{booking}/location', [TripSharingController::class, 'shareLocation']);
     Route::delete('bookings/{booking}/location', [TripSharingController::class, 'stopLocation']);
     Route::post('bookings/{booking}/share', [TripSharingController::class, 'createLink']);
@@ -122,6 +124,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('notifications/{notification}/read', [NotificationController::class, 'markRead']);
     Route::post('notifications/chat-message', [NotificationController::class, 'sendChatNotification']);
     Route::post('chat/voice', [ChatController::class, 'uploadVoice']);
+    Route::post('chat/attachments', [ChatController::class, 'uploadAttachment']);
     Route::post('fcm-token', [NotificationController::class, 'registerFcmToken']);
 });
 

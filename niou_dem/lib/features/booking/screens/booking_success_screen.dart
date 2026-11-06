@@ -95,6 +95,7 @@ class _BookingSuccessScreenState extends State<BookingSuccessScreen>
         body: Center(child: Text('Réservation introuvable')),
       );
     }
+    final confirmed = booking.status == BookingStatus.confirmed;
 
     return Scaffold(
       backgroundColor: AppColors.background,
@@ -142,22 +143,29 @@ class _BookingSuccessScreenState extends State<BookingSuccessScreen>
                       child: Column(
                         children: [
                           Text(
-                            'Demande envoyée !',
+                            confirmed ? 'Réservation confirmée !' : 'Demande envoyée !',
                             style: AppTextStyles.title1,
                             textAlign: TextAlign.center,
                           ),
                           const SizedBox(height: AppSpacing.sm),
                           Text(
-                            'Votre demande a été transmise au chauffeur. '
-                            'Vous serez notifié dès qu\'il l\'accepte.',
+                            // Confirmée d'office pour un trajet déjà parti, ou
+                            // acceptée pendant que l'écran est ouvert.
+                            confirmed
+                                ? 'Votre billet et votre code d’embarquement sont prêts. '
+                                    'Rendez-vous au point de montée avant le passage du chauffeur.'
+                                : 'Votre demande a été transmise au chauffeur. '
+                                    'Vous serez notifié dès qu\'il l\'accepte.',
                             style: AppTextStyles.bodyLarge.copyWith(
                               color: AppColors.textSecondary,
                             ),
                             textAlign: TextAlign.center,
                           ),
                           const SizedBox(height: AppSpacing.xl),
-                          const _PendingTicketCard(),
-                          const SizedBox(height: AppSpacing.lg),
+                          if (!confirmed) ...[
+                            const _PendingTicketCard(),
+                            const SizedBox(height: AppSpacing.lg),
+                          ],
                           _TripSummaryCard(booking: booking),
                         ],
                       ),
@@ -170,10 +178,15 @@ class _BookingSuccessScreenState extends State<BookingSuccessScreen>
               padding: const EdgeInsets.all(AppSpacing.md),
               child: Column(
                 children: [
-                  FojemButton.primary(
-                    label: 'Voir mes réservations',
-                    onPressed: () => context.go('/my-trips'),
-                  ),
+                  confirmed
+                      ? FojemButton.primary(
+                          label: 'Voir mon billet',
+                          onPressed: () => context.push('/trip/${booking.tripId}/tracking'),
+                        )
+                      : FojemButton.primary(
+                          label: 'Voir mes réservations',
+                          onPressed: () => context.go('/my-trips'),
+                        ),
                   const SizedBox(height: AppSpacing.sm),
                   FojemButton.ghost(
                     label: 'Retour à l\'accueil',

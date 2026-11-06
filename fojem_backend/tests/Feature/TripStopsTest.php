@@ -107,6 +107,56 @@ class TripStopsTest extends TestCase
         $this->search(self::THIES, self::DAKAR)->assertOk()->assertJsonCount(0, 'trips');
     }
 
+    public function test_without_a_destination_the_passenger_rides_to_the_last_stop(): void
+    {
+        $this->publishTrip([self::DAKAR, self::RUFISQUE, self::THIES]);
+        Sanctum::actingAs(User::factory()->create());
+
+        // Home screen: only the passenger's position, near Rufisque.
+        $response = $this->getJson('/api/trips/search?origin_lat=14.7200&origin_lng=-17.2650')->assertOk();
+
+        $response->assertJsonCount(1, 'trips');
+        $match = $response->json('trips.0.match');
+        $this->assertSame('Rufisque', $match['boarding_stop']['name']);
+        $this->assertSame('Thiès', $match['alighting_stop']['name']);
+        $this->assertLessThan(2000, $match['boarding_distance_m']);
+        $this->assertNull($match['alighting_distance_m']);
+
+        // A position far from every stop matches nothing.
+        $this->getJson('/api/trips/search?origin_lat=16.0300&origin_lng=-16.5000')->assertOk()->assertJsonCount(0, 'trips');
+    }
+
+    public function test_without_an_origin_the_passenger_boards_at_the_first_stop(): void
+    {
+        $this->publishTrip([self::DAKAR, self::RUFISQUE, self::THIES]);
+        Sanctum::actingAs(User::factory()->create());
+
+        $match = $this->getJson('/api/trips/search?destination_lat=14.7160&destination_lng=-17.2730')
+            ->assertOk()->assertJsonCount(1, 'trips')->json('trips.0.match');
+        $this->assertSame('Dakar', $match['boarding_stop']['name']);
+        $this->assertSame('Rufisque', $match['alighting_stop']['name']);
+        $this->assertNull($match['boarding_distance_m']);
+    }
+
+    public function test_without_any_point_every_upcoming_trip_is_listed(): void
+    {
+        $this->publishTrip([self::DAKAR, self::RUFISQUE, self::THIES]);
+        $this->publishTrip([self::THIES, self::DAKAR]);
+        Sanctum::actingAs(User::factory()->create());
+
+        $response = $this->getJson('/api/trips/search')->assertOk()->assertJsonCount(2, 'trips');
+        $this->assertSame('Dakar', $response->json('trips.0.match.boarding_stop.name'));
+        $this->assertSame('Thiès', $response->json('trips.0.match.alighting_stop.name'));
+    }
+
+    public function test_a_point_needs_both_coordinates(): void
+    {
+        Sanctum::actingAs(User::factory()->create());
+
+        $this->getJson('/api/trips/search?origin_lat=14.7')
+            ->assertUnprocessable()->assertJsonValidationErrors('origin_lng');
+    }
+
     public function test_search_filters_on_date_and_seats(): void
     {
         $this->publishTrip([self::DAKAR, self::THIES]);

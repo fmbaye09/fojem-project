@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Models\Booking;
 use App\Models\Driver;
 use App\Models\Trip;
 use App\Models\User;
@@ -120,6 +121,30 @@ class BookingTest extends TestCase
             'pickup_lat' => 14.693,
             'pickup_lng' => -17.447,
         ])->assertUnprocessable()->assertJsonValidationErrors('seat_numbers');
+    }
+
+    public function test_the_passengers_bookings_say_whether_the_trip_was_rated(): void
+    {
+        [, $trip] = $this->makeOpenTrip(3);
+        $passenger = User::factory()->create();
+        Sanctum::actingAs($passenger);
+        $bookingId = $this->postJson('/api/bookings', [
+            'trip_id' => $trip->id,
+            'pickup_lat' => 14.693,
+            'pickup_lng' => -17.447,
+        ])->json('booking.id');
+        Booking::whereKey($bookingId)->update(['status' => Booking::STATUS_COMPLETED]);
+
+        $this->getJson('/api/bookings/mine')->assertJsonPath('data.0.review_exists', false);
+
+        $this->postJson('/api/reviews', [
+            'booking_id' => $bookingId,
+            'punctuality_rating' => 5,
+            'communication_rating' => 5,
+            'safety_rating' => 5,
+        ])->assertCreated();
+
+        $this->getJson('/api/bookings/mine')->assertJsonPath('data.0.review_exists', true);
     }
 
     public function test_cancelled_booking_frees_its_seats(): void
