@@ -7,7 +7,7 @@ import 'package:intl/date_symbol_data_local.dart';
 
 final _departure = DateTime.utc(2026, 11, 10, 8, 30);
 
-Map<String, dynamic> _stop(String id, int position, String name, DateTime at, {DateTime? waitUntil}) => {
+Map<String, dynamic> _stop(String id, int position, String name, DateTime at, {DateTime? waitUntil, DateTime? leftAt}) => {
       'id': id,
       'position': position,
       'name': name,
@@ -17,15 +17,17 @@ Map<String, dynamic> _stop(String id, int position, String name, DateTime at, {D
       'price_from_origin': '0.00',
       if (waitUntil != null) 'reached_at': waitUntil.subtract(const Duration(minutes: 5)).toIso8601String(),
       if (waitUntil != null) 'wait_until': waitUntil.toIso8601String(),
+      if (leftAt != null) 'left_at': leftAt.toIso8601String(),
     };
 
 ({Trip trip, Booking booking}) _ticket({
   String tripStatus = 'open',
   String bookingStatus = 'confirmed',
   DateTime? waitUntil,
+  DateTime? leftAt,
   bool boarded = false,
 }) {
-  final dakar = _stop('s0', 0, 'Dakar', _departure, waitUntil: waitUntil);
+  final dakar = _stop('s0', 0, 'Dakar', _departure, waitUntil: waitUntil, leftAt: leftAt);
   final trip = Trip.fromApi({
     'id': 't1',
     'status': tripStatus,
@@ -96,6 +98,31 @@ void main() {
     // Même trajet démarré, le décompte continue.
     final started = _ticket(tripStatus: 'in_progress', waitUntil: waitUntil);
     expect(_at(started, waitUntil.subtract(const Duration(minutes: 1)))!.title, 'Le chauffeur vous attend · encore 1:00');
+  });
+
+  test('once the driver has left, the ticket says so instead of counting down', () {
+    final waitUntil = _departure.add(const Duration(minutes: 5));
+    String hhmm(DateTime d) {
+      final l = d.toLocal();
+      return '${l.hour.toString().padLeft(2, '0')}:${l.minute.toString().padLeft(2, '0')}';
+    }
+
+    // Parti à 08:32, avant la fin de l'attente : le passager peut lui écrire.
+    final leftEarly = _departure.add(const Duration(minutes: 2));
+    final early = _at(_ticket(tripStatus: 'in_progress', waitUntil: waitUntil, leftAt: leftEarly), leftEarly.add(const Duration(seconds: 20)))!;
+    expect(early.title, 'Le chauffeur est reparti de Dakar');
+    expect(early.tone, TimeTone.late);
+    expect(early.detail, contains('Il est parti à ${hhmm(leftEarly)}, avant la fin de l’attente (${hhmm(waitUntil)})'));
+    expect(early.detail, contains('« manqué », sans pénalité'));
+
+    // Parti après l'attente.
+    final leftLate = waitUntil.add(const Duration(minutes: 1));
+    final late = _at(_ticket(tripStatus: 'in_progress', waitUntil: waitUntil, leftAt: leftLate), leftLate)!;
+    expect(late.detail, 'Il vous a attendu jusqu’à ${hhmm(waitUntil)}, puis a repris la route.');
+
+    // À bord, rien de tout ça.
+    final boarded = _at(_ticket(tripStatus: 'in_progress', waitUntil: waitUntil, leftAt: leftEarly, boarded: true), leftEarly);
+    expect(boarded?.title ?? '', isNot(startsWith('Le chauffeur est reparti')));
   });
 
   test('no wait countdown for a passenger on board or not yet accepted', () {

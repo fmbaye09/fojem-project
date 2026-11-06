@@ -28,6 +28,8 @@ export interface SimStop {
   scheduled_at: string | null;
   reached_at: string | null;
   wait_until: string | null;
+  /** Départ du chauffeur de l'arrêt (première position à plus de 400 m, trajet en cours). */
+  left_at: string | null;
   price_from_origin: string;
 }
 

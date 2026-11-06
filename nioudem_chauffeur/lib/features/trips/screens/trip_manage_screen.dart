@@ -24,6 +24,7 @@ import '../../../services/trip_location_tracker.dart';
 import '../../../services/trip_repository.dart';
 import '../../../services/vehicle_repository.dart';
 import '../departure_status.dart';
+import '../widgets/complete_trip_sheet.dart';
 import '../widgets/passenger_tile.dart';
 
 /// Détail d'un trajet côté chauffeur : carte récapitulative enrichie,
@@ -269,7 +270,55 @@ class _TripManageScreenState extends State<TripManageScreen> with AutoRefresh<Tr
     _load(silent: true);
   }
 
+  /// Démarrer sans des passagers attendus au départ : le chauffeur confirme.
+  /// Avant la fin de l'attente, ils risquent de le manquer ; après, il peut
+  /// les déclarer absents.
+  Future<bool> _confirmLeavingWithout(Trip trip) async {
+    if (trip.stops.isEmpty) return true;
+    final start = trip.stops.first;
+    final missing = _confirmed.where((b) => !b.isBoarded && boardsAt(b, start)).toList();
+    if (missing.isEmpty) return true;
+
+    final deadline = start.waitUntil ??
+        (start.scheduledAt ?? trip.departureTime).add(const Duration(minutes: kDriverWaitMinutes));
+    final early = DateTime.now().isBefore(deadline);
+    final plural = missing.length > 1;
+    final names = missing.map((b) => b.passengerName.isEmpty ? 'un passager' : b.passengerName).join(', ');
+    final at = DateFormat('HH:mm').format(deadline);
+    final go = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppSpacing.borderRadiusMd)),
+        title: Text(
+          early ? 'Pas encore à bord' : 'Partir sans ${plural ? 'eux' : 'ce passager'} ?',
+          style: AppTextStyles.title2,
+        ),
+        content: Text(
+          early
+              ? '$names ${plural ? 'ont' : 'a'} jusqu’à $at pour vous rejoindre à ${start.name}. '
+                  'Si vous partez maintenant, ${plural ? 'ils seront prévenus' : 'il sera prévenu'} et '
+                  '${plural ? 'leur' : 'son'} trajet sera « manqué », sans pénalité pour ${plural ? 'eux' : 'lui'}.'
+              : 'Le délai d’attente est écoulé à ${start.name} : vous pouvez déclarer $names absent${plural ? 's' : ''}, '
+                  'maintenant ou une fois parti.',
+          style: AppTextStyles.body.copyWith(color: AppColors.textSecondary),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: Text(early ? 'Attendre' : 'Retour')),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: Text('Démarrer quand même',
+                style: AppTextStyles.bodySemibold.copyWith(color: early ? AppColors.danger : AppColors.primary)),
+          ),
+        ],
+      ),
+    );
+    return go == true;
+  }
+
   Future<void> _startTrip() async {
+    final trip = _trip;
+    if (trip != null && !await _confirmLeavingWithout(trip)) return;
+    if (!mounted) return;
     setState(() => _isStarting = true);
     try {
       await TripRepository().updateStatus(widget.tripId, TripStatus.inProgress);
@@ -288,30 +337,38 @@ class _TripManageScreenState extends State<TripManageScreen> with AutoRefresh<Tr
   }
 
   Future<void> _completeTrip() async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppSpacing.borderRadiusMd)),
-        title: Text('Terminer ce trajet ?', style: AppTextStyles.title2),
-        content: Text(
-          'Tous les passagers confirmés seront marqués comme arrivés et vos gains crédités sur votre portefeuille.',
-          style: AppTextStyles.body.copyWith(color: AppColors.textSecondary),
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Retour')),
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            child: Text('Terminer le trajet',
-                style: AppTextStyles.bodySemibold.copyWith(color: AppColors.primary)),
+    // Passagers jamais validés à bord : le chauffeur dit s'ils ont voyagé.
+    final notScanned = _confirmed.where((b) => !b.isBoarded).toList();
+    final List<String>? notBoarded;
+    if (notScanned.isEmpty) {
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppSpacing.borderRadiusMd)),
+          title: Text('Terminer ce trajet ?', style: AppTextStyles.title2),
+          content: Text(
+            'Vos passagers seront marqués comme arrivés et vos gains crédités sur votre portefeuille.',
+            style: AppTextStyles.body.copyWith(color: AppColors.textSecondary),
           ),
-        ],
-      ),
-    );
-    if (confirmed != true) return;
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Retour')),
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: Text('Terminer le trajet',
+                  style: AppTextStyles.bodySemibold.copyWith(color: AppColors.primary)),
+            ),
+          ],
+        ),
+      );
+      notBoarded = confirmed == true ? const [] : null;
+    } else {
+      notBoarded = await showCompleteTripSheet(context, notScanned);
+    }
+    if (notBoarded == null || !mounted) return;
 
     setState(() => _isCompleting = true);
     try {
-      await TripRepository().updateStatus(widget.tripId, TripStatus.completed);
+      await TripRepository().complete(widget.tripId, notBoardedBookingIds: notBoarded);
       _tracker.stop();
       if (!mounted) return;
       setState(() {

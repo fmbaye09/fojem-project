@@ -78,7 +78,15 @@ export function ScenarioRunner({ scenario }: { scenario: Scenario }) {
         </div>
 
         <div className="flex flex-col gap-4">
-          <DriverPanel scenario={scenario} trip={data.trip} path={path} marks={marks} sendNow={sendNow} jumpTo={jumpTo} />
+          <DriverPanel
+            scenario={scenario}
+            trip={data.trip}
+            bookings={data.bookings}
+            path={path}
+            marks={marks}
+            sendNow={sendNow}
+            jumpTo={jumpTo}
+          />
           <PassengersPanel
             scenario={scenario}
             trip={data.trip}

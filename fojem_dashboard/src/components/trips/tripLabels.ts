@@ -33,6 +33,7 @@ export const BOOKING_STATUS_LABEL: Record<BookingStatus, string> = {
   cancelled_driver: "Annulée",
   completed: "Terminée",
   no_show: "Absent",
+  missed: "Manquée",
 };
 
 export const BOOKING_STATUS_TONE = {
@@ -43,6 +44,7 @@ export const BOOKING_STATUS_TONE = {
   cancelled_driver: "neutral",
   completed: "neutral",
   no_show: "danger",
+  missed: "neutral",
 } as const;
 
 /** Un trajet peut encore être annulé tant qu'il n'est ni terminé ni annulé. */

@@ -6,6 +6,7 @@ use App\Models\Booking;
 use App\Models\Trip;
 use App\Models\TripStop;
 use Carbon\CarbonImmutable;
+use Illuminate\Database\Eloquent\Collection as EloquentCollection;
 use Illuminate\Support\Facades\Log;
 
 /**
@@ -149,16 +150,7 @@ class TripReminderService
             return;
         }
 
-        $bookings = $trip->bookings()
-            ->where('status', Booking::STATUS_CONFIRMED)
-            ->whereNull('started_at')
-            ->where(fn ($q) => $stop->position === 0
-                ? $q->where('boarding_stop_id', $stop->id)->orWhereNull('boarding_stop_id')
-                : $q->where('boarding_stop_id', $stop->id))
-            ->with('passenger')
-            ->get();
-
-        foreach ($bookings as $booking) {
+        foreach ($this->notYetOnBoard($trip, $stop) as $booking) {
             if (! $booking->passenger) {
                 continue;
             }
@@ -170,6 +162,62 @@ class TripReminderService
                 ['booking_id' => $booking->id, 'trip_id' => $trip->id],
             ));
         }
+    }
+
+    /**
+     * Le chauffeur vient de quitter cet arrêt, trajet en cours. Les passagers
+     * qui devaient y monter et ne sont pas à bord le savent ; s'il part avant
+     * la fin de l'attente, lui est averti tout de suite.
+     */
+    public function driverLeft(Trip $trip, TripStop $stop, ?CarbonImmutable $now = null): void
+    {
+        $now ??= CarbonImmutable::now();
+        $missing = $this->notYetOnBoard($trip, $stop);
+        $waitUntil = $stop->waitUntil($trip->scheduled_at);
+        if ($missing->isEmpty() || $waitUntil === null) {
+            return;
+        }
+        $early = $now->lessThan($waitUntil);
+        $until = $waitUntil->format('H:i');
+
+        foreach ($missing as $booking) {
+            if (! $booking->passenger) {
+                continue;
+            }
+            $this->send(fn () => $this->notifications->system(
+                $booking->passenger,
+                $early ? '🚗 Le chauffeur est reparti sans vous' : '🚗 Le chauffeur est reparti',
+                $early
+                    ? "Il a quitté {$stop->name} à {$now->format('H:i')}, avant la fin de l’attente ({$until}). "
+                        .'Écrivez-lui dans la discussion. S’il ne revient pas, votre réservation sera « manquée », sans pénalité pour vous.'
+                    : "Il vous a attendu à {$stop->name} jusqu’à {$until}, puis a repris la route.",
+                ['booking_id' => $booking->id, 'trip_id' => $trip->id],
+            ));
+        }
+
+        $driver = $trip->driverProfile?->user;
+        if ($early && $driver) {
+            $names = $missing->map(fn (Booking $b) => $b->passenger?->full_name ?? 'un passager')->join(', ', ' et ');
+            $this->send(fn () => $this->notifications->system(
+                $driver,
+                "⚠️ Vous avez quitté {$stop->name} trop tôt",
+                "Pas encore à bord : {$names}. L’attente courait jusqu’à {$until} : faites demi-tour si vous le pouvez.",
+                ['trip_id' => $trip->id],
+            ));
+        }
+    }
+
+    /** Réservations confirmées qui montent à cet arrêt (sans arrêt connu : au départ), pas encore à bord. */
+    private function notYetOnBoard(Trip $trip, TripStop $stop): EloquentCollection
+    {
+        return $trip->bookings()
+            ->where('status', Booking::STATUS_CONFIRMED)
+            ->whereNull('started_at')
+            ->where(fn ($q) => $stop->position === 0
+                ? $q->where('boarding_stop_id', $stop->id)->orWhereNull('boarding_stop_id')
+                : $q->where('boarding_stop_id', $stop->id))
+            ->with('passenger')
+            ->get();
     }
 
     private function minutesUntil(CarbonImmutable $now, CarbonImmutable $at): int

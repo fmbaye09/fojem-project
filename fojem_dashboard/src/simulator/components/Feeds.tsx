@@ -1,7 +1,7 @@
 import { Trash2 } from "lucide-react";
 import { Badge } from "../../components/ui/Badge";
 import { cn } from "../../lib/utils";
-import { driverLeft } from "../geo";
+import { driverLeft, leftEarly } from "../geo";
 import { useSimStore } from "../store";
 import { ago, clock, clockSec, countdown, minutesBetween, useNow } from "../time";
 import type { LogKind, SimNotification, SimTrip } from "../types";
@@ -71,13 +71,13 @@ export function TimesTable({ trip }: { trip: SimTrip | null }) {
                     {isPassed || gap === null ? "—" : gap === 0 ? "à l'heure" : gap > 0 ? `+${gap} min` : `${gap} min`}
                   </td>
                   <td className="py-2 pr-3 tabular-nums">{s.reached_at ? clockSec(s.reached_at) : "—"}</td>
-                  <td className={cn("py-2 tabular-nums", left && wait !== null && wait > now && "text-danger")}>
+                  <td className={cn("py-2 tabular-nums", leftEarly(s) && "text-danger")}>
                     {wait === null
                       ? "—"
-                      : left
-                        ? wait > now
-                          ? `reparti avant ${clock(s.wait_until)}`
-                          : "reparti"
+                      : left && s.left_at
+                        ? leftEarly(s)
+                          ? `reparti à ${clock(s.left_at)}, avant ${clock(s.wait_until)}`
+                          : `reparti à ${clock(s.left_at)}`
                         : wait > now
                           ? `jusqu'à ${clock(s.wait_until)} · ${countdown(wait - now)}`
                           : `terminée à ${clock(s.wait_until)}`}

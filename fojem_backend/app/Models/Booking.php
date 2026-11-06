@@ -21,6 +21,8 @@ class Booking extends Model
     public const STATUS_CANCELLED_DRIVER = 'cancelled_driver';
     public const STATUS_COMPLETED = 'completed';
     public const STATUS_NO_SHOW = 'no_show';
+    /** Pas monté sans absence prouvée (chauffeur reparti trop tôt, ou jamais venu) : sans pénalité. */
+    public const STATUS_MISSED = 'missed';
 
     protected $fillable = [
         'trip_id', 'boarding_stop_id', 'alighting_stop_id', 'ride_request_id', 'passenger_id',

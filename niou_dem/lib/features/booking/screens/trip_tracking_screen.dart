@@ -314,6 +314,8 @@ class _ClosedBookingCard extends StatelessWidget {
         return ('Réservation annulée', 'Vous avez annulé cette réservation.');
       case 'no_show':
         return ('Réservation annulée', 'Vous n’étiez pas au point de rendez-vous au moment du départ.');
+      case 'missed':
+        return ('Trajet manqué', 'Le chauffeur est reparti sans vous. Aucune pénalité pour vous : cherchez un autre trajet.');
       default:
         return ('Réservation annulée', 'Le chauffeur a annulé votre réservation.');
     }

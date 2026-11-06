@@ -10,7 +10,7 @@ import type { StopMark } from "../engine";
 import { formatKm, type Path } from "../geo";
 import { useSimStore, type Scenario } from "../store";
 import { ago, clock, countdown, useNow } from "../time";
-import type { SimTrip } from "../types";
+import type { SimBooking, SimTrip } from "../types";
 
 const MULTIPLIERS = [1, 2, 5, 10, 30];
 const DWELLS = [0, 15, 30, 60, 120, 300, 600];
@@ -21,13 +21,14 @@ const APPROACH_M = 600;
 interface Props {
   scenario: Scenario;
   trip: SimTrip | null;
+  bookings: SimBooking[];
   path: Path;
   marks: StopMark[];
   sendNow: () => Promise<boolean>;
   jumpTo: (distance: number) => Promise<boolean>;
 }
 
-export function DriverPanel({ scenario, trip, path, marks, sendNow, jumpTo }: Props) {
+export function DriverPanel({ scenario, trip, bookings, path, marks, sendNow, jumpTo }: Props) {
   const engine = useSimStore((s) => s.engine);
   const setEngine = useSimStore((s) => s.setEngine);
   const lastFixAt = useSimStore((s) => s.lastFixAt);
@@ -80,7 +81,21 @@ export function DriverPanel({ scenario, trip, path, marks, sendNow, jumpTo }: Pr
           </>
         )}
         {status === "in_progress" && (
-          <Button onClick={() => tripAction("Terminer le trajet", `/trips/${scenario.tripId}/complete`, "Trajet terminé.")}>
+          <Button
+            title="Les passagers jamais validés à bord sont déclarés « pas venus » : absents si le chauffeur les a attendus jusqu'au bout, sinon manqués"
+            onClick={() => {
+              const notBoarded = bookings.filter((b) => b.status === "confirmed" && !b.started_at).map((b) => b.id);
+              void run(
+                `Terminer le trajet${notBoarded.length ? ` (${notBoarded.length} passager${notBoarded.length > 1 ? "s" : ""} pas venu${notBoarded.length > 1 ? "s" : ""})` : ""}`,
+                () =>
+                  actorFetch(driver.token, `/trips/${scenario.tripId}/complete`, {
+                    method: "POST",
+                    body: { not_boarded_booking_ids: notBoarded },
+                  }),
+                "Trajet terminé.",
+              );
+            }}
+          >
             <Square size={14} /> Terminer le trajet
           </Button>
         )}

@@ -11,7 +11,7 @@ import { formatXof } from "../../lib/utils";
 import type { AdminTripBooking } from "../../types/api";
 import { actorFetch, errorMessage } from "../api";
 import { addPassenger, bookWithProposal, createActor, passengerSpot, previewProposal, run } from "../actions";
-import { driverLeft } from "../geo";
+import { driverLeft, leftEarly } from "../geo";
 import { useSimStore, type Scenario } from "../store";
 import { clock, countdown, useNow } from "../time";
 import type { Actor, LatLng, SimBooking, SimProposedStop, SimStop, SimTrip } from "../types";
@@ -363,8 +363,9 @@ function BookingRow({
       )}
       {left && (
         <div className="text-xs text-danger">
-          Le chauffeur est reparti de {stop?.name} sans ce passager
-          {stop?.wait_until && new Date(stop.wait_until).getTime() > now ? `, avant la fin de l'attente (${clock(stop.wait_until)})` : ""}.
+          Le chauffeur est reparti de {stop?.name}
+          {stop?.left_at ? ` à ${clock(stop.left_at)}` : ""} sans ce passager
+          {stop && leftEarly(stop) ? `, avant la fin de l'attente (${clock(stop.wait_until)})` : ""}.
         </div>
       )}
       {waitUntil !== null && (

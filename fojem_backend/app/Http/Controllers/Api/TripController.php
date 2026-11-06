@@ -437,8 +437,15 @@ class TripController extends Controller
         ]);
     }
 
-    /** Driver completes the trip and settles all remaining confirmed bookings. */
-    public function complete(Request $request, Trip $trip, WalletService $wallets, NotificationService $notifications, ReputationService $reputation)
+    /**
+     * Driver completes the trip and settles all remaining confirmed bookings.
+     *
+     * `not_boarded_booking_ids`: confirmed passengers the driver says never
+     * came on board (never scanned, the app asks him). Each becomes absent
+     * if he waited at their stop until the end of the delay, missed (no
+     * penalty) otherwise. Others are completed, as before for older apps.
+     */
+    public function complete(Request $request, Trip $trip, WalletService $wallets, NotificationService $notifications, ReputationService $reputation, TripProgressService $progress)
     {
         $driver = $request->user()->driver;
 
@@ -450,8 +457,15 @@ class TripController extends Controller
             return response()->json(['trip' => $trip]);
         }
 
+        $validated = $request->validate([
+            'not_boarded_booking_ids' => ['sometimes', 'array', 'max:50'],
+            'not_boarded_booking_ids.*' => ['uuid'],
+        ]);
+        $notBoarded = array_flip($validated['not_boarded_booking_ids'] ?? []);
+
         $passengers = [];
-        DB::transaction(function () use ($trip, $wallets, $notifications, &$passengers) {
+        $notOnBoard = [];
+        DB::transaction(function () use ($trip, $wallets, $notifications, $progress, $notBoarded, &$passengers, &$notOnBoard) {
             $trip->update(['status' => Trip::STATUS_COMPLETED]);
 
             $bookings = Booking::where('trip_id', $trip->id)
@@ -464,6 +478,18 @@ class TripController extends Controller
             $wallet = $trip->driverProfile?->user?->wallet;
 
             foreach ($bookings as $b) {
+                if ($b->started_at === null && isset($notBoarded[$b->id])) {
+                    // Absent seulement si le chauffeur l'a attendu jusqu'au bout.
+                    $stop = $b->boardingStop ?? $trip->stops->first();
+                    $absent = $stop !== null && $progress->driverWaitedAt($trip, $stop);
+                    $b->update($absent
+                        ? ['status' => Booking::STATUS_NO_SHOW, 'no_show_at' => now()]
+                        : ['status' => Booking::STATUS_MISSED]);
+                    $notOnBoard[] = ['booking' => $b, 'stop' => $stop, 'absent' => $absent];
+
+                    continue;
+                }
+
                 $b->update([
                     'status' => Booking::STATUS_COMPLETED,
                     'started_at' => $b->started_at ?? now(),
@@ -491,6 +517,22 @@ class TripController extends Controller
                 }
             }
         });
+
+        foreach ($notOnBoard as ['booking' => $b, 'stop' => $stop, 'absent' => $absent]) {
+            if (! $b->passenger) {
+                continue;
+            }
+            $where = $stop?->name ?? 'votre point de rendez-vous';
+            $waitUntil = $stop?->waitUntil($trip->scheduled_at);
+            $notifications->system(
+                $b->passenger,
+                $absent ? '🚫 Absence signalée' : '🚗 Trajet manqué',
+                $absent
+                    ? "Le chauffeur vous a attendu à {$where} jusqu'à ".$waitUntil?->format('H:i').' sans vous trouver. Votre réservation est close.'
+                    : "Le chauffeur a terminé le trajet sans vous avoir pris à {$where}. Aucune pénalité pour vous : cherchez un autre trajet.",
+                ['booking_id' => $b->id, 'trip_id' => $trip->id],
+            );
+        }
 
         foreach ($passengers as $passenger) {
             $reputation->refresh($passenger);

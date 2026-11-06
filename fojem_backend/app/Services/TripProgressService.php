@@ -54,6 +54,28 @@ class TripProgressService
         return $eta !== null && $eta->greaterThanOrEqualTo($now->addMinutes(self::EN_ROUTE_LEAD_MINUTES));
     }
 
+    /**
+     * Le chauffeur a attendu à cet arrêt jusqu'au bout du délai : il en est
+     * reparti après, ou sa dernière position y est encore, le délai passé.
+     * Sans arrivée enregistrée, rien ne prouve qu'il y est venu.
+     */
+    public function driverWaitedAt(Trip $trip, TripStop $stop): bool
+    {
+        $waitUntil = $stop->waitUntil($trip->scheduled_at);
+        if ($waitUntil === null) {
+            return false;
+        }
+        if ($stop->left_at !== null) {
+            return CarbonImmutable::instance($stop->left_at)->greaterThanOrEqualTo($waitUntil);
+        }
+
+        return $trip->location_updated_at !== null
+            && $trip->current_lat !== null
+            && CarbonImmutable::instance($trip->location_updated_at)->greaterThanOrEqualTo($waitUntil)
+            && Trip::haversineMeters((float) $trip->current_lat, (float) $trip->current_lng, $stop->lat, $stop->lng)
+                <= self::STOP_REACHED_METERS;
+    }
+
     /** A GPS fix older than this is no longer "live". */
     private const FRESH_SECONDS = 180;
 
@@ -62,20 +84,36 @@ class TripProgressService
 
     /**
      * Records the driver's arrival at the stops they are near (trip started
-     * or not, so the departure point counts too), then, during the trip,
-     * marks the furthest one as passed.
+     * or not, so the departure point counts too) and, during the trip, their
+     * departure from the stops they reached; then marks the furthest stop
+     * reached as passed.
      */
     public function recordPosition(Trip $trip, float $lat, float $lng): void
     {
         $now = CarbonImmutable::now();
+        $reminders = app(TripReminderService::class);
         foreach ($trip->stops as $stop) {
-            $scheduled = $stop->scheduled_at ?? $trip->scheduled_at;
-            if ($stop->reached_at === null
-                && ($scheduled === null || $now->greaterThanOrEqualTo(CarbonImmutable::instance($scheduled)->subHours(self::ARRIVAL_WINDOW_HOURS)))
-                && Trip::haversineMeters($lat, $lng, $stop->lat, $stop->lng) <= self::STOP_REACHED_METERS) {
-                $stop->update(['reached_at' => $now]);
-                // Les passagers qui montent ici savent jusqu'à quand il attend.
-                app(TripReminderService::class)->driverArrived($trip, $stop, $now);
+            $near = Trip::haversineMeters($lat, $lng, $stop->lat, $stop->lng) <= self::STOP_REACHED_METERS;
+            if ($stop->reached_at === null) {
+                $scheduled = $stop->scheduled_at ?? $trip->scheduled_at;
+                if ($near && ($scheduled === null || $now->greaterThanOrEqualTo(CarbonImmutable::instance($scheduled)->subHours(self::ARRIVAL_WINDOW_HOURS)))) {
+                    $stop->update(['reached_at' => $now]);
+                    // Les passagers qui montent ici savent jusqu'à quand il attend.
+                    $reminders->driverArrived($trip, $stop, $now);
+                }
+                continue;
+            }
+
+            // Avant le départ, s'éloigner du point de rendez-vous n'est pas partir.
+            if ($trip->status !== Trip::STATUS_IN_PROGRESS) {
+                continue;
+            }
+            if (! $near && $stop->left_at === null) {
+                $stop->update(['left_at' => $now]);
+                $reminders->driverLeft($trip, $stop, $now);
+            } elseif ($near && $stop->left_at !== null && $now->lessThan($stop->waitUntil($trip->scheduled_at) ?? $now)) {
+                // Revenu pendant l'attente : il attend de nouveau ses passagers.
+                $stop->update(['left_at' => null]);
             }
         }
 

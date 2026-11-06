@@ -9,7 +9,7 @@ import 'package:intl/date_symbol_data_local.dart';
 
 final _departure = DateTime.utc(2026, 11, 10, 8, 30);
 
-Map<String, dynamic> _stop(String id, int position, String name, DateTime at, {DateTime? waitUntil}) => {
+Map<String, dynamic> _stop(String id, int position, String name, DateTime at, {DateTime? waitUntil, DateTime? leftAt}) => {
       'id': id,
       'position': position,
       'name': name,
@@ -19,9 +19,10 @@ Map<String, dynamic> _stop(String id, int position, String name, DateTime at, {D
       'price_from_origin': '0.00',
       if (waitUntil != null) 'reached_at': waitUntil.subtract(const Duration(minutes: 5)).toIso8601String(),
       if (waitUntil != null) 'wait_until': waitUntil.toIso8601String(),
+      if (leftAt != null) 'left_at': leftAt.toIso8601String(),
     };
 
-Trip _trip({String status = 'open', DateTime? waitUntil}) => Trip.fromApiJson({
+Trip _trip({String status = 'open', DateTime? waitUntil, DateTime? leftAt}) => Trip.fromApiJson({
       'id': 't1',
       'status': status,
       'origin_name': 'Dakar',
@@ -30,7 +31,7 @@ Trip _trip({String status = 'open', DateTime? waitUntil}) => Trip.fromApiJson({
       'price_per_seat': '3000.00',
       'seats_available': 2,
       'stops': [
-        _stop('s0', 0, 'Dakar', _departure, waitUntil: waitUntil),
+        _stop('s0', 0, 'Dakar', _departure, waitUntil: waitUntil, leftAt: leftAt),
         _stop('s1', 1, 'Thiès', _departure.add(const Duration(hours: 1))),
       ],
     });
@@ -98,5 +99,28 @@ void main() {
     ));
     expect(find.text('Départ dans 4:20'), findsOneWidget);
     expect(tester.takeException(), isNull);
+  });
+
+  test('once he has left a stop without passengers, the driver is told how it will end', () {
+    final waitUntil = _departure.add(const Duration(minutes: 5));
+    final passengers = [_passenger('b1'), _passenger('b2', boarded: true)];
+
+    final early = departureStatus(
+      _trip(status: 'in_progress', waitUntil: waitUntil, leftAt: _departure.add(const Duration(minutes: 2))),
+      passengers,
+      _departure.add(const Duration(minutes: 3)),
+    )!;
+    expect(early.title, 'Parti de Dakar sans 1 passager');
+    expect(early.tone, TimeTone.late);
+    expect(early.detail, contains('faites demi-tour'));
+    expect(early.detail, contains('trajet manqué, sans pénalité pour lui'));
+
+    final waited = departureStatus(
+      _trip(status: 'in_progress', waitUntil: waitUntil, leftAt: waitUntil.add(const Duration(minutes: 1))),
+      passengers,
+      waitUntil.add(const Duration(minutes: 2)),
+    )!;
+    expect(waited.title, '1 passager pas venu à Dakar');
+    expect(waited.detail, contains('déclarez-le absent'));
   });
 }

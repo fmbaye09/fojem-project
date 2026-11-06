@@ -94,6 +94,13 @@ class TripRepository {
     }
   }
 
+  /// Termine le trajet. [notBoardedBookingIds] : passagers confirmés jamais
+  /// validés à bord que le chauffeur dit absents du voyage (absents s'il les a
+  /// attendus jusqu'au bout, sinon trajet manqué, sans pénalité).
+  Future<void> complete(String tripId, {List<String> notBoardedBookingIds = const []}) async {
+    await _client.post('/trips/$tripId/complete', data: {'not_boarded_booking_ids': notBoardedBookingIds});
+  }
+
   /// Accepter, ou non, des passagers une fois le trajet parti.
   Future<void> setAcceptsEnRoute(String tripId, bool accepts) async {
     await _client.patch('/trips/$tripId/en-route', data: {'accepts_en_route': accepts});

@@ -355,7 +355,9 @@ export type BookingStatus =
   | "cancelled_passenger"
   | "cancelled_driver"
   | "completed"
-  | "no_show";
+  | "no_show"
+  /** Pas monté sans absence prouvée (chauffeur reparti trop tôt, ou jamais venu) : sans pénalité. */
+  | "missed";
 
 export interface AdminTrip {
   id: string;

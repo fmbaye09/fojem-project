@@ -18,7 +18,7 @@ class TripStop extends Model
     use HasGeoPoints, HasUuids;
 
     protected $fillable = [
-        'trip_id', 'position', 'name', 'address', 'lat', 'lng', 'scheduled_at', 'reached_at', 'price_from_origin',
+        'trip_id', 'position', 'name', 'address', 'lat', 'lng', 'scheduled_at', 'reached_at', 'left_at', 'price_from_origin',
     ];
 
     protected $hidden = ['location_geom', 'created_at', 'updated_at'];
@@ -38,6 +38,8 @@ class TripStop extends Model
             'scheduled_at' => 'datetime',
             // First GPS fix of the driver at this stop (TripProgressService).
             'reached_at' => 'datetime',
+            // First fix away from it afterwards, trip under way: he left.
+            'left_at' => 'datetime',
             'price_from_origin' => 'decimal:2',
         ];
     }

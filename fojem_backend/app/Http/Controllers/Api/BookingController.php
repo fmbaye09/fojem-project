@@ -432,7 +432,7 @@ class BookingController extends Controller
             return response()->json(['message' => 'Non autorise.'], 403);
         }
 
-        if (in_array($booking->status, [Booking::STATUS_COMPLETED, Booking::STATUS_NO_SHOW], true)) {
+        if (in_array($booking->status, [Booking::STATUS_COMPLETED, Booking::STATUS_NO_SHOW, Booking::STATUS_MISSED], true)) {
             return response()->json(['message' => 'Cette reservation ne peut plus etre annulee.'], 422);
         }
 
@@ -544,15 +544,20 @@ class BookingController extends Controller
             && Trip::haversineMeters((float) $trip->current_lat, (float) $trip->current_lng, $stop->lat, $stop->lng)
                 <= TripProgressService::STOP_REACHED_METERS;
 
-        if (! $onSite) {
+        $allowedAt = $stop?->waitUntil($trip->scheduled_at);
+        $leftAt = $stop?->left_at ? CarbonImmutable::instance($stop->left_at) : null;
+        // Reparti une fois l'attente écoulée : la preuve reste acquise en route.
+        $waitedThenLeft = $leftAt !== null && $allowedAt !== null && $leftAt->greaterThanOrEqualTo($allowedAt);
+
+        if (! $onSite && ! $waitedThenLeft) {
             return response()->json([
-                'message' => 'Rendez-vous au point de rendez-vous ('.($stop?->name ?? 'montée').') avec la localisation activée pour déclarer une absence.',
+                'message' => $leftAt !== null && $allowedAt !== null
+                    ? "Vous avez quitté {$stop->name} à {$leftAt->format('H:i')}, avant la fin de l'attente ({$allowedAt->format('H:i')}) : ce passager ne peut pas être déclaré absent."
+                    : 'Rendez-vous au point de rendez-vous ('.($stop?->name ?? 'montée').') avec la localisation activée pour déclarer une absence.',
             ], 422);
         }
 
-        $allowedAt = $stop->waitUntil($trip->scheduled_at);
-
-        if ($now->lessThan($allowedAt)) {
+        if (! $waitedThenLeft && $now->lessThan($allowedAt)) {
             $minutes = (int) ceil($now->diffInSeconds($allowedAt, true) / 60);
 
             return response()->json([

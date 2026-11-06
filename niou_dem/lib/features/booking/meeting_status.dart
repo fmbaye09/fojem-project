@@ -22,8 +22,24 @@ TimeStatus? meetingStatus(Trip trip, Booking booking, DateTime now) {
   final boarding = fresh(booking.boardingStop) ?? (trip.stops.isEmpty ? null : trip.stops.first);
   final alighting = fresh(booking.alightingStop);
 
-  // Le chauffeur est au point de montée et décompte son attente.
   final waitUntil = boarding?.waitUntil;
+
+  // Reparti sans lui : le compte à rebours d'attente n'a plus de sens.
+  final leftAt = boarding?.leftAt;
+  if (boarding != null && leftAt != null && booking.status == BookingStatus.confirmed && !booking.isBoarded) {
+    final early = waitUntil != null && leftAt.isBefore(waitUntil);
+    return (
+      icon: Icons.directions_car_filled_rounded,
+      tone: TimeTone.late,
+      title: 'Le chauffeur est reparti de ${boarding.name}',
+      detail: early
+          ? 'Il est parti à ${time.format(leftAt)}, avant la fin de l’attente (${time.format(waitUntil)}). '
+              'Écrivez-lui : s’il ne revient pas, votre trajet sera « manqué », sans pénalité pour vous.'
+          : 'Il vous a attendu jusqu’à ${time.format(waitUntil ?? leftAt)}, puis a repris la route.',
+    );
+  }
+
+  // Le chauffeur est au point de montée et décompte son attente.
   if (boarding != null && waitUntil != null && booking.status == BookingStatus.confirmed && !booking.isBoarded) {
     final left = waitUntil.difference(now);
     if (left > Duration.zero) {

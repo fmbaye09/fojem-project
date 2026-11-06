@@ -98,12 +98,12 @@ export function formatKm(meters: number): string {
 /** Rayon dans lequel le serveur considère le chauffeur à un arrêt (TripProgressService). */
 export const STOP_RADIUS_M = 400;
 
-/**
- * D'après le serveur, le chauffeur a quitté cet arrêt : il l'avait atteint et
- * sa dernière position en est loin (ou le trajet est terminé).
- */
+/** D'après le serveur, le chauffeur a quitté cet arrêt (ou le trajet est terminé). */
 export function driverLeft(trip: SimTrip, stop: SimStop): boolean {
-  if (trip.status === "completed") return true;
-  if (trip.status !== "in_progress" || !stop.reached_at || trip.current_lat == null || trip.current_lng == null) return false;
-  return haversineM([trip.current_lat, trip.current_lng], [stop.lat, stop.lng]) > STOP_RADIUS_M;
+  return trip.status === "completed" || stop.left_at !== null;
+}
+
+/** Reparti avant la fin de son attente : ses passagers ont pu le manquer. */
+export function leftEarly(stop: SimStop): boolean {
+  return stop.left_at !== null && stop.wait_until !== null && new Date(stop.left_at) < new Date(stop.wait_until);
 }

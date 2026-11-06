@@ -25,6 +25,9 @@ class TripStop {
   /// absents (calculé par le backend).
   final DateTime? waitUntil;
 
+  /// Départ du chauffeur de cet arrêt, une fois atteint (null tant qu'il y est).
+  final DateTime? leftAt;
+
   /// Prix par place depuis le départ : un tronçon i → j coûte
   /// `priceFromOrigin[j] - priceFromOrigin[i]`.
   final double priceFromOrigin;
@@ -39,6 +42,7 @@ class TripStop {
     this.scheduledAt,
     this.reachedAt,
     this.waitUntil,
+    this.leftAt,
     required this.priceFromOrigin,
   });
 
@@ -58,6 +62,7 @@ class TripStop {
       scheduledAt: DateTime.tryParse('${json['scheduled_at'] ?? ''}')?.toLocal(),
       reachedAt: DateTime.tryParse('${json['reached_at'] ?? ''}')?.toLocal(),
       waitUntil: DateTime.tryParse('${json['wait_until'] ?? ''}')?.toLocal(),
+      leftAt: DateTime.tryParse('${json['left_at'] ?? ''}')?.toLocal(),
       priceFromOrigin: double.tryParse('${json['price_from_origin'] ?? 0}') ?? 0,
     );
   }

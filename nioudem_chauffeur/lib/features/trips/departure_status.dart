@@ -26,6 +26,26 @@ TimeStatus? departureStatus(Trip trip, List<Booking> confirmed, DateTime now) {
     final missing = confirmed.where((b) => !b.isBoarded && boardsAt(b, stop)).length;
     if (missing > 0) {
       final plural = missing > 1;
+      final who = '$missing passager${plural ? 's' : ''}';
+      final leftAt = stop.leftAt;
+      if (leftAt != null) {
+        // Reparti : trop tôt, il peut encore faire demi-tour ; sinon, l'absence reste à déclarer.
+        return leftAt.isBefore(stop.waitUntil!)
+            ? (
+                icon: Icons.report_rounded,
+                tone: TimeTone.late,
+                title: 'Parti de ${stop.name} sans $who',
+                detail: '${plural ? 'Ils avaient' : 'Il avait'} jusqu’à ${time.format(stop.waitUntil!)} pour vous rejoindre : '
+                    'faites demi-tour si vous le pouvez. Sinon, ce sera un trajet manqué, sans pénalité pour ${plural ? 'eux' : 'lui'}.',
+              )
+            : (
+                icon: Icons.person_off_rounded,
+                tone: TimeTone.soon,
+                title: '$who pas venu${plural ? 's' : ''} à ${stop.name}',
+                detail: 'Vous avez attendu jusqu’à ${time.format(stop.waitUntil!)} : '
+                    'déclarez-${plural ? 'les' : 'le'} absent${plural ? 's' : ''}, ou indiquez-le en terminant le trajet.',
+              );
+      }
       final left = stop.waitUntil!.difference(now);
       if (left > Duration.zero) {
         return (

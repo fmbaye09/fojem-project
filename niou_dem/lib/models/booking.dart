@@ -15,6 +15,7 @@ BookingStatus _statusFromApi(String? status) {
     case 'cancelled_passenger':
     case 'cancelled_driver':
     case 'no_show':
+    case 'missed':
       return BookingStatus.cancelled;
     case 'completed':
       return BookingStatus.completed;
@@ -95,6 +96,10 @@ class Booking {
   double get totalPrice => price;
   bool get isBoarded => startedAt != null;
 
+  /// Pas monté sans absence prouvée : le chauffeur est reparti trop tôt, ou
+  /// n'est jamais venu à l'arrêt. Aucune pénalité pour le passager.
+  bool get isMissed => apiStatus == 'missed';
+
   /// Le passager attend que le chauffeur ajoute le point qu'il a proposé.
   bool get proposesNewStop => proposedStop != null && !proposedStop!.isAdded;
 
@@ -107,7 +112,7 @@ class Booking {
       case BookingStatus.refused:
         return 'Refusé';
       case BookingStatus.cancelled:
-        return 'Annulé';
+        return isMissed ? 'Manqué' : 'Annulé';
       case BookingStatus.completed:
         return 'Terminé';
     }
