@@ -7,6 +7,7 @@ import {
   ShieldAlert,
   BarChart3,
   Settings,
+  FlaskConical,
   type LucideIcon,
 } from "lucide-react";
 
@@ -17,6 +18,8 @@ export interface NavItem {
   end?: boolean;
   /** Ressource RBAC à posséder (action "view") pour voir cet item. undefined = toujours visible. */
   resource?: string;
+  /** Outil de développement : absent du dashboard de production. */
+  devOnly?: boolean;
 }
 
 export const NAV_ITEMS: NavItem[] = [
@@ -28,4 +31,8 @@ export const NAV_ITEMS: NavItem[] = [
   { to: "/moderation", label: "Modération & SOS", icon: ShieldAlert, resource: "sos_alerts" },
   { to: "/stats", label: "Statistiques", icon: BarChart3 },
   { to: "/administration", label: "Administration", icon: Settings, resource: "admin_users" },
+  { to: "/simulator", label: "Simulateur", icon: FlaskConical, resource: "simulator", devOnly: true },
 ];
+
+/** Le simulateur ne sert qu'avec le backend local (npm run dev), sauf VITE_ENABLE_SIMULATOR=true. */
+export const SIMULATOR_UI = import.meta.env.DEV || import.meta.env.VITE_ENABLE_SIMULATOR === "true";

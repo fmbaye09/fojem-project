@@ -2,7 +2,7 @@ import { NavLink } from "react-router-dom";
 import { motion } from "framer-motion";
 import { cn } from "../../lib/utils";
 import { useAuthStore } from "../../store/useAuthStore";
-import { NAV_ITEMS } from "../../config/nav";
+import { NAV_ITEMS, SIMULATOR_UI } from "../../config/nav";
 import { useSosWatch } from "../../store/useSosWatch";
 
 export function Sidebar() {
@@ -15,8 +15,9 @@ export function Sidebar() {
   const sosOpen = useSosWatch((s) => s.openCount);
   const items = NAV_ITEMS.filter(
     (item) =>
-      !item.resource ||
-      permissions.some((p) => (p.resource === item.resource || p.resource === "*") && p.action === "view"),
+      (!item.devOnly || SIMULATOR_UI) &&
+      (!item.resource ||
+        permissions.some((p) => (p.resource === item.resource || p.resource === "*") && p.action === "view")),
   );
 
   return (

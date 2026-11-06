@@ -62,6 +62,7 @@ class User extends Authenticatable
         return [
             'password_hash' => 'hashed',
             'is_driver' => 'boolean',
+            'is_simulated' => 'boolean',
             'identity_submitted_at' => 'datetime',
             'identity_reviewed_at' => 'datetime',
         ];

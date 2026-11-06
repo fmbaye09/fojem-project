@@ -39,6 +39,7 @@
              ont besoin le simulent (Http::fake). -->
         <env name="OSRM_URL" value=""/>
         <env name="OVERPASS_URL" value=""/>
+        <env name="SIMULATOR_ENABLED" value="true"/>
         <env name="QUEUE_CONNECTION" value="sync"/>
         <env name="SESSION_DRIVER" value="array"/>
         <env name="PULSE_ENABLED" value="false"/>

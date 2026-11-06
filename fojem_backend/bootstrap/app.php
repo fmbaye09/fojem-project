@@ -16,6 +16,7 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->alias([
             'admin.permission' => \App\Http\Middleware\EnsureAdminHasPermission::class,
             'admin.active' => \App\Http\Middleware\EnsureIsActiveAdmin::class,
+            'simulator' => \App\Http\Middleware\EnsureSimulatorEnabled::class,
             'abilities' => \Laravel\Sanctum\Http\Middleware\CheckAbilities::class,
             'ability' => \Laravel\Sanctum\Http\Middleware\CheckForAnyAbility::class,
         ]);

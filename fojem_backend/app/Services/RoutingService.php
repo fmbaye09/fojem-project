@@ -26,12 +26,14 @@ class RoutingService
 
     /**
      * Itinéraire passant par ces points : durée (s) et distance (m) de chaque
-     * tronçon, et, sur demande, le tracé simplifié de la route ([lat, lng]).
+     * tronçon, et, sur demande, le tracé de la route ([lat, lng]) : simplifié
+     * (assez pour situer des lieux) ou complet (pour y faire rouler le
+     * chauffeur du simulateur).
      *
      * @param  list<array{0: float, 1: float}>  $points  [lat, lng]
      * @return array{durations: list<float>, distances: list<float>, geometry: list<array{0: float, 1: float}>}|null
      */
-    public function route(array $points, bool $withGeometry = false): ?array
+    public function route(array $points, bool $withGeometry = false, bool $fullGeometry = false): ?array
     {
         $base = rtrim((string) config('services.osrm.url'), '/');
         if ($base === '' || count($points) < 2) {
@@ -48,7 +50,7 @@ class RoutingService
             $response = Http::timeout((float) config('services.osrm.timeout', 4))
                 ->withUserAgent('FOJEM/1.0 (contact@fojem.sn)')
                 ->get("{$base}/route/v1/driving/{$coordinates}", $withGeometry
-                    ? ['overview' => 'simplified', 'geometries' => 'geojson']
+                    ? ['overview' => $fullGeometry ? 'full' : 'simplified', 'geometries' => 'geojson']
                     : ['overview' => 'false']);
         } catch (\Throwable $e) {
             Log::info("OSRM unavailable: {$e->getMessage()}");

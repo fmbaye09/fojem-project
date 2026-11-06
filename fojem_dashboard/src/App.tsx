@@ -12,6 +12,8 @@ import { Finance } from "./pages/Finance";
 import { Moderation } from "./pages/Moderation";
 import { Stats } from "./pages/Stats";
 import { Administration } from "./pages/Administration";
+import { Simulator } from "./pages/Simulator";
+import { SIMULATOR_UI } from "./config/nav";
 import { useAuthStore } from "./store/useAuthStore";
 
 function FullScreenLoader() {
@@ -70,6 +72,11 @@ export default function App() {
           <Route element={<RequirePermission resource="admin_users" />}>
             <Route path="/administration" element={<Administration />} />
           </Route>
+          {SIMULATOR_UI && (
+            <Route element={<RequirePermission resource="simulator" />}>
+              <Route path="/simulator" element={<Simulator />} />
+            </Route>
+          )}
         </Route>
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />

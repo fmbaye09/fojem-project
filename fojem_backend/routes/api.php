@@ -8,6 +8,7 @@ use App\Http\Controllers\Api\Admin\DriverController as AdminDriverController;
 use App\Http\Controllers\Api\Admin\OverviewController;
 use App\Http\Controllers\Api\Admin\PayoutRequestController;
 use App\Http\Controllers\Api\Admin\PlatformSettingController;
+use App\Http\Controllers\Api\Admin\SimulatorController;
 use App\Http\Controllers\Api\Admin\SosAlertController as AdminSosAlertController;
 use App\Http\Controllers\Api\Admin\StatsController;
 use App\Http\Controllers\Api\Admin\TransactionController;
@@ -219,5 +220,15 @@ Route::prefix('admin')->group(function () {
             ->get('platform-settings', [PlatformSettingController::class, 'index']);
         Route::patch('platform-settings/{platformSetting}', [PlatformSettingController::class, 'update'])
             ->middleware('admin.permission:platform_settings,edit');
+
+        // Simulateur du dashboard : local uniquement (404 ailleurs).
+        Route::middleware(['simulator', 'admin.permission:simulator,edit'])->prefix('simulator')->group(function () {
+            Route::get('/', [SimulatorController::class, 'status']);
+            Route::post('actors', [SimulatorController::class, 'createActor']);
+            Route::get('route', [SimulatorController::class, 'route']);
+            Route::post('backdate', [SimulatorController::class, 'backdate']);
+            Route::get('notifications', [SimulatorController::class, 'notifications']);
+            Route::delete('/', [SimulatorController::class, 'reset']);
+        });
     });
 });
