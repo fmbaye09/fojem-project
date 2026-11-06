@@ -35,6 +35,9 @@
         <env name="DB_PASSWORD" value="fojem_local_dev"/>
         <env name="DB_URL" value=""/>
         <env name="MAIL_MAILER" value="array"/>
+        <!-- Jamais le vrai service de routage en test : les tests qui en
+             ont besoin le simulent (Http::fake). -->
+        <env name="OSRM_URL" value=""/>
         <env name="QUEUE_CONNECTION" value="sync"/>
         <env name="SESSION_DRIVER" value="array"/>
         <env name="PULSE_ENABLED" value="false"/>

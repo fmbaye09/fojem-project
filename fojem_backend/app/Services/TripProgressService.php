@@ -5,14 +5,17 @@ namespace App\Services;
 use App\Models\Trip;
 use App\Models\TripStop;
 use Carbon\CarbonImmutable;
+use Illuminate\Support\Facades\Cache;
 
 /**
  * Where a trip in progress stands: which meeting points the driver has
  * reached, and when they should reach the next ones.
  *
- * ETAs come from the driver's last GPS fix when it is recent; otherwise
- * they fall back to the published schedule and say so, so passengers never
- * see an invented position or time presented as live.
+ * ETAs come from the driver's last GPS fix when it is recent, with road
+ * durations from the routing service (OSRM) when available, else a
+ * straight-line estimate; otherwise they fall back to the published
+ * schedule and say so, so passengers never see an invented position or
+ * time presented as live.
  */
 class TripProgressService
 {
@@ -134,7 +137,13 @@ class TripProgressService
         }
 
         $next = $remaining->first();
-        if ($fresh) {
+        // Durées de route (OSRM) calculées depuis une position récente ;
+        // à défaut, vol d'oiseau à vitesse moyenne.
+        $route = $fresh ? $this->routeEtas($trip, $passed, $now) : [];
+        if (isset($route[$next->id])) {
+            $nextEta = $route[$next->id];
+            $source = 'live';
+        } elseif ($fresh) {
             $km = self::ROAD_FACTOR * Trip::haversineMeters(
                 (float) $trip->current_lat, (float) $trip->current_lng, $next->lat, $next->lng,
             ) / 1000;
@@ -147,12 +156,12 @@ class TripProgressService
             return $base + ['next_stop_id' => $next->id];
         }
 
-        // Later stops keep the published gaps between them.
+        // Sans durée de route, les arrêts suivants gardent les écarts publiés.
         $etas = [];
         foreach ($remaining as $stop) {
-            $eta = ($stop->scheduled_at && $next->scheduled_at)
+            $eta = $route[$stop->id] ?? (($stop->scheduled_at && $next->scheduled_at)
                 ? $nextEta->addSeconds($next->scheduled_at->diffInSeconds($stop->scheduled_at, false))
-                : ($stop->is($next) ? $nextEta : null);
+                : ($stop->is($next) ? $nextEta : null));
             if ($eta) {
                 $etas[] = ['stop_id' => $stop->id, 'eta' => $eta->toIso8601String()];
             }
@@ -166,5 +175,64 @@ class TripProgressService
                 : null,
             'etas' => $etas,
         ]);
+    }
+
+    /**
+     * Interroge le routage depuis la dernière position du chauffeur jusqu'à
+     * chaque arrêt restant, et garde les heures de passage obtenues. Au plus
+     * une fois par minute et par trajet ; passer un arrêt relance le calcul.
+     */
+    public function refreshRouteEtas(Trip $trip): void
+    {
+        if ($trip->status !== Trip::STATUS_IN_PROGRESS || $trip->current_lat === null || $trip->location_updated_at === null) {
+            return;
+        }
+        $passed = $trip->last_passed_stop_position ?? 0;
+        $remaining = $trip->stops->filter(fn (TripStop $s) => $s->position > $passed)->values();
+        if ($remaining->isEmpty()) {
+            return;
+        }
+        $refresh = max(1, (int) config('services.osrm.refresh_seconds', 60));
+        if (! Cache::add("trip-route:{$trip->id}:lock:{$passed}", true, $refresh)) {
+            return;
+        }
+
+        $points = [[(float) $trip->current_lat, (float) $trip->current_lng]];
+        foreach ($remaining as $stop) {
+            $points[] = [(float) $stop->lat, (float) $stop->lng];
+        }
+        $legs = app(RoutingService::class)->legDurations($points);
+        if ($legs === null) {
+            return;
+        }
+
+        $factor = (float) config('services.osrm.duration_factor', 1.0);
+        $fixAt = CarbonImmutable::instance($trip->location_updated_at);
+        $seconds = 0.0;
+        $etas = [];
+        foreach ($remaining as $i => $stop) {
+            $seconds += $legs[$i] * $factor;
+            $etas[$stop->id] = $fixAt->addSeconds((int) round($seconds))->toIso8601String();
+        }
+        Cache::put("trip-route:{$trip->id}", [
+            'passed' => $passed,
+            'computed_at' => $fixAt->toIso8601String(),
+            'etas' => $etas,
+        ], now()->addMinutes(self::ROUTE_MAX_AGE_MINUTES * 2));
+    }
+
+    /** Une heure de route plus ancienne que ça ne reflète plus la circulation. */
+    private const ROUTE_MAX_AGE_MINUTES = 5;
+
+    /** @return array<string, CarbonImmutable> heures de passage par la route, par id d'arrêt */
+    private function routeEtas(Trip $trip, int $passed, CarbonImmutable $now): array
+    {
+        $route = Cache::get("trip-route:{$trip->id}");
+        if (! is_array($route) || ($route['passed'] ?? null) !== $passed
+            || CarbonImmutable::parse($route['computed_at'])->diffInMinutes($now, true) > self::ROUTE_MAX_AGE_MINUTES) {
+            return [];
+        }
+
+        return array_map(fn (string $eta) => CarbonImmutable::parse($eta), $route['etas'] ?? []);
     }
 }

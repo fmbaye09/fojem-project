@@ -39,4 +39,16 @@ return [
         'server_key' => env('FCM_SERVER_KEY'),
     ],
 
+    // Durées de route pour les heures de passage en direct. Serveur public
+    // par défaut ; un OSRM auto-hébergé se branche par OSRM_URL. Vide :
+    // désactivé, estimation à vol d'oiseau.
+    'osrm' => [
+        'url' => env('OSRM_URL', 'https://router.project-osrm.org'),
+        'timeout' => (float) env('OSRM_TIMEOUT', 4),
+        // Au plus un calcul par trajet et par minute (règles d'usage du serveur public).
+        'refresh_seconds' => (int) env('OSRM_REFRESH_SECONDS', 60),
+        // Corrige les durées « route dégagée » d'OSRM pour le trafic réel.
+        'duration_factor' => (float) env('OSRM_DURATION_FACTOR', 1.0),
+    ],
+
 ];

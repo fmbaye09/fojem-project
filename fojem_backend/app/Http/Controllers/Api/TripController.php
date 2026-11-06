@@ -422,6 +422,11 @@ class TripController extends Controller
         if (in_array($trip->status, [Trip::STATUS_OPEN, Trip::STATUS_FULL, Trip::STATUS_IN_PROGRESS], true)) {
             $progress->recordPosition($trip, (float) $validated['lat'], (float) $validated['lng']);
         }
+        // Heures de passage par la route, après la réponse : le routage ne
+        // ralentit pas l'envoi de position du chauffeur.
+        if ($trip->status === Trip::STATUS_IN_PROGRESS) {
+            dispatch(fn () => $progress->refreshRouteEtas($trip))->afterResponse();
+        }
 
         return response()->json([
             'current_lat' => $trip->current_lat,
