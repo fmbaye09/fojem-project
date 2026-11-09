@@ -186,7 +186,7 @@ class AppProvider extends ChangeNotifier {
     if (_user == null) return;
     try {
       _user = await authService.me();
-      await _chatAuthBridge.signInWithCustomToken(_lastCustomToken());
+      await _chatAuthBridge.ensureSignedIn(_lastCustomToken());
       notifyListeners();
     } catch (_) {
       // Silencieux : on garde l'état précédent plutôt que de vider l'écran

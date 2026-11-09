@@ -13,6 +13,7 @@ import '../../../core/theme/app_spacing.dart';
 import '../../../core/widgets/status_chip.dart';
 import '../../../core/widgets/price_display.dart';
 import '../../../models/booking.dart';
+import '../../../models/trip.dart';
 import '../../../providers/app_provider.dart';
 import '../../../services/booking_repository.dart';
 
@@ -39,7 +40,9 @@ class _MyTripsScreenState extends State<MyTripsScreen>
     super.initState();
     _tabController = TabController(length: 2, vsync: this);
     _loadBookings();
-    _pollTimer = Timer.periodic(const Duration(seconds: 8), (_) => _loadBookings(silent: true));
+    _pollTimer = Timer.periodic(const Duration(seconds: 8), (_) {
+      if (shouldPoll(context)) _loadBookings(silent: true);
+    });
   }
 
   @override
@@ -200,8 +203,10 @@ class _BookingCard extends StatelessWidget {
         return StatusChipVariant.pending;
       case BookingStatus.refused:
         return StatusChipVariant.refused;
+      // « Manqué » (le chauffeur est reparti sans lui) n'est pas une faute
+      // du passager : en gris, pas en rouge.
       case BookingStatus.cancelled:
-        return StatusChipVariant.cancelled;
+        return booking.isMissed ? StatusChipVariant.completed : StatusChipVariant.cancelled;
       case BookingStatus.completed:
         return StatusChipVariant.completed;
     }
@@ -211,6 +216,15 @@ class _BookingCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final timeFormat = DateFormat('HH:mm');
     final dateFormat = DateFormat('EEE d MMM', 'fr_FR');
+    // Durée du tronçon du passager, pas du trajet entier du chauffeur.
+    final bookedTrip = booking.trip;
+    final segmentDuration = bookedTrip == null
+        ? ''
+        : TripSegment(
+            boarding: booking.boardingStop,
+            alighting: booking.alightingStop,
+            pricePerSeat: 0,
+          ).durationLabel(bookedTrip);
     final trip = booking.trip;
 
     if (trip == null) {
@@ -262,7 +276,7 @@ class _BookingCard extends StatelessWidget {
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      StatusChip(variant: _chipVariant),
+                      StatusChip(variant: _chipVariant, customLabel: booking.statusLabel),
                       if (booking.status == BookingStatus.confirmed &&
                           booking.confirmationCode.isNotEmpty)
                         Container(
@@ -372,14 +386,14 @@ class _BookingCard extends StatelessWidget {
                           ],
                         ),
                       ),
-                      if (trip.durationLabel.isNotEmpty)
+                      if (segmentDuration.isNotEmpty)
                         Container(
                           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                           decoration: BoxDecoration(
                             color: AppColors.background,
                             borderRadius: BorderRadius.circular(6),
                           ),
-                          child: Text(trip.durationLabel,
+                          child: Text(segmentDuration,
                               style: AppTextStyles.caption.copyWith(
                                 color: AppColors.textSecondary,
                                 fontWeight: FontWeight.w600,

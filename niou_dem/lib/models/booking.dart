@@ -112,7 +112,8 @@ class Booking {
       case BookingStatus.refused:
         return 'Refusé';
       case BookingStatus.cancelled:
-        return isMissed ? 'Manqué' : 'Annulé';
+        if (isMissed) return 'Manqué';
+        return apiStatus == 'no_show' ? 'Absent' : 'Annulé';
       case BookingStatus.completed:
         return 'Terminé';
     }

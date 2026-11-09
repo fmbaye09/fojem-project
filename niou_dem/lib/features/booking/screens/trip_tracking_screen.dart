@@ -57,7 +57,7 @@ class _TripTrackingScreenState extends State<TripTrackingScreen> with AutoRefres
     super.initState();
     _load();
     _pollTimer = Timer.periodic(const Duration(seconds: 6), (_) {
-      if (mounted) _loadSilently();
+      if (mounted && shouldPoll(context)) _loadSilently();
     });
   }
 
@@ -71,13 +71,7 @@ class _TripTrackingScreenState extends State<TripTrackingScreen> with AutoRefres
     try {
       final userId = mounted ? context.read<AppProvider>().user?.id : null;
       final trip = await TripRepository().fetch(widget.tripId);
-      Booking? booking;
-      if (userId != null) {
-        booking = await BookingRepository().fetchActiveForTrip(
-          tripId: widget.tripId,
-          passengerId: userId,
-        );
-      }
+      final booking = userId == null ? null : await _fetchBooking(userId);
       if (!mounted) return;
       setState(() {
         if (trip != null) _trip = trip;
@@ -86,29 +80,31 @@ class _TripTrackingScreenState extends State<TripTrackingScreen> with AutoRefres
     } catch (_) {}
   }
 
+  /// La réservation du passager sur ce trajet, active ou non : une fois
+  /// « manquée », « absente », annulée ou terminée, elle n'est plus parmi les
+  /// actives, et l'écran doit pourtant passer à ce nouvel état (sinon il
+  /// garde le billet « Confirmé » jusqu'à un rafraîchissement manuel).
+  Future<Booking?> _fetchBooking(String userId) async {
+    final active = await BookingRepository().fetchActiveForTrip(
+      tripId: widget.tripId,
+      passengerId: userId,
+    );
+    if (active != null) return active;
+    try {
+      final all = await BookingRepository().fetchForPassenger(userId);
+      for (final b in all) {
+        if (b.tripId == widget.tripId) return b;
+      }
+    } catch (_) {
+      // Le suivi du trajet reste affichable sans le détail du billet.
+    }
+    return null;
+  }
+
   Future<void> _load() async {
     final userId = mounted ? context.read<AppProvider>().user?.id : null;
     final trip = await TripRepository().fetch(widget.tripId);
-    Booking? booking;
-    if (userId != null) {
-      booking = await BookingRepository().fetchActiveForTrip(
-        tripId: widget.tripId,
-        passengerId: userId,
-      );
-      if (booking == null) {
-        try {
-          final all = await BookingRepository().fetchForPassenger(userId);
-          for (final b in all) {
-            if (b.tripId == widget.tripId) {
-              booking = b;
-              break;
-            }
-          }
-        } catch (_) {
-          // Le suivi du trajet reste affichable sans le détail du billet.
-        }
-      }
-    }
+    final booking = userId == null ? null : await _fetchBooking(userId);
     if (!mounted) return;
     setState(() {
       _trip = trip;
@@ -282,7 +278,7 @@ class _TripTrackingScreenState extends State<TripTrackingScreen> with AutoRefres
                 _TrackingTimeline(currentStep: _stepFor(_trip!, _booking)),
                 const SizedBox(height: AppSpacing.lg),
               ],
-              _TripInfoCard(trip: _trip!),
+              _TripInfoCard(trip: _trip!, booking: _booking),
               const SizedBox(height: AppSpacing.lg),
               const _SupportSection(),
               const SizedBox(height: AppSpacing.xl),
@@ -612,14 +608,22 @@ class _TimelineStepWidget extends StatelessWidget {
   }
 }
 
+/// Le tronçon du passager (sa montée, sa descente, son prix), pas le trajet
+/// entier du chauffeur.
 class _TripInfoCard extends StatelessWidget {
   final Trip trip;
+  final Booking? booking;
 
-  const _TripInfoCard({required this.trip});
+  const _TripInfoCard({required this.trip, this.booking});
 
   @override
   Widget build(BuildContext context) {
     final dateFormat = DateFormat('EEE d MMM yyyy à HH:mm', 'fr_FR');
+    final boarding = booking?.boardingStop;
+    final alighting = booking?.alightingStop;
+    final perSeat = booking != null && booking!.price > 0
+        ? booking!.price / booking!.seatsBooked
+        : trip.pricePerSeat;
 
     return Container(
       padding: AppSpacing.cardPadding,
@@ -633,25 +637,25 @@ class _TripInfoCard extends StatelessWidget {
           _InfoRow(
             icon: Icons.calendar_today_outlined,
             label: 'Départ',
-            value: dateFormat.format(trip.departureTime),
+            value: dateFormat.format(boarding?.scheduledAt ?? trip.departureTime),
           ),
           const Divider(height: AppSpacing.md),
           _InfoRow(
             icon: Icons.trip_origin,
             label: 'Lieu de départ',
-            value: trip.departure,
+            value: boarding?.name ?? trip.departure,
           ),
           const Divider(height: AppSpacing.md),
           _InfoRow(
             icon: Icons.location_on_outlined,
             label: 'Destination',
-            value: trip.arrival,
+            value: alighting?.name ?? trip.arrival,
           ),
           const Divider(height: AppSpacing.md),
           _InfoRow(
             icon: Icons.payments_outlined,
             label: 'Tarif',
-            value: '${trip.pricePerSeat.toInt()} FCFA / place',
+            value: '${perSeat.round()} FCFA / place',
           ),
         ],
       ),

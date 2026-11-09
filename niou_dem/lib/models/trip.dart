@@ -105,13 +105,7 @@ class Trip {
     this.driver,
   });
 
-  String get durationLabel {
-    final hours = estimatedDuration.inHours;
-    final minutes = estimatedDuration.inMinutes.remainder(60);
-    if (hours == 0) return '${minutes}min';
-    if (minutes == 0) return '${hours}h';
-    return '${hours}h${minutes.toString().padLeft(2, '0')}';
-  }
+  String get durationLabel => formatTripDuration(estimatedDuration);
 
   bool get isFull => availableSeats == 0;
 
@@ -407,6 +401,24 @@ class TripSegment {
         if (boardingStopId != null) 'board=$boardingStopId',
         if (alightingStopId != null) 'alight=$alightingStopId',
       ].join('&');
+
+  /// Durée du tronçon du passager (de sa montée à sa descente), pas celle
+  /// du trajet entier.
+  String durationLabel(Trip trip) {
+    final from = boarding?.scheduledAt ?? trip.departureTime;
+    final to = alighting?.scheduledAt ?? trip.departureTime.add(trip.estimatedDuration);
+    final duration = to.difference(from);
+    return formatTripDuration(duration.isNegative ? trip.estimatedDuration : duration);
+  }
+}
+
+/// « 47min », « 1h », « 1h02 ».
+String formatTripDuration(Duration duration) {
+  final hours = duration.inHours;
+  final minutes = duration.inMinutes.remainder(60);
+  if (hours == 0) return '${minutes}min';
+  if (minutes == 0) return '${hours}h';
+  return '${hours}h${minutes.toString().padLeft(2, '0')}';
 }
 
 /// Heure à laquelle le passager monte (arrêt proposé par la recherche),

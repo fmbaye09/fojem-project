@@ -163,14 +163,16 @@ class _TicketCardState extends State<TicketCard> {
                         value: '${booking.seatsBooked} place${booking.seatsBooked > 1 ? 's' : ''}',
                       ),
                       Container(height: 24, width: 1, color: AppColors.border),
+                      // Réglé en espèces au chauffeur : pas encore « payé » avant le voyage.
                       _DetailItem(
-                        label: 'Prix payé',
+                        label: 'Prix',
                         value: '${booking.totalPrice.toInt()} FCFA',
                       ),
                       Container(height: 24, width: 1, color: AppColors.border),
+                      // L'heure où il monte, pas le départ du chauffeur plus tôt sur la route.
                       _DetailItem(
-                        label: 'Départ',
-                        value: DateFormat('HH:mm').format(widget.trip.departureTime),
+                        label: 'Montée',
+                        value: DateFormat('HH:mm').format(booking.boardingStop?.scheduledAt ?? widget.trip.departureTime),
                       ),
                     ],
                   ),

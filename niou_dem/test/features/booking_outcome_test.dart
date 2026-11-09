@@ -13,4 +13,10 @@ void main() {
     expect(_booking('no_show').isMissed, isFalse);
     expect(_booking('cancelled_driver').statusLabel, 'Annulé');
   });
+
+  test('an absent passenger reads « Absent », not « Annulé »', () {
+    final absent = _booking('no_show');
+    expect(absent.status, BookingStatus.cancelled);
+    expect(absent.statusLabel, 'Absent');
+  });
 }

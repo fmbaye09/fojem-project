@@ -72,11 +72,13 @@ class TripCard extends StatelessWidget {
                       if (driver != null)
                         Row(
                           children: [
-                            const Icon(Icons.star_rounded, size: 14, color: AppColors.accent),
+                            // Pas encore noté : « Nouveau » plutôt qu'un « 0,0 » qui fait fuir.
+                            Icon(driver.rating > 0 ? Icons.star_rounded : Icons.fiber_new_rounded,
+                                size: 14, color: AppColors.accent),
                             const SizedBox(width: 3),
                             Flexible(
                               child: Text(
-                                '${driver.rating.toStringAsFixed(1).replaceAll('.', ',')}'
+                                '${driver.rating > 0 ? driver.rating.toStringAsFixed(1).replaceAll('.', ',') : 'Nouveau'}'
                                 '${driver.totalTrips > 0 ? ' · ${driver.totalTrips} trajets' : ''}',
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,

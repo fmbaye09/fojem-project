@@ -54,7 +54,9 @@ class _HomeScreenState extends State<HomeScreen> with AutoRefresh<HomeScreen> {
     _search = context.read<SearchProvider>()..addListener(_onSearchChanged);
     // Après la première image : la localisation notifie le provider.
     WidgetsBinding.instance.addPostFrameCallback((_) => _start());
-    _pollTimer = Timer.periodic(const Duration(seconds: 15), (_) => _loadNearby(silent: true));
+    _pollTimer = Timer.periodic(const Duration(seconds: 15), (_) {
+      if (shouldPoll(context)) _loadNearby(silent: true);
+    });
   }
 
   @override

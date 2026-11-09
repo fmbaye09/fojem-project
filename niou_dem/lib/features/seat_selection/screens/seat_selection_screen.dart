@@ -197,11 +197,11 @@ class _SeatLegend extends StatelessWidget {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
+          // Mêmes couleurs que les pastilles du plan (SeatIndicator).
           _LegendItem(
             label: 'Disponible',
             decoration: BoxDecoration(
-              color: AppColors.surface,
-              border: Border.all(color: AppColors.border, width: 1.5),
+              color: AppColors.primary,
               borderRadius: BorderRadius.circular(4),
             ),
           ),
@@ -209,7 +209,7 @@ class _SeatLegend extends StatelessWidget {
           _LegendItem(
             label: 'Choisi',
             decoration: BoxDecoration(
-              color: AppColors.primary,
+              color: AppColors.accent,
               borderRadius: BorderRadius.circular(4),
             ),
           ),

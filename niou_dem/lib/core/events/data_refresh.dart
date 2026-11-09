@@ -16,6 +16,17 @@ class DataRefresh {
   void notify() => _controller.add(null);
 }
 
+/// Un rechargement périodique sert-il à quelque chose ? Non si l'app est en
+/// arrière-plan ou si un autre écran couvre celui-ci : au retour, le
+/// [DataRefresh] émis à la reprise (ou par l'action faite entre-temps)
+/// recharge l'écran. Évite d'interroger le serveur pour rien (données
+/// mobiles, batterie, charge du serveur).
+bool shouldPoll(BuildContext context) {
+  final lifecycle = WidgetsBinding.instance.lifecycleState;
+  if (lifecycle != null && lifecycle != AppLifecycleState.resumed) return false;
+  return ModalRoute.of(context)?.isCurrent ?? true;
+}
+
 /// Recharge l'écran en silence à chaque [DataRefresh] (au plus une fois par
 /// rafale de signaux rapprochés).
 mixin AutoRefresh<T extends StatefulWidget> on State<T> {

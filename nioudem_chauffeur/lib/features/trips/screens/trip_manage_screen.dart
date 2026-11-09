@@ -66,7 +66,7 @@ class _TripManageScreenState extends State<TripManageScreen> with AutoRefresh<Tr
     _tracker.permissionDenied.addListener(_onTrackerUpdate);
     _load();
     _pollTimer = Timer.periodic(const Duration(seconds: 8), (_) {
-      _load(silent: true);
+      if (shouldPoll(context)) _load(silent: true);
     });
   }
 

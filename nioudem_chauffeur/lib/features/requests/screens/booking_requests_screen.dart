@@ -47,7 +47,9 @@ class _BookingRequestsScreenState extends State<BookingRequestsScreen> with Auto
   void initState() {
     super.initState();
     _load();
-    _pollTimer = Timer.periodic(const Duration(seconds: 6), (_) => _load(silent: true));
+    _pollTimer = Timer.periodic(const Duration(seconds: 6), (_) {
+      if (shouldPoll(context)) _load(silent: true);
+    });
   }
 
   @override

@@ -69,6 +69,20 @@ void main() {
     expect(seg.pricePerSeat, 1000);
   });
 
+  test('the segment duration runs from boarding to alighting, not the whole trip', () {
+    final trip = Trip.fromApi(_tripJson());
+
+    expect(trip.durationLabel, '1h40');
+    expect(trip.segment(boardingStopId: 's1', alightingStopId: 's2').durationLabel(trip), '1h05');
+    expect(trip.segment(boardingStopId: 's0', alightingStopId: 's1').durationLabel(trip), '35min');
+  });
+
+  test('formatTripDuration', () {
+    expect(formatTripDuration(const Duration(minutes: 47)), '47min');
+    expect(formatTripDuration(const Duration(hours: 2)), '2h');
+    expect(formatTripDuration(const Duration(minutes: 62)), '1h02');
+  });
+
   test('formatDistanceFromYou', () {
     expect(formatDistanceFromYou(80), 'sur place');
     expect(formatDistanceFromYou(420), 'à 400 m');

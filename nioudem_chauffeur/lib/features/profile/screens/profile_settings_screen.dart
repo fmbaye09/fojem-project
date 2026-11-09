@@ -14,6 +14,7 @@ import '../../../services/driver_document_repository.dart';
 import '../../../services/profile_repository.dart';
 import '../../../core/utils/language_preference.dart';
 import '../../../core/utils/external_links.dart';
+import '../../../core/widgets/app_version_label.dart';
 
 class ProfileSettingsScreen extends StatefulWidget {
   const ProfileSettingsScreen({super.key});
@@ -273,7 +274,7 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
           const SizedBox(height: 28),
           ProfileLogoutButton(onTap: () => _showLogoutDialog(context)),
           const SizedBox(height: 16),
-          Center(child: Text('FOJËM Pro v1.0.0', style: AppTextStyles.caption)),
+          const Center(child: AppVersionLabel(appName: 'FOJËM Pro')),
         ],
       ),
       bottomNavigationBar: const DriverBottomNavBar(current: DriverTab.profile),

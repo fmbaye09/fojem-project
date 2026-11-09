@@ -346,7 +346,7 @@ class _TripSummaryCard extends StatelessWidget {
                 color: AppColors.primary,
                 size: 20,
               ),
-              Text(trip.durationLabel, style: AppTextStyles.caption),
+              Text(segment.durationLabel(trip), style: AppTextStyles.caption),
             ],
           ),
           Expanded(

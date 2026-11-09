@@ -56,6 +56,13 @@ class Vehicle {
   int get totalSeats => type.passengerSeatCount;
   String get typeLabel => type.label;
 
+  /// « Minibus · 14 places · DK-1234-AB », sans répéter les places quand le
+  /// type les nomme déjà (« 7 places · DK-1234-AB »).
+  String get summary => [capacityLabel, plateNumber].where((part) => part.trim().isNotEmpty).join(' · ');
+
+  /// « Minibus · 14 places », ou « 7 places » seul quand le type le dit déjà.
+  String get capacityLabel => typeLabel.contains('place') ? typeLabel : '$typeLabel · $totalSeats places';
+
   factory Vehicle.fromMap(String id, Map<String, dynamic> map) {
     return Vehicle(
       id: id,

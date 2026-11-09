@@ -48,8 +48,17 @@ class _PublishTripScreenState extends State<PublishTripScreen> {
   GeoLocation? _origin;
   GeoLocation? _destination;
   final List<GeoLocation> _intermediate = [];
-  DateTime _date = DateTime.now();
-  TimeOfDay _time = const TimeOfDay(hour: 8, minute: 30);
+  // Par défaut, la prochaine demi-heure au moins une heure après maintenant
+  // (« 08:30 » proposé le soir était déjà passé).
+  DateTime _date = _defaultDeparture();
+  TimeOfDay _time = TimeOfDay.fromDateTime(_defaultDeparture());
+
+  static DateTime _defaultDeparture() {
+    final soon = DateTime.now().add(const Duration(hours: 1));
+    final extra = (30 - soon.minute % 30) % 30;
+    final rounded = DateTime(soon.year, soon.month, soon.day, soon.hour, soon.minute + extra);
+    return rounded;
+  }
   int _seats = 3;
   final _priceController = TextEditingController(text: '2000');
   List<Vehicle> _vehicles = const [];
@@ -204,7 +213,8 @@ class _PublishTripScreenState extends State<PublishTripScreen> {
   }
 
   /// Suggestions pour les points actuels ; rechargées seulement s'ils ont
-  /// changé. Sans réponse, la section reste simplement masquée.
+  /// changé. Sans réponse, la section reste masquée et la prochaine visite
+  /// de l'étape 2 redemande (réseau lent, serveur occupé).
   Future<void> _loadSuggestions() async {
     final points = _points;
     final key = points.map((p) => '${p.lat},${p.lng}').join('|');
@@ -214,15 +224,18 @@ class _PublishTripScreenState extends State<PublishTripScreen> {
       _isLoadingSuggestions = true;
     });
     List<MeetingPointSuggestion> suggestions;
+    var failed = false;
     try {
-      suggestions = await MeetingPointRepository().suggestions(points).timeout(const Duration(seconds: 12));
+      suggestions = await MeetingPointRepository().suggestions(points).timeout(const Duration(seconds: 20));
     } catch (_) {
       suggestions = const [];
+      failed = true;
     }
     if (!mounted || key != _suggestionsKey) return;
     setState(() {
       _suggestions = suggestions;
       _isLoadingSuggestions = false;
+      if (failed) _suggestionsKey = null;
     });
   }
 
@@ -1282,7 +1295,7 @@ class _VehicleSummaryCard extends StatelessWidget {
                     style: AppTextStyles.bodyLargeSemibold),
                 const SizedBox(height: 2),
                 Text(
-                  '${vehicle.typeLabel} · ${vehicle.totalSeats} places · ${vehicle.plateNumber}',
+                  vehicle.summary,
                   style: AppTextStyles.caption.copyWith(color: AppColors.textSecondary),
                 ),
               ],
@@ -1394,7 +1407,7 @@ class _VehicleSelectorSheet extends StatelessWidget {
                                       style: AppTextStyles.bodyLargeSemibold),
                                   const SizedBox(height: 2),
                                   Text(
-                                    '${vehicle.typeLabel} · ${vehicle.totalSeats} places · ${vehicle.plateNumber}',
+                                    vehicle.summary,
                                     style: AppTextStyles.caption
                                         .copyWith(color: AppColors.textSecondary),
                                   ),

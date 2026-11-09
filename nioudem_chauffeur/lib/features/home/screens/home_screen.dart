@@ -45,7 +45,9 @@ class _HomeScreenState extends State<HomeScreen> with AutoRefresh<HomeScreen> {
   void initState() {
     super.initState();
     _load();
-    _pollTimer = Timer.periodic(const Duration(seconds: 12), (_) => _load(silent: true));
+    _pollTimer = Timer.periodic(const Duration(seconds: 12), (_) {
+      if (shouldPoll(context)) _load(silent: true);
+    });
   }
 
   @override

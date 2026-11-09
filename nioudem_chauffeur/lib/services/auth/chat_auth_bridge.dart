@@ -44,6 +44,15 @@ class ChatAuthBridge {
     }
   }
 
+  /// Comme [signInWithCustomToken], mais seulement sans session Firebase :
+  /// le SDK renouvelle lui-même une session ouverte. Appelé à chaque
+  /// rafraîchissement du profil, qui ne doit pas rouvrir une session à
+  /// chaque fois (un aller-retour vers Google toutes les 12 à 30 s).
+  Future<void> ensureSignedIn(String? token) async {
+    if (_auth.currentUser != null) return;
+    await signInWithCustomToken(token);
+  }
+
   Future<void> signOut() async {
     try {
       await _auth.signOut();

@@ -16,6 +16,7 @@ import '../../../core/services/language_preference.dart';
 import '../../../models/app_user.dart';
 import '../../../providers/app_provider.dart';
 import '../../../services/profile_repository.dart';
+import '../../../core/widgets/app_version_label.dart';
 
 /// Fiche Play Store de l'app — à activer une fois l'app publiée.
 const _playStoreUrl =
@@ -432,7 +433,7 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
           const SizedBox(height: 28),
           ProfileLogoutButton(onTap: () => _showLogoutDialog(context)),
           const SizedBox(height: 16),
-          Center(child: Text('FOJËM v1.0.0', style: AppTextStyles.caption)),
+          const Center(child: AppVersionLabel(appName: 'FOJËM')),
         ],
       ),
       bottomNavigationBar: const TravelerBottomNavBar(current: ClientTab.profile),

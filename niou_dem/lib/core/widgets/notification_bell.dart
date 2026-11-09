@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import '../events/data_refresh.dart';
 import '../theme/app_colors.dart';
 import 'glow.dart';
 import '../../services/notification_repository.dart';
@@ -31,7 +32,9 @@ class _NotificationBellButtonState extends State<NotificationBellButton> {
   void initState() {
     super.initState();
     _checkUnread();
-    _timer = Timer.periodic(const Duration(seconds: 15), (_) => _checkUnread());
+    _timer = Timer.periodic(const Duration(seconds: 15), (_) {
+      if (shouldPoll(context)) _checkUnread();
+    });
   }
 
   @override

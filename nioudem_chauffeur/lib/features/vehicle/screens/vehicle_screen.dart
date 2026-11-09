@@ -196,7 +196,7 @@ class _VehicleCard extends StatelessWidget {
                         style: AppTextStyles.bodyLargeSemibold),
                     const SizedBox(height: 2),
                     Text(
-                      '${vehicle.typeLabel} · ${vehicle.totalSeats} places',
+                      vehicle.capacityLabel,
                       style: AppTextStyles.caption.copyWith(color: AppColors.textSecondary),
                     ),
                   ],
