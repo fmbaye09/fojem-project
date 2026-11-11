@@ -22,7 +22,7 @@ class Trip extends Model
 
     protected $fillable = [
         'driver_id', 'vehicle_id', 'departure_type', 'scheduled_at',
-        'price_per_seat', 'toll_fees', 'seats_available', 'is_recurring',
+        'price_per_seat', 'toll_fees', 'seats_available', 'seats_total', 'is_recurring',
         'recurrence_rule', 'status', 'closed_by', 'women_only', 'accepts_en_route',
         'origin_name', 'destination_name',
         'current_lat', 'current_lng', 'current_heading', 'location_updated_at', 'waypoints',

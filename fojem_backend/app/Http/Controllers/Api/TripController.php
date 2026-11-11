@@ -62,6 +62,8 @@ class TripController extends Controller
                 'price_per_seat' => $request->input('price_per_seat'),
                 'toll_fees' => $request->input('toll_fees', 0),
                 'seats_available' => $request->input('seats_available'),
+                // Places publiées : seats_available baisse à chaque réservation.
+                'seats_total' => $request->input('seats_available'),
                 'is_recurring' => $request->boolean('is_recurring'),
                 'recurrence_rule' => $request->input('recurrence_rule'),
                 'status' => Trip::STATUS_OPEN,

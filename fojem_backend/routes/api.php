@@ -24,6 +24,7 @@ use App\Http\Controllers\Api\IdentityVerificationController;
 use App\Http\Controllers\Api\MatchingController;
 use App\Http\Controllers\Api\MeetingPointController;
 use App\Http\Controllers\Api\NotificationController;
+use App\Http\Controllers\Api\PlaceSearchController;
 use App\Http\Controllers\Api\ProfileController;
 use App\Http\Controllers\Api\ReviewController;
 use App\Http\Controllers\Api\RideRequestController;
@@ -83,6 +84,8 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::patch('trips/{trip}/en-route', [TripController::class, 'updateEnRoute']);
     Route::get('trips/{trip}/nearby-ride-requests', [RideRequestController::class, 'nearTrip']);
     Route::get('trips/{trip}/bookings', [BookingController::class, 'forTrip']);
+    // Recherche de lieu au fil de la frappe (les applis attendent 400 ms).
+    Route::middleware('throttle:90,1')->get('places/search', [PlaceSearchController::class, 'search']);
     Route::middleware('throttle:20,1')->group(function () {
         Route::get('meeting-points/suggestions', [MeetingPointController::class, 'suggestions']);
         Route::get('trips/{trip}/stop-proposal', [MeetingPointController::class, 'preview']);

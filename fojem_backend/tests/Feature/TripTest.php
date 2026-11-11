@@ -90,6 +90,35 @@ class TripTest extends TestCase
         $this->assertCount(1, $search->json('trips'));
     }
 
+    public function test_the_published_seat_count_stays_when_seats_are_booked(): void
+    {
+        [$driverUser, , $vehicle] = $this->makeApprovedDriverWithVehicle();
+        Sanctum::actingAs($driverUser);
+        $tripId = $this->postJson('/api/trips', [
+            'vehicle_id' => $vehicle->id,
+            'origin_lat' => 14.6928,
+            'origin_lng' => -17.4467,
+            'destination_lat' => 14.7910,
+            'destination_lng' => -16.9359,
+            'departure_type' => 'scheduled',
+            'scheduled_at' => now()->addDay()->toIso8601String(),
+            'price_per_seat' => 2000,
+            'seats_available' => 3,
+        ])->assertCreated()->assertJsonPath('trip.seats_total', 3)->json('trip.id');
+
+        Sanctum::actingAs(User::factory()->create());
+        $bookingId = $this->postJson('/api/bookings', ['trip_id' => $tripId, 'seat_count' => 2])
+            ->assertCreated()->json('booking.id');
+
+        Sanctum::actingAs($driverUser);
+        $this->postJson("/api/bookings/{$bookingId}/accept")->assertOk();
+
+        $this->getJson("/api/trips/{$tripId}")
+            ->assertOk()
+            ->assertJsonPath('trip.seats_available', 1)
+            ->assertJsonPath('trip.seats_total', 3);
+    }
+
     public function test_trips_mine_and_show_expose_origin_and_destination_coordinates(): void
     {
         [$user, , $vehicle] = $this->makeApprovedDriverWithVehicle();
