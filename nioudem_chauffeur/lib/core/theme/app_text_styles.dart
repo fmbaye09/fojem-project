@@ -2,105 +2,46 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'app_colors.dart';
 
-/// Typographie « Glow Flow » : Sora pour les titres et les prix, Plus Jakarta
-/// Sans pour le texte courant.
+/// Typographie : une seule famille, Inter, très lisible en petite taille et
+/// aux chiffres réguliers (heures, prix). La hiérarchie vient de la taille et
+/// de la graisse, pas de polices différentes.
 class AppTextStyles {
   AppTextStyles._();
 
-  static TextStyle get display => GoogleFonts.sora(
-        fontSize: 28,
-        fontWeight: FontWeight.w800,
-        letterSpacing: -0.5,
-        color: AppColors.textPrimary,
-        height: 1.2,
+  static TextStyle _inter(double size, FontWeight weight, {Color? color, double? height, double? spacing}) =>
+      GoogleFonts.inter(
+        fontSize: size,
+        fontWeight: weight,
+        color: color ?? AppColors.textPrimary,
+        height: height,
+        letterSpacing: spacing,
       );
 
-  static TextStyle get title1 => GoogleFonts.sora(
-        fontSize: 22,
-        fontWeight: FontWeight.w700,
-        letterSpacing: -0.3,
-        color: AppColors.textPrimary,
-        height: 1.3,
-      );
+  /// Grand titre d'écran (« Où allez-vous ? »).
+  static TextStyle get display => _inter(28, FontWeight.w800, height: 1.15, spacing: -0.6);
 
-  static TextStyle get title2 => GoogleFonts.sora(
-        fontSize: 18,
-        fontWeight: FontWeight.w700,
-        letterSpacing: -0.2,
-        color: AppColors.textPrimary,
-        height: 1.3,
-      );
+  static TextStyle get title1 => _inter(22, FontWeight.w700, height: 1.25, spacing: -0.4);
 
-  static TextStyle get bodyLarge => GoogleFonts.plusJakartaSans(
-        fontSize: 16,
-        fontWeight: FontWeight.w400,
-        color: AppColors.textPrimary,
-        height: 1.6,
-      );
+  static TextStyle get title2 => _inter(18, FontWeight.w700, height: 1.3, spacing: -0.2);
 
-  static TextStyle get bodyLargeSemibold => GoogleFonts.plusJakartaSans(
-        fontSize: 16,
-        fontWeight: FontWeight.w600,
-        color: AppColors.textPrimary,
-        height: 1.4,
-      );
+  static TextStyle get bodyLarge => _inter(16, FontWeight.w400, height: 1.5);
 
-  static TextStyle get body => GoogleFonts.plusJakartaSans(
-        fontSize: 14,
-        fontWeight: FontWeight.w400,
-        color: AppColors.textPrimary,
-        height: 1.5,
-      );
+  static TextStyle get bodyLargeSemibold => _inter(16, FontWeight.w600, height: 1.4);
 
-  static TextStyle get bodySemibold => GoogleFonts.plusJakartaSans(
-        fontSize: 14,
-        fontWeight: FontWeight.w600,
-        color: AppColors.textPrimary,
-        height: 1.5,
-      );
+  static TextStyle get body => _inter(14, FontWeight.w400, height: 1.45);
 
-  static TextStyle get caption => GoogleFonts.plusJakartaSans(
-        fontSize: 12,
-        fontWeight: FontWeight.w400,
-        color: AppColors.textSecondary,
-        height: 1.4,
-      );
+  static TextStyle get bodySemibold => _inter(14, FontWeight.w600, height: 1.45);
 
-  static TextStyle get label => GoogleFonts.plusJakartaSans(
-        fontSize: 12,
-        fontWeight: FontWeight.w600,
-        letterSpacing: 0.4,
-        color: AppColors.textPrimary,
-        height: 1.4,
-      );
+  static TextStyle get caption => _inter(12, FontWeight.w500, color: AppColors.textSecondary, height: 1.4);
 
-  static TextStyle get buttonLarge => GoogleFonts.plusJakartaSans(
-        fontSize: 16,
-        fontWeight: FontWeight.w600,
-        letterSpacing: 0,
-        height: 1.2,
-      );
+  static TextStyle get label => _inter(12, FontWeight.w600, height: 1.4, spacing: 0.2);
 
-  static TextStyle get buttonSmall => GoogleFonts.plusJakartaSans(
-        fontSize: 14,
-        fontWeight: FontWeight.w600,
-        letterSpacing: 0,
-        height: 1.2,
-      );
+  static TextStyle get buttonLarge => _inter(16, FontWeight.w700, height: 1.2);
 
-  static TextStyle get price => GoogleFonts.sora(
-        fontSize: 18,
-        fontWeight: FontWeight.w700,
-        color: AppColors.primary,
-        height: 1.2,
-        letterSpacing: -0.3,
-      );
+  static TextStyle get buttonSmall => _inter(14, FontWeight.w600, height: 1.2);
 
-  static TextStyle get priceLarge => GoogleFonts.sora(
-        fontSize: 24,
-        fontWeight: FontWeight.w700,
-        color: AppColors.primary,
-        height: 1.2,
-        letterSpacing: -0.5,
-      );
+  /// Prix : bleu nuit et gras, comme le reste des chiffres importants.
+  static TextStyle get price => _inter(18, FontWeight.w800, height: 1.2, spacing: -0.3);
+
+  static TextStyle get priceLarge => _inter(24, FontWeight.w800, height: 1.2, spacing: -0.5);
 }

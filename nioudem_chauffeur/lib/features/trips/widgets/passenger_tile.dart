@@ -160,7 +160,7 @@ class _PassengerTileState extends State<PassengerTile> {
                                   borderRadius: BorderRadius.circular(6),
                                 ),
                                 child: Text(
-                                  '📍 Position · ${DateFormat('HH:mm').format(booking.passengerLocation!.updatedAt)}',
+                                  'Position partagée · ${DateFormat('HH:mm').format(booking.passengerLocation!.updatedAt)}',
                                   overflow: TextOverflow.ellipsis,
                                   style: AppTextStyles.caption.copyWith(
                                     color: AppColors.success,

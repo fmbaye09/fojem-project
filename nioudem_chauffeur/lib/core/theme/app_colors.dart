@@ -1,142 +1,136 @@
 import 'package:flutter/material.dart';
 
-/// Palette « Glow Flow » (template fojem-glow-flow) : lagon jade → azur
-/// profond, accent mangue (héritage orange de FOJËM), surfaces claires
-/// légèrement bleutées pour le néomorphisme.
+/// Palette FOJËM Pro (app chauffeur), alignée sur son icône : le bleu de la
+/// voiture pour ce qu'on doit toucher (bouton principal, élément choisi),
+/// le bleu nuit du logo pour le texte et les icônes, des surfaces blanches
+/// sur un fond gris clair. Même système que l'app voyageur (orange) : une
+/// seule couleur vive, réservée à l'action, le reste neutre et contrasté.
 ///
 /// Les noms historiques (primary, surface, textPrimary…) sont conservés :
 /// tous les écrans basculent sur la nouvelle palette sans changer d'API.
 class AppColors {
   AppColors._();
 
-  static const Color primary = Color(0xFF00A58C); // jade
-  static const Color primaryGlow = Color(0xFF008ACE); // azur (fin du dégradé)
-  static const Color primaryLight = Color(0xFF4CC3AE);
-  static const Color primarySurface = Color(0xFFD6EEEB);
-  static const Color onPrimary = Color(0xFFF8FDFD);
+  // ── Marque ──────────────────────────────────────────────────────────────
 
-  static const Color accent = Color(0xFFFC8731); // mangue
-  static const Color accentLight = Color(0xFFFFE6D2);
+  /// Bleu de l'icône FOJËM Pro, foncé juste assez pour que le texte blanc
+  /// reste lisible (4,8:1) : bouton principal, élément choisi.
+  static const Color brand = Color(0xFF1F6FE0);
 
-  static const Color danger = Color(0xFFEA3C3F);
-  static const Color dangerSurface = Color(0xFFFDE4E4);
-  static const Color success = Color(0xFF3BB360);
-  static const Color successSurface = Color(0xFFE0F4E7);
-  static const Color amber = Color(0xFFE08A12);
-  static const Color amberSurface = Color(0xFFFFF0D9);
+  /// Texte et icônes posés sur [brand].
+  static const Color onBrand = Colors.white;
 
-  static const Color background = Color(0xFFE7F3F3);
-  static const Color surface = Color(0xFFF1F8F9);
+  /// Fond bleuté très pâle : élément choisi, pastille de marque.
+  static const Color brandSurface = Color(0xFFE6F0FD);
 
-  static const Color textPrimary = Color(0xFF07232F);
-  static const Color textSecondary = Color(0xFF5C737C);
-  static const Color textMuted = Color(0xFF8FA3AA);
+  /// Bleu lisible en texte sur fond clair (5,5:1).
+  static const Color brandText = Color(0xFF1A63D6);
+
+  /// Bleu nuit du logo : texte principal, icônes, liens, boutons sombres.
+  static const Color ink = Color(0xFF072945);
+
+  // ── Rôles historiques ───────────────────────────────────────────────────
+
+  /// Couleur interactive des icônes, liens et contours actifs : le bleu
+  /// nuit, comme le texte. La couleur vive reste à [brand].
+  static const Color primary = ink;
+  static const Color primaryGlow = Color(0xFF1B4B73);
+  static const Color primaryLight = Color(0xFF5D7A93);
+  static const Color primarySurface = Color(0xFFEAF0F5);
+  static const Color onPrimary = Colors.white;
+
+  /// Accent : l'orange de la marque FOJËM (alertes douces, nouveautés).
+  static const Color accent = Color(0xFFF16C1B);
+  static const Color accentLight = Color(0xFFFFEFE4);
+
+  static const Color danger = Color(0xFFD92D20);
+  static const Color dangerSurface = Color(0xFFFEECEB);
+  static const Color success = Color(0xFF12805C);
+  static const Color successSurface = Color(0xFFE6F6EF);
+  static const Color amber = Color(0xFFB54708);
+  static const Color amberSurface = Color(0xFFFFF4E5);
+
+  /// Fond des écrans (gris très clair) et des cartes (blanc).
+  static const Color background = Color(0xFFF3F5F7);
+  static const Color surface = Color(0xFFFFFFFF);
+
+  static const Color textPrimary = ink;
+  static const Color textSecondary = Color(0xFF52606D);
+  static const Color textMuted = Color(0xFF6B7684);
 
   /// Onglets inactifs de la barre du bas.
-  static const Color navInactive = Color(0xFF5C737C);
+  static const Color navInactive = Color(0xFF6B7684);
 
   /// Pastille « places disponibles » et badge « vérifié ».
   static const Color seatBadge = success;
 
-  static const Color border = Color(0xFFD3E1E3);
-  static const Color borderStrong = Color(0xFFB7CBCF);
-  static const Color muted = Color(0xFFDFEAEC);
+  static const Color border = Color(0xFFE3E8ED);
+  static const Color borderStrong = Color(0xFFCBD3DC);
 
-  static const Color shimmerBase = Color(0xFFDCE9EB);
-  static const Color shimmerHighlight = Color(0xFFEFF7F8);
+  /// Remplissage des champs et des boutons secondaires.
+  static const Color muted = Color(0xFFF0F2F5);
 
-  // ── Dégradés ────────────────────────────────────────────────────────────
+  static const Color shimmerBase = Color(0xFFE8ECF0);
+  static const Color shimmerHighlight = Color(0xFFF6F8FA);
 
-  /// Boutons principaux, en-têtes, avatars.
-  static const LinearGradient brandGradient = LinearGradient(
-    begin: Alignment(-0.9, -1),
-    end: Alignment(1, 0.9),
-    colors: [primary, primaryGlow],
-  );
+  // ── Dégradés (désormais unis) ───────────────────────────────────────────
 
-  /// Écran de démarrage : jade → bleu pétrole → mangue.
-  static const LinearGradient splashGradient = LinearGradient(
-    begin: Alignment.topLeft,
-    end: Alignment.bottomRight,
-    colors: [Color(0xFF009F86), Color(0xFF007583), Color(0xFFF58028)],
-    stops: [0, 0.55, 1.15],
-  );
+  static const LinearGradient brandGradient = LinearGradient(colors: [ink, ink]);
+  /// Écran de démarrage : bleu nuit du logo, texte blanc.
+  static const LinearGradient splashGradient = LinearGradient(colors: [ink, ink]);
+  static const LinearGradient sunriseGradient = LinearGradient(colors: [surface, surface]);
 
-  /// Fond doux de l'onboarding et de la connexion.
-  static const LinearGradient sunriseGradient = LinearGradient(
-    begin: Alignment.topCenter,
-    end: Alignment.bottomCenter,
-    colors: [Color(0xFFE8FAF5), Color(0xFFFFF3E4)],
-  );
+  // ── Ombres ──────────────────────────────────────────────────────────────
 
-  // ── Ombres néomorphiques ────────────────────────────────────────────────
+  static const Color neuLight = Color(0x00FFFFFF);
+  static const Color neuDark = Color(0x14072945);
 
-  static const Color neuLight = Color(0xF2FFFFFF);
-  static const Color neuDark = Color(0x38577782);
-
-  /// Surface en relief.
   static const List<BoxShadow> neuShadow = [
-    BoxShadow(color: neuDark, offset: Offset(8, 8), blurRadius: 20),
-    BoxShadow(color: neuLight, offset: Offset(-8, -8), blurRadius: 20),
+    BoxShadow(color: Color(0x0F072945), offset: Offset(0, 2), blurRadius: 8),
   ];
 
   static const List<BoxShadow> neuShadowSm = [
-    BoxShadow(color: neuDark, offset: Offset(4, 4), blurRadius: 10),
-    BoxShadow(color: neuLight, offset: Offset(-4, -4), blurRadius: 10),
+    BoxShadow(color: Color(0x0D072945), offset: Offset(0, 1), blurRadius: 3),
   ];
 
-  /// Halo coloré sous les boutons à dégradé.
-  static const List<BoxShadow> glowShadow = [
-    BoxShadow(color: Color(0x99008ACE), offset: Offset(0, 12), blurRadius: 30, spreadRadius: -10),
+  /// Élément flottant au-dessus de la carte (feuille, boutons ronds).
+  static const List<BoxShadow> floatingShadow = [
+    BoxShadow(color: Color(0x24072945), offset: Offset(0, 6), blurRadius: 20),
   ];
 
+  static const List<BoxShadow> glowShadow = [];
 
   // ── Identité de l'app ───────────────────────────────────────────────────
-  // Jetons qui distinguent l'app chauffeur de l'app voyageur ; les widgets
-  // partagés ne lisent que ceux-ci. Côté chauffeur, la mangue s'invite :
-  // en-têtes qui virent à l'orange, actions principales et onglet actif.
 
-  /// Fond des en-têtes de page : jade → bleu pétrole → mangue.
-  static const LinearGradient headerGradient = LinearGradient(
-    begin: Alignment(-0.9, -1),
-    end: Alignment(1, 0.9),
-    colors: [Color(0xFF00A58C), Color(0xFF00808C), Color(0xFFFC8731)],
-    stops: [0, 0.6, 1.2],
-  );
+  /// Ancien fond des en-têtes : les en-têtes sont désormais clairs.
+  static const LinearGradient headerGradient = LinearGradient(colors: [surface, surface]);
 
-  /// Boutons d'action principaux et leur halo.
-  static const LinearGradient ctaGradient = LinearGradient(
-    begin: Alignment(-0.9, -1),
-    end: Alignment(1, 0.9),
-    colors: [Color(0xFFFF9A45), Color(0xFFF2671C)],
-  );
-  static const List<BoxShadow> ctaShadow = [
-    BoxShadow(color: Color(0x99F2671C), offset: Offset(0, 12), blurRadius: 30, spreadRadius: -10),
-  ];
+  /// Bouton d'action principal : bleu plein, texte blanc.
+  static const LinearGradient ctaGradient = LinearGradient(colors: [brand, brand]);
+  static const List<BoxShadow> ctaShadow = [];
 
   /// Onglet actif de la barre du bas.
-  static const Color navActive = accent;
+  static const Color navActive = ink;
 
-  // ── Décorations historiques (désormais néomorphiques) ───────────────────
+  // ── Décorations ─────────────────────────────────────────────────────────
 
   static const BoxDecoration cardDecoration = BoxDecoration(
     color: surface,
-    borderRadius: BorderRadius.all(Radius.circular(22)),
-    boxShadow: neuShadowSm,
+    borderRadius: BorderRadius.all(Radius.circular(16)),
+    border: Border.fromBorderSide(BorderSide(color: border)),
   );
 
-  /// Carte principale des listes : relief néomorphique complet.
   static const BoxDecoration softCardDecoration = BoxDecoration(
     color: surface,
-    borderRadius: BorderRadius.all(Radius.circular(24)),
-    boxShadow: neuShadow,
+    borderRadius: BorderRadius.all(Radius.circular(20)),
+    border: Border.fromBorderSide(BorderSide(color: border)),
   );
 
   static const BoxDecoration modalDecoration = BoxDecoration(
     color: surface,
-    borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+    borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
     boxShadow: [
-      BoxShadow(color: Color(0x2607232F), blurRadius: 32, offset: Offset(0, -8)),
+      BoxShadow(color: Color(0x1F072945), blurRadius: 24, offset: Offset(0, -4)),
     ],
   );
 }

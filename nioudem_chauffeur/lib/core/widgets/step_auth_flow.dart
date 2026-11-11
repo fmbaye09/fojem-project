@@ -81,14 +81,11 @@ class _StepAuthFlowState extends State<StepAuthFlow> {
     _Step('email', 'Votre adresse e-mail', 'Pour vos billets, reçus et la récupération de votre compte.',
         _Kind.email, icon: Icons.mail_outline_rounded, placeholder: 'vous@exemple.com', serverField: 'email'),
     _Step('gender', 'Vous êtes…', 'Certains trajets sont réservés aux femmes.', _Kind.gender, serverField: 'gender'),
-    _Step('password', 'Créez un mot de passe', 'Au moins 8 caractères.', _Kind.password,
+    _Step('password', 'Créez un mot de passe', 'Au moins 8 caractères. Touchez l’œil pour vérifier votre saisie.', _Kind.password,
         icon: Icons.lock_outline_rounded, placeholder: 'Mot de passe', serverField: 'password'),
-    _Step('confirm', 'Confirmez votre mot de passe', 'Saisissez-le une seconde fois.', _Kind.password,
-        icon: Icons.lock_outline_rounded, placeholder: 'Mot de passe'),
   ];
 
   static const _login = [
-    _Step('method', 'Comment souhaitez-vous vous connecter ?', 'Choisissez votre identifiant.', _Kind.method),
     _Step('id', '', 'Saisissez l’identifiant de votre compte.', _Kind.text),
     _Step('password', 'Votre mot de passe', 'Bon retour parmi nous !', _Kind.password,
         icon: Icons.lock_outline_rounded, placeholder: 'Mot de passe'),
@@ -201,6 +198,16 @@ class _StepAuthFlowState extends State<StepAuthFlow> {
     setState(() => _error = failure.message);
   }
 
+  /// Connexion par e-mail plutôt que par téléphone (et inversement).
+  void _switchLoginMethod() {
+    setState(() {
+      _data['method'] = _data['method'] == 'phone' ? 'email' : 'phone';
+      _data.remove('id');
+      _controller.clear();
+      _error = null;
+    });
+  }
+
   void _back() {
     if (_index == 0) {
       _goTo(_Mode.welcome, 0);
@@ -273,12 +280,12 @@ class _StepAuthFlowState extends State<StepAuthFlow> {
         children: [
           Row(
             children: [
-              NeuBox(
-                small: true,
-                radius: 22,
-                padding: const EdgeInsets.all(11),
-                onTap: _busy ? null : _back,
-                child: const Icon(Icons.arrow_back_rounded, size: 21, color: AppColors.textPrimary),
+              GlassIconButton(
+                icon: Icons.arrow_back_rounded,
+                tooltip: 'Retour',
+                onPressed: () {
+                  if (!_busy) _back();
+                },
               ),
               const SizedBox(width: 16),
               Expanded(
@@ -328,6 +335,15 @@ class _StepAuthFlowState extends State<StepAuthFlow> {
                       Text(step.hint, style: AppTextStyles.bodyLarge.copyWith(color: AppColors.textSecondary)),
                       const SizedBox(height: 36),
                       _input(step),
+                      if (_mode == _Mode.login && step.key == 'id')
+                        Padding(
+                          padding: const EdgeInsets.only(top: 8),
+                          child: TextButton.icon(
+                            onPressed: _busy ? null : _switchLoginMethod,
+                            icon: Icon(_data['method'] == 'phone' ? Icons.mail_outline_rounded : Icons.phone_outlined, size: 18),
+                            label: Text(_data['method'] == 'phone' ? 'Utiliser mon e-mail' : 'Utiliser mon numéro de téléphone'),
+                          ),
+                        ),
                       if (_error != null) ...[
                         const SizedBox(height: 14),
                         Row(
@@ -428,6 +444,13 @@ class _StepAuthFlowState extends State<StepAuthFlow> {
                   inputFormatters: step.kind == _Kind.phone
                       ? [FilteringTextInputFormatter.allow(RegExp(r'[\d ]'))]
                       : null,
+                  autofillHints: switch (step.kind) {
+                    _Kind.phone => const [AutofillHints.telephoneNumberNational],
+                    _Kind.email => const [AutofillHints.email],
+                    _Kind.text => const [AutofillHints.name],
+                    _Kind.password => [_mode == _Mode.signup ? AutofillHints.newPassword : AutofillHints.password],
+                    _ => null,
+                  },
                   textInputAction: TextInputAction.next,
                   onChanged: (_) => setState(() => _error = null),
                   onSubmitted: (_) => _next(),
@@ -455,54 +478,51 @@ class _StepAuthFlowState extends State<StepAuthFlow> {
     }
   }
 
-  /// Choix exclusif : la carte choisie passe « en creux », les autres en verre.
+  /// Choix exclusif : l'option choisie est cerclée de bleu nuit et cochée.
   Widget _choiceTile(String key, String value, String label, IconData icon, {bool vertical = false}) {
     final selected = _data[key] == value;
+    final iconBox = Container(
+      width: 48,
+      height: 48,
+      decoration: BoxDecoration(
+        color: selected ? AppColors.ink : AppColors.muted,
+        borderRadius: BorderRadius.circular(14),
+      ),
+      child: Icon(icon, color: selected ? Colors.white : AppColors.textPrimary),
+    );
     final content = vertical
         ? Column(
             children: [
-              Icon(icon, size: 32, color: selected ? AppColors.primary : AppColors.textPrimary),
+              iconBox,
               const SizedBox(height: 12),
-              Text(label,
-                  style: AppTextStyles.bodyLargeSemibold
-                      .copyWith(color: selected ? AppColors.primary : AppColors.textPrimary)),
+              Text(label, style: AppTextStyles.bodyLargeSemibold),
             ],
           )
         : Row(
             children: [
-              Container(
-                width: 52,
-                height: 52,
-                decoration: BoxDecoration(
-                  gradient: selected ? AppColors.brandGradient : null,
-                  color: selected ? null : AppColors.surface,
-                  borderRadius: BorderRadius.circular(16),
-                  boxShadow: selected ? null : AppColors.neuShadowSm,
-                ),
-                child: Icon(icon, color: selected ? AppColors.onPrimary : AppColors.primary),
-              ),
+              iconBox,
               const SizedBox(width: 16),
               Expanded(child: Text(label, style: AppTextStyles.bodyLargeSemibold)),
-              if (selected) const Icon(Icons.check_rounded, color: AppColors.primary),
+              Icon(
+                selected ? Icons.check_circle_rounded : Icons.circle_outlined,
+                color: selected ? AppColors.ink : AppColors.borderStrong,
+              ),
             ],
           );
-    return GestureDetector(
-      onTap: () => setState(() => _data[key] = value),
-      child: AnimatedSwitcher(
-        duration: const Duration(milliseconds: 200),
-        child: selected
-            ? NeuInset(
-                key: const ValueKey('on'),
-                radius: 24,
-                padding: EdgeInsets.all(vertical ? 24 : 18),
-                child: content,
-              )
-            : GlassPanel(
-                key: const ValueKey('off'),
-                radius: 24,
-                padding: EdgeInsets.all(vertical ? 24 : 18),
-                child: content,
-              ),
+    return Semantics(
+      button: true,
+      selected: selected,
+      child: Material(
+        color: AppColors.surface,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(18),
+          side: BorderSide(color: selected ? AppColors.ink : AppColors.border, width: selected ? 2 : 1),
+        ),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(18),
+          onTap: () => setState(() => _data[key] = value),
+          child: Padding(padding: EdgeInsets.all(vertical ? 20 : 14), child: content),
+        ),
       ),
     );
   }

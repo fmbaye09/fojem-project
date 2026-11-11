@@ -328,8 +328,8 @@ class _DriverTripCard extends StatelessWidget {
                               colors: [
                                 AppColors.primary,
                                 AppColors.primary.withOpacity(0.2),
-                                AppColors.danger.withOpacity(0.3),
-                                AppColors.danger,
+                                AppColors.accent.withValues(alpha: 0.3),
+                                AppColors.accent,
                               ],
                             ),
                             borderRadius: BorderRadius.circular(1),
@@ -337,7 +337,7 @@ class _DriverTripCard extends StatelessWidget {
                         ),
                       ),
                       // Destination dot
-                      const Icon(Icons.location_on_rounded, size: 16, color: AppColors.danger),
+                      const Icon(Icons.location_on_rounded, size: 16, color: AppColors.accent),
                     ],
                   ),
                   const SizedBox(height: 6),
@@ -398,7 +398,7 @@ class _DriverTripCard extends StatelessWidget {
                         value: fillPercent,
                         backgroundColor: AppColors.border,
                         valueColor: AlwaysStoppedAnimation<Color>(
-                          fillPercent >= 1.0 ? AppColors.danger : AppColors.primary,
+                          fillPercent >= 1.0 ? AppColors.success : AppColors.primary,
                         ),
                         minHeight: 4,
                       ),

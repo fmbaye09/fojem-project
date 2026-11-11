@@ -1244,7 +1244,7 @@ class _StepProgress extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       decoration: BoxDecoration(
-        color: AppColors.onPrimary.withValues(alpha: 0.22),
+        color: AppColors.muted,
         borderRadius: BorderRadius.circular(4),
       ),
       alignment: Alignment.centerLeft,
@@ -1254,7 +1254,7 @@ class _StepProgress extends StatelessWidget {
         widthFactor: (step + 1) / count,
         child: Container(
           decoration: BoxDecoration(
-            color: AppColors.onPrimary,
+            color: AppColors.brand,
             borderRadius: BorderRadius.circular(4),
           ),
         ),

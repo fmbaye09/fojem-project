@@ -203,7 +203,9 @@ class Trip {
           (cached?['estimatedMinutes'] != null
               ? Duration(minutes: cached!['estimatedMinutes'] as int)
               : Duration.zero),
-      seatsTotal: cachedSeatsTotal ?? seatsAvailable,
+      // Places publiées, renvoyées par le serveur ; le cache local ne sert
+      // plus qu'aux anciens trajets.
+      seatsTotal: int.tryParse('${json['seats_total'] ?? ''}') ?? cachedSeatsTotal ?? seatsAvailable,
       availableSeats: seatsAvailable,
       pricePerSeat: double.tryParse('${json['price_per_seat'] ?? 0}') ?? 0,
       status: _statusFromApi(json['status'] as String?),

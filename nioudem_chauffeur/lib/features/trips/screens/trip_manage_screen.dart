@@ -13,6 +13,7 @@ import '../../../core/widgets/countdown.dart';
 import '../../../core/widgets/en_route_switch.dart';
 import '../../../core/widgets/trip_card.dart' show formatDayLabel, formatFcfa;
 import '../../../core/widgets/fojem_button.dart';
+import '../../../core/widgets/glow.dart';
 import '../../../core/widgets/sos.dart';
 import '../../../models/booking.dart';
 import '../../../models/trip.dart';
@@ -442,10 +443,39 @@ class _TripManageScreenState extends State<TripManageScreen> with AutoRefresh<Tr
     );
   }
 
+  /// L'action du moment, fixée en bas de l'écran : démarrer (dès qu'un
+  /// passager est confirmé), puis terminer.
+  Widget? get _mainAction {
+    final trip = _trip;
+    if (trip == null) return null;
+    if (trip.status == TripStatus.upcoming && _confirmed.isNotEmpty) {
+      return BottomActionBar(
+        child: GlowButton(
+          label: 'Démarrer le trajet',
+          leadingIcon: Icons.play_arrow_rounded,
+          isLoading: _isStarting,
+          onPressed: _isStarting ? null : _startTrip,
+        ),
+      );
+    }
+    if (trip.status == TripStatus.inProgress) {
+      return BottomActionBar(
+        child: GlowButton(
+          label: 'Terminer le trajet',
+          leadingIcon: Icons.flag_rounded,
+          isLoading: _isCompleting,
+          onPressed: _isCompleting ? null : _completeTrip,
+        ),
+      );
+    }
+    return null;
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: AppColors.background,
+      bottomNavigationBar: _isLoading ? null : _mainAction,
       body: _isLoading
           ? const Center(child: CircularProgressIndicator(color: AppColors.primary))
           : _trip == null
@@ -455,85 +485,44 @@ class _TripManageScreenState extends State<TripManageScreen> with AutoRefresh<Tr
                   onRefresh: _load,
                   child: CustomScrollView(
                     slivers: [
-                      // ── App bar with gradient ──
+                      // ── En-tête : trajet, jour et heure, statut ──
                       SliverAppBar(
-                        expandedHeight: 180,
                         pinned: true,
-                        backgroundColor: AppColors.primaryGlow,
+                        toolbarHeight: 76,
+                        backgroundColor: AppColors.background,
                         surfaceTintColor: Colors.transparent,
-                        shape: const RoundedRectangleBorder(
-                          borderRadius: BorderRadius.vertical(bottom: Radius.circular(32)),
-                        ),
-                        leading: IconButton(
-                          onPressed: () => context.canPop() ? context.pop() : context.go('/trips'),
-                          icon: Container(
-                            padding: const EdgeInsets.all(6),
-                            decoration: BoxDecoration(
-                              color: Colors.white.withOpacity(0.2),
-                              shape: BoxShape.circle,
+                        scrolledUnderElevation: 0.5,
+                        automaticallyImplyLeading: false,
+                        titleSpacing: 16,
+                        title: Row(
+                          children: [
+                            GlassIconButton(
+                              icon: Icons.arrow_back_rounded,
+                              tooltip: 'Retour',
+                              onPressed: () => context.canPop() ? context.pop() : context.go('/trips'),
                             ),
-                            child: const Icon(Icons.arrow_back, color: Colors.white, size: 22),
-                          ),
-                        ),
-                        flexibleSpace: FlexibleSpaceBar(
-                          background: Container(
-                            decoration: const BoxDecoration(
-                              gradient: AppColors.headerGradient,
-                              borderRadius: BorderRadius.vertical(bottom: Radius.circular(32)),
-                            ),
-                            child: SafeArea(
-                              child: Padding(
-                                padding: const EdgeInsets.fromLTRB(20, 50, 20, 20),
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  mainAxisAlignment: MainAxisAlignment.end,
-                                  children: [
-                                    Row(
-                                      children: [
-                                        Expanded(
-                                          child: Column(
-                                            crossAxisAlignment: CrossAxisAlignment.start,
-                                            children: [
-                                              Text(
-                                                _trip!.departure,
-                                                style: AppTextStyles.display.copyWith(
-                                                  color: Colors.white,
-                                                  fontSize: 24,
-                                                ),
-                                              ),
-                                            ],
-                                          ),
-                                        ),
-                                        Container(
-                                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                                          decoration: BoxDecoration(
-                                            color: Colors.white.withOpacity(0.2),
-                                            borderRadius: BorderRadius.circular(20),
-                                          ),
-                                          child: Row(
-                                            mainAxisSize: MainAxisSize.min,
-                                            children: [
-                                              const Icon(Icons.arrow_forward_rounded, size: 16, color: Colors.white70),
-                                              const SizedBox(width: 6),
-                                              Text(
-                                                _trip!.arrival,
-                                                style: AppTextStyles.bodySemibold.copyWith(
-                                                  color: Colors.white,
-                                                  fontSize: 15,
-                                                ),
-                                              ),
-                                            ],
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                    const SizedBox(height: 8),
-                                    _TripStatusBadge(status: _trip!.status),
-                                  ],
-                                ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Text(
+                                    '${_trip!.departure} → ${_trip!.arrival}',
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: AppTextStyles.title2.copyWith(fontSize: 19),
+                                  ),
+                                  Text(
+                                    '${formatDayLabel(_trip!.departureTime)} · ${DateFormat('HH:mm').format(_trip!.departureTime)}',
+                                    style: AppTextStyles.caption,
+                                  ),
+                                ],
                               ),
                             ),
-                          ),
+                            const SizedBox(width: 8),
+                            _TripStatusBadge(status: _trip!.status),
+                          ],
                         ),
                       ),
 
@@ -603,7 +592,7 @@ class _TripManageScreenState extends State<TripManageScreen> with AutoRefresh<Tr
                                           ? '$_pendingCount en attente'
                                           : 'Aucune',
                                       color: _pendingCount > 0
-                                          ? const Color(0xFFE67E22)
+                                          ? AppColors.amber
                                           : AppColors.textSecondary,
                                       badge: _pendingCount > 0 ? _pendingCount : null,
                                       onTap: () => context.push('/trip/${widget.tripId}/requests'),
@@ -633,7 +622,7 @@ class _TripManageScreenState extends State<TripManageScreen> with AutoRefresh<Tr
                                 Container(
                                   padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                                   decoration: BoxDecoration(
-                                    color: AppColors.primary.withOpacity(0.1),
+                                    color: AppColors.muted,
                                     borderRadius: BorderRadius.circular(12),
                                   ),
                                   child: Text(
@@ -690,27 +679,7 @@ class _TripManageScreenState extends State<TripManageScreen> with AutoRefresh<Tr
 
                             const SizedBox(height: 20),
 
-                            // ── Bottom actions ──
-                            if (_trip!.status == TripStatus.upcoming && _confirmed.isNotEmpty) ...[
-                              FojemButton.primary(
-                                label: 'Démarrer le trajet',
-                                prefixIcon: Icons.play_arrow_rounded,
-                                isLoading: _isStarting,
-                                onPressed: _isStarting ? null : _startTrip,
-                              ),
-                              const SizedBox(height: 12),
-                            ],
-
-                            if (_trip!.status == TripStatus.inProgress) ...[
-                              FojemButton.primary(
-                                label: 'Terminer le trajet',
-                                prefixIcon: Icons.check_circle_rounded,
-                                isLoading: _isCompleting,
-                                onPressed: _isCompleting ? null : _completeTrip,
-                              ),
-                              const SizedBox(height: 12),
-                            ],
-
+                            // ── Annuler : discret, en fin de page ──
                             if (_trip!.status == TripStatus.upcoming) ...[
                               FojemButton.dangerOutline(
                                 label: 'Annuler le trajet',
@@ -814,19 +783,18 @@ class _TripStatusBadge extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final (label, color, icon) = switch (status) {
-      TripStatus.upcoming => ('Programmé', Colors.white, Icons.schedule_rounded),
-      TripStatus.inProgress => ('En cours', const Color(0xFFFFD700), Icons.navigation_rounded),
-      TripStatus.completed => ('Terminé', const Color(0xFF90EE90), Icons.check_circle_rounded),
-      TripStatus.cancelled => ('Annulé', const Color(0xFFFF6B6B), Icons.cancel_rounded),
+    final (label, color, surface, icon) = switch (status) {
+      TripStatus.upcoming => ('Programmé', AppColors.textPrimary, AppColors.muted, Icons.schedule_rounded),
+      TripStatus.inProgress => ('En route', AppColors.success, AppColors.successSurface, Icons.navigation_rounded),
+      TripStatus.completed => ('Terminé', AppColors.textSecondary, AppColors.muted, Icons.check_circle_rounded),
+      TripStatus.cancelled => ('Annulé', AppColors.danger, AppColors.dangerSurface, Icons.cancel_rounded),
     };
 
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.2),
+        color: surface,
         borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: color.withOpacity(0.4)),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
@@ -1106,7 +1074,7 @@ class _VehicleCard extends StatelessWidget {
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
             decoration: BoxDecoration(
-              color: AppColors.primary.withOpacity(0.1),
+              color: AppColors.muted,
               borderRadius: BorderRadius.circular(8),
             ),
             child: Text(vehicle.typeLabel,

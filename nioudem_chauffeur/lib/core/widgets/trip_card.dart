@@ -380,6 +380,126 @@ class RatingLine extends StatelessWidget {
   }
 }
 
+/// Une étape de [RouteTimeline] : heure, lieu, précision facultative.
+class RouteTimelineStop {
+  final String time;
+  final String place;
+  final String? hint;
+  final IconData? hintIcon;
+
+  const RouteTimelineStop({required this.time, required this.place, this.hint, this.hintIcon});
+}
+
+/// Itinéraire vertical : heures à gauche, pastilles reliées par un trait,
+/// lieux à droite ; la durée s'affiche entre les deux heures.
+class RouteTimeline extends StatelessWidget {
+  final List<RouteTimelineStop> stops;
+  final String? duration;
+
+  const RouteTimeline({super.key, required this.stops, this.duration});
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        for (var i = 0; i < stops.length; i++)
+          IntrinsicHeight(
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                SizedBox(
+                  width: 48,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(stops[i].time, style: AppTextStyles.bodyLargeSemibold.copyWith(fontWeight: FontWeight.w800)),
+                      if (i == 0 && duration != null && stops.length > 1) ...[
+                        const Spacer(),
+                        Text(duration!, style: AppTextStyles.caption.copyWith(fontSize: 11)),
+                        const Spacer(),
+                      ],
+                    ],
+                  ),
+                ),
+                SizedBox(
+                  width: 20,
+                  child: Column(
+                    children: [
+                      const SizedBox(height: 5),
+                      _Dot(filled: i == stops.length - 1),
+                      if (i < stops.length - 1)
+                        Expanded(
+                          child: Container(
+                            width: 2,
+                            margin: const EdgeInsets.symmetric(vertical: 2),
+                            color: AppColors.borderStrong,
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Padding(
+                    padding: EdgeInsets.only(bottom: i < stops.length - 1 ? 14 : 0),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          stops[i].place,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: AppTextStyles.bodyLargeSemibold,
+                        ),
+                        if (stops[i].hint != null)
+                          Row(
+                            children: [
+                              if (stops[i].hintIcon != null) ...[
+                                Icon(stops[i].hintIcon, size: 14, color: AppColors.textSecondary),
+                                const SizedBox(width: 3),
+                              ],
+                              Flexible(
+                                child: Text(
+                                  stops[i].hint!,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: AppTextStyles.caption,
+                                ),
+                              ),
+                            ],
+                          ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+class _Dot extends StatelessWidget {
+  final bool filled;
+
+  const _Dot({required this.filled});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 12,
+      height: 12,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        color: filled ? AppColors.ink : AppColors.surface,
+        border: Border.all(color: AppColors.ink, width: 2.5),
+      ),
+    );
+  }
+}
+
 /// Squelette de chargement aux proportions d'une [TripCard].
 class TripCardSkeleton extends StatelessWidget {
   const TripCardSkeleton({super.key});
