@@ -11,6 +11,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../../core/geo/geo_location.dart';
 import '../../../core/geo/senegal_city_coordinates.dart';
 import '../../../core/theme/app_colors.dart';
+import '../../../core/widgets/fojem_map.dart';
 import '../../../core/widgets/glow.dart';
 import '../../../core/theme/app_text_styles.dart';
 import '../../../core/theme/app_spacing.dart';
@@ -221,7 +222,7 @@ class _TripTrackingScreenState extends State<TripTrackingScreen> with AutoRefres
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: BrandAppBar(
-        title: 'Suivi du trajet',
+        title: 'Ma réservation',
         subtitle: _booking != null
             ? '${_booking!.boardingStop?.name ?? _trip!.departure} → ${_booking!.alightingStop?.name ?? _trip!.arrival}'
             : '${_trip!.departure} → ${_trip!.arrival}',
@@ -239,7 +240,9 @@ class _TripTrackingScreenState extends State<TripTrackingScreen> with AutoRefres
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              if (_showSos) ...[
+              // Pendant le trajet, l'alerte passe en tête ; avant le départ,
+              // elle vient après le chauffeur et le billet.
+              if (_showSos && _trip!.status == TripStatus.inProgress) ...[
                 SosButton(onTriggered: _openSos),
                 const SizedBox(height: AppSpacing.lg),
               ],
@@ -249,15 +252,15 @@ class _TripTrackingScreenState extends State<TripTrackingScreen> with AutoRefres
               ] else if (_booking != null) ...[
                 // Le temps d'abord : rendez-vous, attente du chauffeur, passage.
                 _EtaCard(trip: _trip!, booking: _booking!),
+                // Puis qui retrouver et comment le joindre, comme sur une
+                // appli de VTC, avant le billet à présenter.
+                _DriverContactCard(trip: _trip!),
+                const SizedBox(height: AppSpacing.md),
                 TicketCard(booking: _booking!, trip: _trip!),
-                const SizedBox(height: AppSpacing.lg),
-                if (_showLocationShare) ...[
-                  _LocationShareCard(booking: _booking!),
+                const SizedBox(height: AppSpacing.md),
+                if (_showSos && _trip!.status != TripStatus.inProgress) ...[
+                  SosButton(onTriggered: _openSos),
                   const SizedBox(height: AppSpacing.md),
-                ],
-                if (_showShareTrip) ...[
-                  _ShareTripButton(booking: _booking!, trip: _trip!),
-                  const SizedBox(height: AppSpacing.lg),
                 ],
                 // Où retrouver le chauffeur, tant que le passager n'est pas à bord.
                 if (_booking!.boardingStop != null &&
@@ -265,16 +268,26 @@ class _TripTrackingScreenState extends State<TripTrackingScreen> with AutoRefres
                     (_booking!.status == BookingStatus.pending ||
                         _booking!.status == BookingStatus.confirmed)) ...[
                   MeetingPointCard(stop: _booking!.boardingStop!),
-                  const SizedBox(height: AppSpacing.lg),
+                  const SizedBox(height: AppSpacing.md),
+                ],
+                if (_showLocationShare) ...[
+                  _LocationShareCard(booking: _booking!),
+                  const SizedBox(height: AppSpacing.md),
                 ],
               ],
               if (!_isClosed) ...[
                 _LiveTrackingMap(trip: _trip!),
-                const SizedBox(height: AppSpacing.lg),
-                _DriverContactCard(trip: _trip!),
-                const SizedBox(height: AppSpacing.lg),
-                Text('Statut du trajet', style: AppTextStyles.title2),
                 const SizedBox(height: AppSpacing.md),
+                if (_booking != null && _showShareTrip) ...[
+                  _ShareTripButton(booking: _booking!, trip: _trip!),
+                  const SizedBox(height: AppSpacing.lg),
+                ],
+                if (_booking == null) ...[
+                  _DriverContactCard(trip: _trip!),
+                  const SizedBox(height: AppSpacing.lg),
+                ],
+                Text('Étapes', style: AppTextStyles.title2),
+                const SizedBox(height: AppSpacing.sm),
                 _TrackingTimeline(currentStep: _stepFor(_trip!, _booking)),
                 const SizedBox(height: AppSpacing.lg),
               ],
@@ -409,64 +422,62 @@ class _DriverContactCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final driver = trip.driver;
+    final vehicle = driver?.vehicle;
+    final car = [
+      if (vehicle != null) [vehicle.brand, vehicle.model].where((p) => p.trim().isNotEmpty).join(' '),
+      if (vehicle != null) vehicle.color,
+    ].where((p) => p.trim().isNotEmpty).join(' · ');
 
-    return Container(
-      padding: AppSpacing.cardPadding,
-      decoration: AppColors.cardDecoration,
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.center,
+    return NeuBox(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          DriverAvatar(
-            name: driver?.name ?? 'Chauffeur',
-            photoUrl: driver?.photoUrl,
-            isOnline: driver?.isOnline ?? true,
-            size: 52,
-          ),
-          const SizedBox(width: AppSpacing.md),
-          Expanded(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(driver?.name ?? 'Chauffeur', style: AppTextStyles.bodyLargeSemibold),
-                const SizedBox(height: 2),
-                Text(
-                  driver?.vehicle.model.isNotEmpty == true
-                      ? '${driver!.vehicle.brand} ${driver.vehicle.model}'
-                      : 'Véhicule vérifié',
-                  style: AppTextStyles.caption,
+          Row(
+            children: [
+              DriverAvatar(
+                name: driver?.name ?? 'Chauffeur',
+                photoUrl: driver?.photoUrl,
+                isOnline: driver?.isOnline ?? true,
+                size: 52,
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(driver?.name ?? 'Chauffeur', maxLines: 1, overflow: TextOverflow.ellipsis, style: AppTextStyles.bodyLargeSemibold),
+                    Text(car.isEmpty ? 'Véhicule vérifié' : car, maxLines: 1, overflow: TextOverflow.ellipsis, style: AppTextStyles.caption),
+                  ],
                 ),
-                if (driver?.vehicle.plateNumber.isNotEmpty == true)
-                  Text(
-                    driver!.vehicle.plateNumber,
-                    style: AppTextStyles.caption.copyWith(fontWeight: FontWeight.w600),
+              ),
+              if (vehicle != null && vehicle.plateNumber.isNotEmpty)
+                // La plaque, pour reconnaître la voiture au point de rendez-vous.
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: AppColors.surface,
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: AppColors.ink, width: 1.5),
                   ),
-              ],
-            ),
+                  child: Text(
+                    vehicle.plateNumber,
+                    style: AppTextStyles.caption.copyWith(color: AppColors.ink, fontSize: 13, fontWeight: FontWeight.w800, letterSpacing: 0.4),
+                  ),
+                ),
+            ],
           ),
-          IconButton(
-            onPressed: () => _messageDriver(context),
-            icon: Container(
-              width: 40,
-              height: 40,
-              decoration: BoxDecoration(
-                color: AppColors.primarySurface,
-                borderRadius: BorderRadius.circular(10),
+          const SizedBox(height: 14),
+          Row(
+            children: [
+              Expanded(
+                child: NeuButton(label: 'Appeler', icon: Icons.phone_outlined, onPressed: () => _callDriver(context)),
               ),
-              child: const Icon(Icons.chat_bubble_outline_rounded, color: AppColors.primary, size: 20),
-            ),
-          ),
-          IconButton(
-            onPressed: () => _callDriver(context),
-            icon: Container(
-              width: 40,
-              height: 40,
-              decoration: BoxDecoration(
-                color: const Color(0xFFE8F5E9),
-                borderRadius: BorderRadius.circular(10),
+              const SizedBox(width: 10),
+              Expanded(
+                child: NeuButton(label: 'Message', icon: Icons.chat_bubble_outline_rounded, onPressed: () => _messageDriver(context)),
               ),
-              child: const Icon(Icons.phone_outlined, color: Color(0xFF2E7D32), size: 20),
-            ),
+            ],
           ),
         ],
       ),
@@ -564,7 +575,7 @@ class _TimelineStepWidget extends StatelessWidget {
               height: 24,
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
-                color: step.isCompleted ? AppColors.primary : AppColors.border,
+                color: step.isCompleted ? AppColors.success : AppColors.border,
               ),
               child: step.isCompleted
                   ? const Icon(Icons.check, size: 14, color: Colors.white)
@@ -574,7 +585,7 @@ class _TimelineStepWidget extends StatelessWidget {
               Container(
                 width: 2,
                 height: 38,
-                color: step.isCompleted ? AppColors.primary : AppColors.border,
+                color: step.isCompleted ? AppColors.success : AppColors.border,
               ),
           ],
         ),
@@ -838,17 +849,7 @@ class _LiveTrackingMapState extends State<_LiveTrackingMap> {
     final isInProgress = widget.trip.status == TripStatus.inProgress;
 
     return Container(
-      decoration: BoxDecoration(
-        color: AppColors.surface,
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.05),
-            blurRadius: 8,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
+      decoration: AppColors.softCardDecoration,
       clipBehavior: Clip.antiAlias,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -862,7 +863,7 @@ class _LiveTrackingMapState extends State<_LiveTrackingMap> {
                 Icon(
                   isInProgress ? Icons.sensors_rounded : Icons.map_outlined,
                   size: 20,
-                  color: isInProgress ? const Color(0xFF2E7D32) : AppColors.primary,
+                  color: isInProgress ? AppColors.success : AppColors.primary,
                 ),
                 const SizedBox(width: 8),
                 Expanded(
@@ -872,7 +873,7 @@ class _LiveTrackingMapState extends State<_LiveTrackingMap> {
                       Text(
                         isInProgress ? 'Localisation en direct' : 'Itinéraire du trajet',
                         style: AppTextStyles.bodySemibold.copyWith(
-                          color: isInProgress ? const Color(0xFF2E7D32) : AppColors.textPrimary,
+                          color: isInProgress ? AppColors.success : AppColors.textPrimary,
                         ),
                       ),
                       if (_lastGpsSignalLabel != null)
@@ -890,7 +891,7 @@ class _LiveTrackingMapState extends State<_LiveTrackingMap> {
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                     decoration: BoxDecoration(
-                      color: const Color(0xFFE8F5E9),
+                      color: AppColors.successSurface,
                       borderRadius: BorderRadius.circular(10),
                     ),
                     child: Row(
@@ -900,7 +901,7 @@ class _LiveTrackingMapState extends State<_LiveTrackingMap> {
                           width: 8,
                           height: 8,
                           decoration: const BoxDecoration(
-                            color: Color(0xFF2E7D32),
+                            color: AppColors.success,
                             shape: BoxShape.circle,
                           ),
                         ),
@@ -908,7 +909,7 @@ class _LiveTrackingMapState extends State<_LiveTrackingMap> {
                         Text(
                           'EN ROUTE',
                           style: AppTextStyles.caption.copyWith(
-                            color: const Color(0xFF2E7D32),
+                            color: AppColors.success,
                             fontWeight: FontWeight.w700,
                             fontSize: 10,
                           ),
@@ -932,10 +933,7 @@ class _LiveTrackingMapState extends State<_LiveTrackingMap> {
                     ),
                   ),
                   children: [
-                    TileLayer(
-                      urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-                      userAgentPackageName: 'sn.fojem.app',
-                    ),
+                    const FojemTileLayer(),
                     PolylineLayer(
                       polylines: [
                         Polyline(
@@ -952,13 +950,13 @@ class _LiveTrackingMapState extends State<_LiveTrackingMap> {
                           point: _origin,
                           width: 36,
                           height: 36,
-                          child: const Icon(Icons.trip_origin_rounded, color: Color(0xFF2E7D32), size: 28),
+                          child: const Icon(Icons.trip_origin_rounded, color: AppColors.ink, size: 28),
                         ),
                         Marker(
                           point: _destination,
                           width: 36,
                           height: 36,
-                          child: const Icon(Icons.location_on_rounded, color: AppColors.danger, size: 34),
+                          child: const Icon(Icons.location_on_rounded, color: AppColors.brand, size: 34),
                         ),
                         if (_currentVehiclePosition != null)
                         Marker(
@@ -1000,8 +998,8 @@ class _LiveTrackingMapState extends State<_LiveTrackingMap> {
                           onTap: () => _controller.fitCamera(_fit),
                           borderRadius: BorderRadius.circular(8),
                           child: const SizedBox(
-                            width: 36,
-                            height: 36,
+                            width: 44,
+                            height: 44,
                             child: Icon(Icons.my_location_rounded, size: 20, color: AppColors.textPrimary),
                           ),
                         ),
@@ -1015,9 +1013,9 @@ class _LiveTrackingMapState extends State<_LiveTrackingMap> {
                           onTap: _openExternalMap,
                           borderRadius: BorderRadius.circular(8),
                           child: const SizedBox(
-                            width: 36,
-                            height: 36,
-                            child: Icon(Icons.open_in_new_rounded, size: 20, color: AppColors.primary),
+                            width: 44,
+                            height: 44,
+                            child: Icon(Icons.open_in_new_rounded, size: 20, color: AppColors.textPrimary),
                           ),
                         ),
                       ),

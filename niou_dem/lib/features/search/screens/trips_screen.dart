@@ -1,20 +1,16 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_map/flutter_map.dart';
 import 'package:go_router/go_router.dart';
-import 'package:latlong2/latlong.dart' as ll;
+import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import '../../../core/geo/geo_location.dart';
 import '../../../core/geo/senegal_city_coordinates.dart';
 import '../../../core/theme/app_colors.dart';
-import '../../../core/widgets/glow.dart';
-import '../../../core/widgets/notification_bell.dart';
 import '../../../core/theme/app_text_styles.dart';
+import '../../../core/widgets/glow.dart';
 import '../../../core/widgets/option_sheet.dart';
 import '../../../core/widgets/trip_card.dart';
-import '../../../core/widgets/trust_banner.dart';
 import '../../../models/trip.dart';
 import '../../../providers/search_provider.dart';
-import '../../../services/map/osm_map_service.dart';
 import '../../../services/trip_repository.dart';
 
 enum _TimeSlot { any, morning, afternoon, evening }
@@ -23,7 +19,7 @@ enum _Sort { time, price, rating }
 
 extension on _TimeSlot {
   String get label => switch (this) {
-        _TimeSlot.any => 'Départ',
+        _TimeSlot.any => 'Heure',
         _TimeSlot.morning => 'Matin',
         _TimeSlot.afternoon => 'Après-midi',
         _TimeSlot.evening => 'Soir',
@@ -39,18 +35,16 @@ extension on _TimeSlot {
 
 extension on _Sort {
   String get label => switch (this) {
-        _Sort.time => 'Heure',
-        _Sort.price => 'Prix',
-        _Sort.rating => 'Note',
+        _Sort.time => 'Plus tôt',
+        _Sort.price => 'Moins cher',
+        _Sort.rating => 'Mieux noté',
       };
 }
 
-/// Résultats de recherche, ouverts depuis « Rechercher un trajet » sur
-/// l'accueil : en-tête du trajet recherché, rangée tri + filtres, carte de
-/// l'itinéraire, trajets disponibles, bandeau de confiance.
-///
-/// Le trajet affiché est la dernière recherche faite depuis l'accueil
-/// ([SearchProvider]), Dakar → Thiès aujourd'hui par défaut.
+/// Trajets pour la recherche faite depuis l'accueil ([SearchProvider]) :
+/// en-tête du trajet recherché, bande des jours (avec le nombre de trajets
+/// de chacun, pour changer de jour sans revenir en arrière), tri et filtres,
+/// puis les trajets du jour choisi.
 class SearchResultsScreen extends StatefulWidget {
   const SearchResultsScreen({super.key});
 
@@ -60,16 +54,19 @@ class SearchResultsScreen extends StatefulWidget {
 
 class _TripsScreenState extends State<SearchResultsScreen> {
   final _repository = TripRepository();
+  static const _days = 14;
 
   late final GeoLocation _origin;
   late final GeoLocation _destination;
   late final String _departure;
   late final String _arrival;
-  late final DateTime _date;
+  late DateTime _date;
 
   bool _isLoading = true;
   bool _hasError = false;
-  List<Trip> _trips = [];
+
+  /// Trajets de l'itinéraire, tous jours confondus (non complets).
+  List<Trip> _routeTrips = [];
   List<Trip> _suggestions = [];
 
   _TimeSlot _timeSlot = _TimeSlot.any;
@@ -90,40 +87,22 @@ class _TripsScreenState extends State<SearchResultsScreen> {
     _load();
   }
 
-  /// Recherche géographique réelle (`GET /trips/search`) puis restriction au
-  /// jour choisi côté client, avec suggestions d'alternatives si vide.
+  /// Recherche géographique (`GET /trips/search`), tous jours confondus ; le
+  /// jour choisi ne fait que filtrer, sans nouvel appel.
   Future<void> _load() async {
     try {
-      final desiredOrigin = _origin;
-      final desiredDestination = _destination;
-      final searchResult = await _repository
-          .searchWithSuggestions(origin: desiredOrigin, destination: desiredDestination)
+      final result = await _repository
+          .searchWithSuggestions(origin: _origin, destination: _destination)
           .timeout(const Duration(seconds: 15));
-
-      final matched = searchResult.trips
-          .where((trip) => !trip.isFull && _isSameDay(boardingTime(trip), _date))
-          .toList();
-
-      final otherDays = searchResult.trips
-          .where((trip) => !trip.isFull && !_isSameDay(boardingTime(trip), _date))
-          .toList();
-
-      final combinedSuggestions = [
-        ...searchResult.suggestions.where((t) => !t.isFull),
-        ...otherDays,
-      ];
-
-      final uniqueSuggestions = <String, Trip>{};
-      for (final s in combinedSuggestions) {
-        if (!matched.any((m) => m.id == s.id)) {
-          uniqueSuggestions[s.id] = s;
-        }
-      }
-
+      final routeTrips = result.trips.where((trip) => !trip.isFull).toList();
+      final suggestions = <String, Trip>{
+        for (final trip in result.suggestions.where((t) => !t.isFull))
+          if (!routeTrips.any((r) => r.id == trip.id)) trip.id: trip,
+      };
       if (!mounted) return;
       setState(() {
-        _trips = matched;
-        _suggestions = uniqueSuggestions.values.toList();
+        _routeTrips = routeTrips;
+        _suggestions = suggestions.values.toList();
         _isLoading = false;
         _hasError = false;
       });
@@ -136,14 +115,31 @@ class _TripsScreenState extends State<SearchResultsScreen> {
     }
   }
 
-  static bool _isSameDay(DateTime a, DateTime b) =>
-      a.year == b.year && a.month == b.month && a.day == b.day;
+  static DateTime _day(DateTime d) => DateTime(d.year, d.month, d.day);
 
-  bool get _hasFilters =>
-      _timeSlot != _TimeSlot.any || _maxPrice != null || _minSeats > 1;
+  static bool _isSameDay(DateTime a, DateTime b) => _day(a) == _day(b);
+
+  int _countOn(DateTime day) => _routeTrips.where((t) => _isSameDay(boardingTime(t), day)).length;
+
+  /// Premier jour suivant qui a des trajets, pour le proposer quand le jour
+  /// choisi n'en a pas.
+  DateTime? get _nextDayWithTrips {
+    final days = _routeTrips.map((t) => _day(boardingTime(t))).where((d) => d.isAfter(_day(_date))).toList()
+      ..sort();
+    return days.isEmpty ? null : days.first;
+  }
+
+  void _selectDay(DateTime day) {
+    setState(() => _date = day);
+    context.read<SearchProvider>().setDate(day);
+  }
+
+  bool get _hasFilters => _timeSlot != _TimeSlot.any || _maxPrice != null || _minSeats > 1;
+
+  List<Trip> get _dayTrips => _routeTrips.where((t) => _isSameDay(boardingTime(t), _date)).toList();
 
   List<Trip> get _visibleTrips {
-    final result = _trips
+    final result = _dayTrips
         .where((t) =>
             _timeSlot.matches(boardingTime(t)) &&
             (_maxPrice == null || t.segment().pricePerSeat <= _maxPrice!) &&
@@ -155,8 +151,7 @@ class _TripsScreenState extends State<SearchResultsScreen> {
       case _Sort.price:
         result.sort((a, b) => a.segment().pricePerSeat.compareTo(b.segment().pricePerSeat));
       case _Sort.rating:
-        result.sort(
-            (a, b) => (b.driver?.rating ?? 0).compareTo(a.driver?.rating ?? 0));
+        result.sort((a, b) => (b.driver?.rating ?? 0).compareTo(a.driver?.rating ?? 0));
     }
     return result;
   }
@@ -173,7 +168,7 @@ class _TripsScreenState extends State<SearchResultsScreen> {
       title: 'Trier par',
       selected: _sort,
       options: const [
-        (_Sort.time, 'Heure de départ'),
+        (_Sort.time, 'Départ le plus tôt'),
         (_Sort.price, 'Prix le plus bas'),
         (_Sort.rating, 'Meilleure note'),
       ],
@@ -237,168 +232,299 @@ class _TripsScreenState extends State<SearchResultsScreen> {
   @override
   Widget build(BuildContext context) {
     final trips = _visibleTrips;
+    final today = _day(DateTime.now());
 
     return Scaffold(
       backgroundColor: AppColors.background,
-      body: BrandHeaderLayout(
-        onRefresh: _load,
-        overlap: 0,
-        padding: EdgeInsets.zero,
-        header: BrandHeader(
-          title: '$_departure → $_arrival',
-          subtitle: formatDayLabel(_date),
-          onBack: _back,
-          trailing: const NotificationBellButton(onBrand: true),
-          overlap: 28,
-        ),
-        children: [
-          // Tri et filtres sur une seule rangée défilante, sous l'en-tête.
-          RiseIn(
-            child: SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              padding: const EdgeInsets.fromLTRB(20, 16, 20, 10),
-              clipBehavior: Clip.none,
+      body: SafeArea(
+        bottom: false,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
               child: Row(
                 children: [
-                  _FilterChip(
-                    icon: Icons.swap_vert_rounded,
-                    label: 'Trier : ${_sort.label}',
-                    isActive: _sort != _Sort.time,
-                    onTap: _pickSort,
-                  ),
+                  GlassIconButton(icon: Icons.arrow_back_rounded, onPressed: _back, tooltip: 'Retour'),
                   const SizedBox(width: 10),
-                  _FilterChip(
-                    icon: Icons.schedule_rounded,
-                    label: _timeSlot.label,
-                    isActive: _timeSlot != _TimeSlot.any,
-                    onTap: _pickTimeSlot,
+                  Expanded(
+                    child: _RouteSummary(
+                      departure: _departure,
+                      arrival: _arrival,
+                      onTap: _back,
+                    ),
                   ),
-                  const SizedBox(width: 10),
+                ],
+              ),
+            ),
+            const SizedBox(height: 12),
+            SizedBox(
+              height: 64,
+              child: ListView.separated(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                scrollDirection: Axis.horizontal,
+                itemCount: _days,
+                separatorBuilder: (_, __) => const SizedBox(width: 8),
+                itemBuilder: (context, i) {
+                  final day = today.add(Duration(days: i));
+                  return _DayChip(
+                    day: day,
+                    count: _isLoading ? null : _countOn(day),
+                    selected: _isSameDay(day, _date),
+                    onTap: () => _selectDay(day),
+                  );
+                },
+              ),
+            ),
+            SizedBox(
+              height: 60,
+              child: ListView(
+                scrollDirection: Axis.horizontal,
+                padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+                children: [
+                  _FilterChip(icon: Icons.sort_rounded, label: _sort.label, isActive: _sort != _Sort.time, onTap: _pickSort),
+                  const SizedBox(width: 8),
+                  _FilterChip(icon: Icons.schedule_rounded, label: _timeSlot.label, isActive: _timeSlot != _TimeSlot.any, onTap: _pickTimeSlot),
+                  const SizedBox(width: 8),
                   _FilterChip(
                     icon: Icons.sell_outlined,
-                    label: _maxPrice == null
-                        ? 'Prix max'
-                        : '≤ ${formatFcfa(_maxPrice!)}',
+                    label: _maxPrice == null ? 'Prix' : '≤ ${formatFcfa(_maxPrice!)}',
                     isActive: _maxPrice != null,
                     onTap: _pickPrice,
                   ),
-                  const SizedBox(width: 10),
+                  const SizedBox(width: 8),
                   _FilterChip(
-                    icon: Icons.groups_rounded,
+                    icon: Icons.event_seat_outlined,
                     label: _minSeats > 1 ? '$_minSeats+ places' : 'Places',
                     isActive: _minSeats > 1,
                     onTap: _pickSeats,
                   ),
                   if (_hasFilters) ...[
-                    const SizedBox(width: 10),
-                    _FilterChip(
-                      icon: Icons.close_rounded,
-                      label: 'Effacer',
-                      isActive: false,
-                      showChevron: false,
-                      onTap: _clearFilters,
-                    ),
+                    const SizedBox(width: 8),
+                    _FilterChip(icon: Icons.close_rounded, label: 'Effacer', isActive: false, showChevron: false, onTap: _clearFilters),
                   ],
                 ],
               ),
             ),
-          ),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 20),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-          const SizedBox(height: 6),
-          RiseIn(
-            delay: const Duration(milliseconds: 80),
-            child: _RouteMap(origin: _origin, destination: _destination),
-          ),
-          const SizedBox(height: 22),
-          Row(
-            children: [
-              Expanded(child: Text('Trajets disponibles', style: AppTextStyles.title2)),
-              if (!_isLoading && !_hasError)
-                Text('${trips.length} trajet${trips.length > 1 ? 's' : ''}', style: AppTextStyles.caption),
-            ],
-          ),
-          const SizedBox(height: 12),
-          if (_isLoading) ...[
-            const TripCardSkeleton(),
-            const SizedBox(height: 16),
-            const TripCardSkeleton(),
-          ] else if (_hasError)
-            _Message(
-              title: 'Impossible de charger les trajets',
-              body: 'Vérifiez votre connexion puis réessayez.',
-              actionLabel: 'Réessayer',
-              onAction: () {
-                setState(() {
-                  _isLoading = true;
-                  _hasError = false;
-                });
-                _load();
-              },
-            )
-          else if (trips.isEmpty) ...[
-            _hasFilters
-                ? _Message(
-                    title: 'Aucun trajet avec ces filtres',
-                    body: '${_trips.length} trajet${_trips.length > 1 ? 's' : ''} '
-                        'disponible${_trips.length > 1 ? 's' : ''} sans filtre.',
-                    actionLabel: 'Effacer les filtres',
-                    onAction: _clearFilters,
-                  )
-                : _Message(
-                    title: 'Aucun trajet direct trouvé',
-                    body: 'Personne ne propose encore $_departure → $_arrival '
-                        '${formatDayLabel(_date).toLowerCase()}. Créez une demande de trajet '
-                        'ou réservez un trajet suggéré ci-dessous.',
-                    actionLabel: 'Créer une demande de trajet',
-                    onAction: () => context.push('/ride-request/create?from=$_departure&to=$_arrival'),
-                  ),
-            if (_suggestions.isNotEmpty) ...[
-              const SizedBox(height: 8),
-              Row(
+            Expanded(
+              child: RefreshIndicator(
+                color: AppColors.ink,
+                onRefresh: _load,
+                child: ListView(
+                  physics: const AlwaysScrollableScrollPhysics(),
+                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
+                  children: [
+                    if (_isLoading) ...[
+                      const TripCardSkeleton(),
+                      const SizedBox(height: 12),
+                      const TripCardSkeleton(),
+                    ] else if (_hasError)
+                      _Message(
+                        icon: Icons.wifi_off_rounded,
+                        title: 'Impossible de charger les trajets',
+                        body: 'Vérifiez votre connexion puis réessayez.',
+                        actionLabel: 'Réessayer',
+                        onAction: () {
+                          setState(() {
+                            _isLoading = true;
+                            _hasError = false;
+                          });
+                          _load();
+                        },
+                      )
+                    else if (trips.isEmpty) ...[
+                      if (_hasFilters && _dayTrips.isNotEmpty)
+                        _Message(
+                          icon: Icons.filter_alt_off_rounded,
+                          title: 'Aucun trajet avec ces filtres',
+                          body: '${_dayTrips.length} trajet${_dayTrips.length > 1 ? 's' : ''} ce jour-là sans filtre.',
+                          actionLabel: 'Effacer les filtres',
+                          onAction: _clearFilters,
+                        )
+                      else if (_nextDayWithTrips case final next?)
+                        _Message(
+                          icon: Icons.event_busy_rounded,
+                          title: 'Aucun trajet ${_dayPhrase(_date)}',
+                          body: 'Il y a des trajets $_departure → $_arrival ${_dayPhrase(next)}.',
+                          actionLabel: 'Voir ${_dayPhrase(next)}',
+                          onAction: () => _selectDay(next),
+                        )
+                      else
+                        _Message(
+                          icon: Icons.event_busy_rounded,
+                          title: 'Aucun trajet pour le moment',
+                          body: 'Personne ne propose encore $_departure → $_arrival. '
+                              'Publiez une demande : les chauffeurs qui passent par là la verront.',
+                          actionLabel: 'Demander ce trajet',
+                          onAction: () => context.push(
+                            '/ride-request/create?from=${Uri.encodeComponent(_departure)}&to=${Uri.encodeComponent(_arrival)}',
+                          ),
+                        ),
+                      if (_suggestions.isNotEmpty) ...[
+                        const SizedBox(height: 20),
+                        Text('Autres trajets proches', style: AppTextStyles.title2),
+                        const SizedBox(height: 4),
+                        Text('Départ ou arrivée un peu plus loin de vos points.', style: AppTextStyles.caption),
+                        const SizedBox(height: 12),
+                        for (final trip in _suggestions) ...[
+                          TripCard(
+                            trip: trip,
+                            layout: TripCardLayout.schedule,
+                            onTap: () => context.push(tripDetailLocation(trip)),
+                          ),
+                          const SizedBox(height: 12),
+                        ],
+                      ],
+                    ] else ...[
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 10, left: 2),
+                        child: Text(
+                          '${trips.length} trajet${trips.length > 1 ? 's' : ''} ${_dayPhrase(_date)}',
+                          style: AppTextStyles.bodySemibold.copyWith(color: AppColors.textSecondary),
+                        ),
+                      ),
+                      for (var i = 0; i < trips.length; i++) ...[
+                        RiseIn(
+                          delay: Duration(milliseconds: 40 * i),
+                          child: TripCard(
+                            trip: trips[i],
+                            layout: TripCardLayout.schedule,
+                            onTap: () => context.push(tripDetailLocation(trips[i])),
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                      ],
+                    ],
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// « aujourd'hui », « demain », « le jeu. 14 nov. ».
+  static String _dayPhrase(DateTime day) {
+    final label = formatDayLabel(day);
+    if (label == 'Aujourd’hui' || label == 'Demain') return label.toLowerCase();
+    return 'le $label';
+  }
+}
+
+/// Rappel du trajet recherché ; le toucher revient le modifier.
+class _RouteSummary extends StatelessWidget {
+  final String departure;
+  final String arrival;
+  final VoidCallback onTap;
+
+  const _RouteSummary({required this.departure, required this.arrival, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      button: true,
+      label: 'Trajet recherché : $departure vers $arrival. Modifier',
+      excludeSemantics: true,
+      child: Material(
+        color: AppColors.surface,
+        shape: const StadiumBorder(side: BorderSide(color: AppColors.border)),
+        child: InkWell(
+          customBorder: const StadiumBorder(),
+          onTap: onTap,
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(minHeight: 48),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              child: Row(
                 children: [
-                  const Icon(Icons.auto_awesome_rounded, size: 20, color: AppColors.accent),
+                  Flexible(
+                    child: Text(departure, maxLines: 1, overflow: TextOverflow.ellipsis, style: AppTextStyles.bodySemibold.copyWith(fontWeight: FontWeight.w800)),
+                  ),
+                  const Padding(
+                    padding: EdgeInsets.symmetric(horizontal: 6),
+                    child: Icon(Icons.arrow_forward_rounded, size: 16, color: AppColors.textSecondary),
+                  ),
+                  Flexible(
+                    child: Text(arrival, maxLines: 1, overflow: TextOverflow.ellipsis, style: AppTextStyles.bodySemibold.copyWith(fontWeight: FontWeight.w800)),
+                  ),
                   const SizedBox(width: 8),
-                  Expanded(child: Text('Autres trajets disponibles', style: AppTextStyles.title2)),
+                  const Icon(Icons.edit_outlined, size: 18, color: AppColors.textSecondary),
                 ],
               ),
-              const SizedBox(height: 12),
-              for (final trip in _suggestions) ...[
-                TripCard(
-                  trip: trip,
-                  layout: TripCardLayout.schedule,
-                  onTap: () => context.push(tripDetailLocation(trip)),
-                ),
-                const SizedBox(height: 16),
-              ],
-            ],
-          ] else
-            for (var i = 0; i < trips.length; i++) ...[
-              RiseIn(
-                delay: Duration(milliseconds: 60 * i),
-                child: TripCard(
-                  trip: trips[i],
-                  layout: TripCardLayout.schedule,
-                  onTap: () => context.push(tripDetailLocation(trips[i])),
-                ),
-              ),
-              const SizedBox(height: 16),
-            ],
-          const SizedBox(height: 4),
-          const TrustBanner(),
-              ],
             ),
           ),
-        ],
+        ),
       ),
     );
   }
 }
 
-/// Puce de tri / filtre : en relief, teintée quand active.
+/// Jour de la bande de dates, avec le nombre de trajets ce jour-là.
+class _DayChip extends StatelessWidget {
+  final DateTime day;
+  final int? count;
+  final bool selected;
+  final VoidCallback onTap;
+
+  const _DayChip({required this.day, required this.count, required this.selected, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    final label = formatDayLabel(day);
+    final title = label == 'Aujourd’hui' || label == 'Demain' ? label : DateFormat('EEE d', 'fr_FR').format(day);
+    final fg = selected ? Colors.white : AppColors.textPrimary;
+    final sub = count == null
+        ? ' '
+        : count == 0
+            ? '–'
+            : '$count trajet${count! > 1 ? 's' : ''}';
+    return Semantics(
+      button: true,
+      selected: selected,
+      label: '$label, ${count ?? 0} trajet${(count ?? 0) > 1 ? 's' : ''}',
+      excludeSemantics: true,
+      child: Material(
+        color: selected ? AppColors.ink : AppColors.surface,
+        borderRadius: BorderRadius.circular(14),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(14),
+          onTap: onTap,
+          child: Container(
+            constraints: const BoxConstraints(minWidth: 76),
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: selected ? AppColors.ink : AppColors.border),
+            ),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Text(title, style: AppTextStyles.bodySemibold.copyWith(color: fg, fontWeight: FontWeight.w700, height: 1.2)),
+                const SizedBox(height: 2),
+                Text(
+                  sub,
+                  style: AppTextStyles.caption.copyWith(
+                    fontSize: 11,
+                    color: selected
+                        ? Colors.white.withValues(alpha: 0.85)
+                        : (count ?? 0) > 0
+                            ? AppColors.success
+                            : AppColors.textMuted,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Puce de tri / filtre : blanche, pleine (bleu nuit) quand active.
 class _FilterChip extends StatelessWidget {
   final IconData icon;
   final String label;
@@ -416,265 +542,46 @@ class _FilterChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final color = isActive ? AppColors.primary : AppColors.textPrimary;
-    final content = Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Icon(icon, size: 17, color: color),
-        const SizedBox(width: 6),
-        Text(label, style: AppTextStyles.bodySemibold.copyWith(color: color, fontSize: 13.5)),
-        if (showChevron) ...[
-          const SizedBox(width: 2),
-          Icon(Icons.keyboard_arrow_down_rounded, size: 18, color: color),
-        ],
-      ],
-    );
-    const padding = EdgeInsets.symmetric(horizontal: 14, vertical: 10);
+    final fg = isActive ? Colors.white : AppColors.textPrimary;
     return Semantics(
       button: true,
       selected: isActive,
-      child: GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onTap: onTap,
-        child: isActive
-            ? Container(
-                padding: padding,
-                decoration: BoxDecoration(
-                  color: AppColors.primarySurface,
-                  borderRadius: BorderRadius.circular(999),
-                  border: Border.all(color: AppColors.primary.withValues(alpha: 0.4)),
-                ),
-                child: content,
-              )
-            : NeuBox(small: true, radius: 999, padding: padding, child: content),
-      ),
-    );
-  }
-}
-
-class _RouteMap extends StatefulWidget {
-  final GeoLocation origin;
-  final GeoLocation destination;
-
-  const _RouteMap({required this.origin, required this.destination});
-
-  @override
-  State<_RouteMap> createState() => _RouteMapState();
-}
-
-class _RouteMapState extends State<_RouteMap> {
-  final _controller = MapController();
-  late final ll.LatLng _origin;
-  late final ll.LatLng _destination;
-  late List<ll.LatLng> _path;
-
-  @override
-  void initState() {
-    super.initState();
-    final o = widget.origin;
-    final d = widget.destination;
-    _origin = ll.LatLng(o.lat, o.lng);
-    _destination = ll.LatLng(d.lat, d.lng);
-    _path = [_origin, _destination];
-    _loadRoute();
-  }
-
-  Future<void> _loadRoute() async {
-    try {
-      final route = await OsmMapService()
-          .getRoute(widget.origin,
-              widget.destination)
-          .timeout(const Duration(seconds: 8));
-      if (route == null || route.polyline.length < 2 || !mounted) return;
-      setState(() =>
-          _path = [for (final p in route.polyline) ll.LatLng(p.lat, p.lng)]);
-    } catch (_) {
-      // Ligne droite conservée : la carte reste lisible sans le tracé exact.
-    }
-  }
-
-  CameraFit get _fit => CameraFit.bounds(
-        bounds: LatLngBounds.fromPoints([_origin, _destination]),
-        padding: const EdgeInsets.fromLTRB(56, 56, 72, 56),
-      );
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      height: 200,
-      decoration: const BoxDecoration(
-        color: AppColors.surface,
-        borderRadius: BorderRadius.all(Radius.circular(28)),
-        boxShadow: AppColors.neuShadow,
-      ),
-      clipBehavior: Clip.antiAlias,
-      child: Stack(
-        children: [
-          FlutterMap(
-            mapController: _controller,
-            options: MapOptions(
-              initialCameraFit: _fit,
-              backgroundColor: const Color(0xFFF2F0EB),
-              interactionOptions: const InteractionOptions(
-                flags: InteractiveFlag.all & ~InteractiveFlag.rotate,
-              ),
-            ),
-            children: [
-              TileLayer(
-                urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-                userAgentPackageName: 'sn.fojem.app',
-                // Fond OSM adouci (moins saturé, plus clair) pour que le
-                // tracé et les repères restent l'information principale.
-                tileBuilder: (context, tile, _) => ColorFiltered(
-                  colorFilter: _softMapFilter,
-                  child: tile,
-                ),
-              ),
-              PolylineLayer(polylines: [
-                Polyline(
-                  points: _path,
-                  color: AppColors.textPrimary,
-                  strokeWidth: 4,
-                  strokeCap: StrokeCap.round,
-                  strokeJoin: StrokeJoin.round,
-                ),
-              ]),
-              MarkerLayer(markers: [
-                Marker(
-                  point: _origin,
-                  width: 110,
-                  height: 64,
-                  child: _CityMarker(city: widget.origin.shortLabel, isOrigin: true),
-                ),
-                Marker(
-                  point: _destination,
-                  width: 110,
-                  height: 96,
-                  child: _CityMarker(city: widget.destination.shortLabel, isOrigin: false),
-                ),
-              ]),
-            ],
-          ),
-          Positioned(
-            top: 12,
-            right: 12,
-            child: Material(
-              color: AppColors.surface,
-              elevation: 2,
-              shadowColor: Colors.black26,
-              borderRadius: BorderRadius.circular(10),
-              child: InkWell(
-                onTap: () => _controller.fitCamera(_fit),
-                borderRadius: BorderRadius.circular(10),
-                child: const SizedBox(
-                  width: 44,
-                  height: 44,
-                  child: Tooltip(
-                    message: 'Recentrer sur le trajet',
-                    child: Icon(Icons.my_location_rounded,
-                        size: 22, color: AppColors.textPrimary),
-                  ),
-                ),
-              ),
+      child: Material(
+        color: isActive ? AppColors.ink : AppColors.surface,
+        shape: StadiumBorder(side: BorderSide(color: isActive ? AppColors.ink : AppColors.border)),
+        child: InkWell(
+          customBorder: const StadiumBorder(),
+          onTap: onTap,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(icon, size: 16, color: fg),
+                const SizedBox(width: 6),
+                Text(label, style: AppTextStyles.bodySemibold.copyWith(color: fg, fontSize: 13.5)),
+                if (showChevron) ...[
+                  const SizedBox(width: 2),
+                  Icon(Icons.keyboard_arrow_down_rounded, size: 18, color: fg),
+                ],
+              ],
             ),
           ),
-          Positioned(
-            left: 8,
-            bottom: 6,
-            child: Text(
-              '© OpenStreetMap',
-              style: AppTextStyles.caption
-                  .copyWith(fontSize: 9, color: AppColors.textMuted),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-// Saturation ~55 % puis éclaircissement léger vers le blanc.
-const _softMapFilter = ColorFilter.matrix(<double>[
-  0.62, 0.25, 0.04, 0, 34, //
-  0.12, 0.76, 0.04, 0, 34, //
-  0.12, 0.25, 0.54, 0, 34, //
-  0, 0, 0, 1, 0,
-]);
-
-/// Repère de ville centré sur sa coordonnée : anneau orange (départ) ou
-/// épingle orange dont la pointe touche le point (arrivée), nom dessous.
-class _CityMarker extends StatelessWidget {
-  final String city;
-  final bool isOrigin;
-
-  const _CityMarker({required this.city, required this.isOrigin});
-
-  @override
-  Widget build(BuildContext context) {
-    final label = Text(
-      city,
-      textAlign: TextAlign.center,
-      style: AppTextStyles.bodySemibold.copyWith(
-        fontSize: 15,
-        height: 1.1,
-        shadows: const [
-          Shadow(color: Colors.white, blurRadius: 4),
-          Shadow(color: Colors.white, blurRadius: 8),
-        ],
-      ),
-    );
-
-    if (isOrigin) {
-      return Stack(
-        children: [
-          Center(
-            child: Container(
-              width: 22,
-              height: 22,
-              decoration: BoxDecoration(
-                color: Colors.white,
-                shape: BoxShape.circle,
-                border: Border.all(color: AppColors.primary, width: 3),
-              ),
-              alignment: Alignment.center,
-              child: Container(
-                width: 8,
-                height: 8,
-                decoration: const BoxDecoration(
-                  color: AppColors.primary,
-                  shape: BoxShape.circle,
-                ),
-              ),
-            ),
-          ),
-          Positioned(left: 0, right: 0, top: 46, child: label),
-        ],
-      );
-    }
-
-    // Boîte de 96 de haut centrée sur le point : l'épingle (40) occupe
-    // 8→48 pour que sa pointe tombe au centre (48).
-    return Stack(
-      children: [
-        const Positioned(
-          left: 0,
-          right: 0,
-          top: 8,
-          child: Icon(Icons.location_on, size: 42, color: AppColors.primary),
         ),
-        Positioned(left: 0, right: 0, top: 54, child: label),
-      ],
+      ),
     );
   }
 }
 
 class _Message extends StatelessWidget {
+  final IconData icon;
   final String title;
   final String body;
   final String actionLabel;
   final VoidCallback onAction;
 
   const _Message({
+    required this.icon,
     required this.title,
     required this.body,
     required this.actionLabel,
@@ -683,29 +590,24 @@ class _Message extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 16),
-      child: GlassPanel(
-        radius: 24,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(title, style: AppTextStyles.bodyLargeSemibold.copyWith(fontWeight: FontWeight.w800)),
-            const SizedBox(height: 6),
-            Text(body, style: AppTextStyles.body.copyWith(color: AppColors.textSecondary)),
-            const SizedBox(height: 14),
-            Align(
-              alignment: Alignment.centerLeft,
-              child: NeuBox(
-                small: true,
-                radius: 14,
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 11),
-                onTap: onAction,
-                child: Text(actionLabel, style: AppTextStyles.bodySemibold.copyWith(color: AppColors.primary)),
-              ),
-            ),
-          ],
-        ),
+    return GlassPanel(
+      padding: const EdgeInsets.all(20),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 44,
+            height: 44,
+            decoration: const BoxDecoration(color: AppColors.muted, shape: BoxShape.circle),
+            child: Icon(icon, color: AppColors.textPrimary),
+          ),
+          const SizedBox(height: 12),
+          Text(title, style: AppTextStyles.title2),
+          const SizedBox(height: 4),
+          Text(body, style: AppTextStyles.body.copyWith(color: AppColors.textSecondary)),
+          const SizedBox(height: 16),
+          GlowButton(label: actionLabel, onPressed: onAction, dark: true),
+        ],
       ),
     );
   }

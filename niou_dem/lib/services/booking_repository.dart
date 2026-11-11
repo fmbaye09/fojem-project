@@ -25,6 +25,9 @@ class BookingRepository {
     required String passengerName,
     required String passengerPhone,
     required List<String> seatIds,
+    // Sans place choisie sur le plan : nombre de places, attribuées par le
+    // chauffeur à la montée.
+    int seatCount = 1,
     bool hasHeavyLuggage = false,
     List<File> luggagePhotos = const [],
     // Points de rendez-vous du chauffeur où le passager monte et descend ;
@@ -45,7 +48,7 @@ class BookingRepository {
     if (hasHeavyLuggage && luggagePhotos.isNotEmpty) {
       final formDataMap = <String, dynamic>{
         'trip_id': tripId,
-        'seat_numbers[]': seatIds,
+        if (seatIds.isNotEmpty) 'seat_numbers[]': seatIds else 'seat_count': seatCount,
         ...stops,
         'has_heavy_luggage': 1,
       };
@@ -60,7 +63,7 @@ class BookingRepository {
     } else {
       requestData = {
         'trip_id': tripId,
-        'seat_numbers': seatIds,
+        if (seatIds.isNotEmpty) 'seat_numbers': seatIds else 'seat_count': seatCount,
         ...stops,
         'has_heavy_luggage': hasHeavyLuggage ? 1 : 0,
       };

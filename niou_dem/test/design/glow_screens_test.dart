@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:fojem_passager/core/theme/app_theme.dart';
 import 'package:fojem_passager/core/widgets/bottom_nav_bar.dart';
+import 'package:fojem_passager/core/widgets/glow.dart';
 import 'package:fojem_passager/core/widgets/profile_kit.dart';
 import 'package:fojem_passager/core/widgets/step_auth_flow.dart';
 import 'package:fojem_passager/core/widgets/trip_card.dart';
@@ -81,7 +82,7 @@ void main() {
 
     // Espaces insécables : le montant et « FCFA » restent sur une ligne.
     expect(find.text('3 000 FCFA'), findsOneWidget);
-    expect(find.textContaining('Montée à 1,2 km'), findsOneWidget);
+    expect(find.text('à 1,2 km'), findsOneWidget);
   });
 
   testWidgets('onboarding renders its three slides', (tester) async {
@@ -126,16 +127,7 @@ void main() {
     // Genre : choix par défaut.
     await tester.tap(find.text('Continuer'));
     await tester.pump(const Duration(seconds: 1));
-    await fill('motdepasse');
-
-    // Confirmation différente : refusée, rien n'est envoyé.
-    await tester.enterText(find.byType(TextField), 'autrechose');
-    await tester.pump();
-    await tester.tap(find.text('Créer mon compte'));
-    await tester.pump(const Duration(seconds: 1));
-    expect(find.text('Les mots de passe ne correspondent pas.'), findsOneWidget);
-    expect(sent, isNull);
-
+    // Dernière page : le mot de passe, sans page de confirmation.
     await tester.enterText(find.byType(TextField), 'motdepasse');
     await tester.pump();
     await tester.tap(find.text('Créer mon compte'));
@@ -146,6 +138,57 @@ void main() {
     expect(sent?.phoneNumber, '+221771234567');
     expect(sent?.email, 'awa@exemple.com');
     expect(sent?.gender, 'male');
+  });
+
+  testWidgets('login takes the phone number then the password, or an e-mail', (tester) async {
+    final logins = <String>[];
+    Future<void> open(Key key) async {
+      await pump(
+        tester,
+        StepAuthFlow(
+          key: key,
+          welcomeTitle: 'Bienvenue chez FOJËM',
+          welcomeSubtitle: 'Test',
+          onLogin: (login, password) async {
+            logins.add('$login|$password');
+            return null;
+          },
+          onSignup: (_) async => null,
+          onDone: () {},
+        ),
+      );
+    }
+
+    await open(const ValueKey('phone'));
+    await tester.tap(find.text('Se connecter'));
+    await tester.pump(const Duration(seconds: 1));
+    expect(find.text('Votre numéro de téléphone'), findsOneWidget);
+    await tester.enterText(find.byType(TextField), '77 123 45 67');
+    await tester.pump();
+    await tester.tap(find.text('Continuer'));
+    await tester.pump(const Duration(seconds: 1));
+    await tester.enterText(find.byType(TextField), 'secret');
+    await tester.pump();
+    await tester.tap(find.widgetWithText(GlowButton, 'Se connecter'));
+    await tester.pump(const Duration(seconds: 1));
+    expect(logins, ['+221771234567|secret']);
+
+    // Connexion par e-mail au choix, sous le champ du numéro.
+    await open(const ValueKey('email'));
+    await tester.tap(find.text('Se connecter'));
+    await tester.pump(const Duration(seconds: 1));
+    await tester.tap(find.text('Utiliser mon e-mail'));
+    await tester.pump(const Duration(seconds: 1));
+    expect(find.text('Votre adresse e-mail'), findsOneWidget);
+    await tester.enterText(find.byType(TextField), 'awa@exemple.com');
+    await tester.pump();
+    await tester.tap(find.text('Continuer'));
+    await tester.pump(const Duration(seconds: 1));
+    await tester.enterText(find.byType(TextField), 'secret');
+    await tester.pump();
+    await tester.tap(find.widgetWithText(GlowButton, 'Se connecter'));
+    await tester.pump(const Duration(seconds: 1));
+    expect(logins.last, 'awa@exemple.com|secret');
   });
 
   testWidgets('a server error on the email sends the user back to that page', (tester) async {
@@ -167,10 +210,6 @@ void main() {
       await tester.tap(find.text('Continuer'));
       await tester.pump(const Duration(seconds: 1));
     }
-    await tester.tap(find.text('Continuer'));
-    await tester.pump(const Duration(seconds: 1));
-    await tester.enterText(find.byType(TextField), 'motdepasse');
-    await tester.pump();
     await tester.tap(find.text('Continuer'));
     await tester.pump(const Duration(seconds: 1));
     await tester.enterText(find.byType(TextField), 'motdepasse');

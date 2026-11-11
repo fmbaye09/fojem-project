@@ -124,6 +124,7 @@ GoRouter _buildRouter(AppProvider appProvider) => GoRouter(
         return BookingConfirmationScreen(
           tripId: tripId,
           seatIds: seats,
+          seatCount: int.tryParse(state.uri.queryParameters['count'] ?? '') ?? 1,
           boardingStopId: state.uri.queryParameters['board'],
           alightingStopId: state.uri.queryParameters['alight'],
           proposal: ProposedStop.fromQuery(state.uri.queryParameters['proposal']),
@@ -183,6 +184,7 @@ GoRouter _buildRouter(AppProvider appProvider) => GoRouter(
           boardingStopId: state.uri.queryParameters['board'],
           alightingStopId: state.uri.queryParameters['alight'],
           proposal: ProposedStop.fromQuery(state.uri.queryParameters['proposal']),
+          pickOnly: state.uri.queryParameters['pick'] == '1',
         );
       },
     ),

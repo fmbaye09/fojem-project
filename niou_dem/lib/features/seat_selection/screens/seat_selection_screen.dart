@@ -27,8 +27,18 @@ class SeatSelectionScreen extends StatefulWidget {
   /// Point proposé par le passager à la place d'un arrêt.
   final ProposedStop? proposal;
 
-  const SeatSelectionScreen(
-      {super.key, this.tripId, this.boardingStopId, this.alightingStopId, this.proposal});
+  /// Ouvert depuis le récapitulatif : « Valider » rend les places choisies
+  /// (`context.pop(List<String>)`) au lieu d'ouvrir le récapitulatif.
+  final bool pickOnly;
+
+  const SeatSelectionScreen({
+    super.key,
+    this.tripId,
+    this.boardingStopId,
+    this.alightingStopId,
+    this.proposal,
+    this.pickOnly = false,
+  });
 
   @override
   State<SeatSelectionScreen> createState() => _SeatSelectionScreenState();
@@ -81,6 +91,7 @@ class _SeatSelectionScreenState extends State<SeatSelectionScreen> {
           pricePerSeat: segment.pricePerSeat),
       child: _SeatSelectionContent(
         tripId: _trip!.id,
+        pickOnly: widget.pickOnly,
         segmentQuery: [
           if (segment.query.isNotEmpty) segment.query,
           if (widget.proposal != null) 'proposal=${widget.proposal!.toQuery()}',
@@ -95,8 +106,8 @@ class _SeatSelectionContent extends StatelessWidget {
 
   /// `board=…&alight=…`, relayé à l'écran de confirmation.
   final String segmentQuery;
-  const _SeatSelectionContent(
-      {required this.tripId, required this.segmentQuery});
+  final bool pickOnly;
+  const _SeatSelectionContent({required this.tripId, required this.segmentQuery, required this.pickOnly});
 
   @override
   Widget build(BuildContext context) {
@@ -110,21 +121,18 @@ class _SeatSelectionContent extends StatelessWidget {
           children: [
             Consumer<SeatSelectionProvider>(
               builder: (context, provider, _) => BrandHeader(
-                title: 'Choix de votre place',
+                title: 'Choisissez vos places',
                 subtitle: provider.availableCount > 1
-                    ? 'Jusqu’à ${provider.availableCount} places · '
-                        '${provider.availableCount}/${provider.totalPassengerSeats} disponibles'
-                    : '${provider.availableCount}/${provider.totalPassengerSeats} place disponible',
+                    ? '${provider.availableCount} places libres · touchez un siège'
+                    : '${provider.availableCount} place libre · touchez un siège',
                 onBack: () => context.canPop() ? context.pop() : null,
               ),
             ),
             Expanded(
-              child: Transform.translate(
-                offset: const Offset(0, -40),
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 20),
-                  child: GlassPanel(
-                    radius: 40,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
+                child: GlassPanel(
+                    radius: 24,
                     padding: const EdgeInsets.all(18),
                     child: Consumer<SeatSelectionProvider>(
                       builder: (context, provider, _) {
@@ -149,39 +157,33 @@ class _SeatSelectionContent extends StatelessWidget {
                       },
                     ),
                   ),
-                ),
               ),
             ),
             const _SeatLegend(),
-            const SizedBox(height: 96),
           ],
         ),
         bottomNavigationBar: ReservationBar(
+          label: pickOnly ? 'Valider' : 'Continuer',
           onConfirm: () => _onConfirm(context),
         ),
       ),
     );
   }
 
+  /// Places choisies : rendues au récapitulatif qui a ouvert le plan, ou
+  /// récapitulatif ouvert directement (sans fenêtre de confirmation : c'est
+  /// le récapitulatif qui envoie la demande).
   void _onConfirm(BuildContext context) {
     final provider = context.read<SeatSelectionProvider>();
     if (!provider.hasSelection) return;
-    final seatIds = provider.selectedSeats.map((s) => s.config.id).join(',');
-
-    showModalBottomSheet<void>(
-      context: context,
-      backgroundColor: Colors.transparent,
-      builder: (_) => _ConfirmationSheet(
-        selectionLabel: provider.selectionLabel,
-        price: provider.formattedPrice,
-        onConfirmed: () {
-          Navigator.of(context).pop();
-          context.push(
-            '/booking/confirm?tripId=$tripId&seats=${Uri.encodeComponent(seatIds)}'
-            '${segmentQuery.isEmpty ? '' : '&$segmentQuery'}',
-          );
-        },
-      ),
+    final seats = provider.selectedSeats.map((s) => s.config.id).toList();
+    if (pickOnly) {
+      context.pop(seats);
+      return;
+    }
+    context.push(
+      '/booking/confirm?tripId=$tripId&seats=${Uri.encodeComponent(seats.join(','))}'
+      '${segmentQuery.isEmpty ? '' : '&$segmentQuery'}',
     );
   }
 }
@@ -248,108 +250,3 @@ class _LegendItem extends StatelessWidget {
   }
 }
 
-// ── Bottom sheet de confirmation ───────────────────────────────────────────
-class _ConfirmationSheet extends StatelessWidget {
-  final String selectionLabel;
-  final String price;
-  final VoidCallback onConfirmed;
-
-  const _ConfirmationSheet({
-    required this.selectionLabel,
-    required this.price,
-    required this.onConfirmed,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      margin: const EdgeInsets.all(16),
-      padding: const EdgeInsets.fromLTRB(24, 24, 24, 0),
-      decoration: BoxDecoration(
-        color: AppColors.surface,
-        borderRadius: BorderRadius.circular(20),
-      ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Container(
-            width: 36,
-            height: 4,
-            margin: const EdgeInsets.only(bottom: 20),
-            decoration: BoxDecoration(
-              color: AppColors.border,
-              borderRadius: BorderRadius.circular(2),
-            ),
-          ),
-          Container(
-            width: 56,
-            height: 56,
-            decoration: const BoxDecoration(
-              color: AppColors.primarySurface,
-              shape: BoxShape.circle,
-            ),
-            child: const Icon(Icons.event_seat_rounded,
-                color: AppColors.primary, size: 28),
-          ),
-          const SizedBox(height: 16),
-          Text(
-            'Confirmer : $selectionLabel ?',
-            textAlign: TextAlign.center,
-            style: GoogleFonts.inter(
-              fontSize: 18,
-              fontWeight: FontWeight.w700,
-              color: AppColors.textPrimary,
-            ),
-          ),
-          const SizedBox(height: 6),
-          Text(
-            'Montant à payer : $price',
-            style: GoogleFonts.inter(
-              fontSize: 14,
-              color: AppColors.textSecondary,
-            ),
-          ),
-          const SizedBox(height: 24),
-          Row(
-            children: [
-              Expanded(
-                child: OutlinedButton(
-                  onPressed: () => Navigator.of(context).pop(),
-                  style: OutlinedButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(vertical: 14),
-                    side: const BorderSide(color: AppColors.border),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                  ),
-                  child: Text('Annuler',
-                      style: GoogleFonts.inter(
-                          fontWeight: FontWeight.w600,
-                          color: AppColors.textSecondary)),
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: ElevatedButton(
-                  onPressed: onConfirmed,
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: AppColors.primary,
-                    padding: const EdgeInsets.symmetric(vertical: 14),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    elevation: 0,
-                  ),
-                  child: Text('Confirmer',
-                      style: GoogleFonts.inter(
-                          fontWeight: FontWeight.w600, color: Colors.white)),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 24),
-        ],
-      ),
-    );
-  }
-}

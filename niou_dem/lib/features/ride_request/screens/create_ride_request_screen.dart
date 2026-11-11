@@ -151,7 +151,7 @@ class _CreateRideRequestScreenState extends State<CreateRideRequestScreen> {
                           ),
                           subtitle: _customOrigin != null
                               ? Text(
-                                  '📍 ${_customOrigin!.address}',
+                                  _customOrigin!.address,
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
                                   style: AppTextStyles.caption.copyWith(color: AppColors.primary),
@@ -183,7 +183,7 @@ class _CreateRideRequestScreenState extends State<CreateRideRequestScreen> {
                           ),
                           subtitle: _customDestination != null
                               ? Text(
-                                  '📍 ${_customDestination!.address}',
+                                  _customDestination!.address,
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
                                   style: AppTextStyles.caption.copyWith(color: AppColors.primary),

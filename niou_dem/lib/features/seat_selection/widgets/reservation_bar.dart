@@ -5,11 +5,12 @@ import '../../../../core/widgets/glow.dart';
 import '../providers/seat_selection_provider.dart';
 
 /// Barre de réservation fixe en bas : sélection courante,
-/// prix total et bouton de confirmation à dégradé.
+/// prix total et bouton pour continuer.
 class ReservationBar extends StatelessWidget {
   final VoidCallback? onConfirm;
+  final String label;
 
-  const ReservationBar({super.key, this.onConfirm});
+  const ReservationBar({super.key, this.onConfirm, this.label = 'Continuer'});
 
   @override
   Widget build(BuildContext context) {
@@ -39,7 +40,7 @@ class ReservationBar extends StatelessWidget {
                   ),
                   const SizedBox(width: 12),
                   GlowButton(
-                    label: 'Confirmer',
+                    label: label,
                     expanded: false,
                     padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 15),
                     onPressed: hasSelection ? onConfirm : null,

@@ -11,7 +11,7 @@ import '../../../core/widgets/notification_bell.dart';
 import '../../../core/theme/app_text_styles.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/widgets/status_chip.dart';
-import '../../../core/widgets/price_display.dart';
+import '../../../core/widgets/trip_card.dart' show RouteTimeline, RouteTimelineStop, formatDayLabel, formatFcfa;
 import '../../../models/booking.dart';
 import '../../../models/trip.dart';
 import '../../../providers/app_provider.dart';
@@ -212,239 +212,94 @@ class _BookingCard extends StatelessWidget {
     }
   }
 
+  /// Ce que le toucher ouvre, dit en clair sur la carte.
+  String? get _action {
+    switch (booking.status) {
+      case BookingStatus.confirmed:
+        return 'Voir le billet';
+      case BookingStatus.pending:
+        return 'Suivre';
+      case BookingStatus.completed:
+        return 'Noter';
+      case BookingStatus.cancelled:
+      case BookingStatus.refused:
+        return null;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
-    final timeFormat = DateFormat('HH:mm');
-    final dateFormat = DateFormat('EEE d MMM', 'fr_FR');
-    // Durée du tronçon du passager, pas du trajet entier du chauffeur.
-    final bookedTrip = booking.trip;
-    final segmentDuration = bookedTrip == null
-        ? ''
-        : TripSegment(
-            boarding: booking.boardingStop,
-            alighting: booking.alightingStop,
-            pricePerSeat: 0,
-          ).durationLabel(bookedTrip);
     final trip = booking.trip;
-
     if (trip == null) {
-      return Container(
-        decoration: AppColors.cardDecoration,
-        padding: AppSpacing.cardPadding,
+      return NeuBox(
         child: Row(
           children: [
-            Container(
-              width: 44,
-              height: 44,
-              decoration: BoxDecoration(
-                color: AppColors.background,
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: const Icon(Icons.help_outline_rounded, color: AppColors.textMuted),
-            ),
+            const Icon(Icons.help_outline_rounded, color: AppColors.textMuted),
             const SizedBox(width: 12),
             Expanded(
-              child: Text(
-                'Trajet indisponible',
-                style: AppTextStyles.body.copyWith(color: AppColors.textSecondary),
-              ),
+              child: Text('Trajet indisponible', style: AppTextStyles.body.copyWith(color: AppColors.textSecondary)),
             ),
           ],
         ),
       );
     }
 
-    return GestureDetector(
+    final time = DateFormat('HH:mm');
+    final boardAt = booking.boardingStop?.scheduledAt ?? trip.departureTime;
+    final arriveAt = booking.alightingStop?.scheduledAt ?? trip.departureTime.add(trip.estimatedDuration);
+    // Durée du tronçon du passager, pas du trajet entier du chauffeur.
+    final segmentDuration = TripSegment(
+      boarding: booking.boardingStop,
+      alighting: booking.alightingStop,
+      pricePerSeat: 0,
+    ).durationLabel(trip);
+    final action = onTap == null ? null : _action;
+
+    return NeuBox(
       onTap: onTap,
-      child: Container(
-        decoration: BoxDecoration(
-          color: AppColors.surface,
-          borderRadius: BorderRadius.circular(AppSpacing.borderRadiusCard),
-          border: Border.all(color: AppColors.border),
-          boxShadow: const [
-            BoxShadow(color: Color(0x08000000), blurRadius: 8, offset: Offset(0, 2)),
-          ],
-        ),
-        child: Column(
-          children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 14, 16, 12),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  // Status + code
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      StatusChip(variant: _chipVariant, customLabel: booking.statusLabel),
-                      if (booking.status == BookingStatus.confirmed &&
-                          booking.confirmationCode.isNotEmpty)
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                          decoration: BoxDecoration(
-                            color: AppColors.background,
-                            borderRadius: BorderRadius.circular(6),
-                            border: Border.all(color: AppColors.border),
-                          ),
-                          child: Text(
-                            booking.confirmationCode,
-                            style: AppTextStyles.label.copyWith(
-                              color: AppColors.textMuted,
-                              letterSpacing: 1.2,
-                              fontSize: 11,
-                            ),
-                          ),
-                        ),
-                    ],
-                  ),
-                  const SizedBox(height: 14),
-
-                  // Visual route
-                  Row(
-                    children: [
-                      // Origin dot
-                      Container(
-                        width: 10,
-                        height: 10,
-                        decoration: BoxDecoration(
-                          color: AppColors.primary,
-                          shape: BoxShape.circle,
-                          boxShadow: [
-                            BoxShadow(color: AppColors.primary.withOpacity(0.3), blurRadius: 4),
-                          ],
-                        ),
-                      ),
-                      // Line
-                      Expanded(
-                        child: Container(
-                          height: 2,
-                          margin: const EdgeInsets.symmetric(horizontal: 6),
-                          decoration: BoxDecoration(
-                            gradient: LinearGradient(
-                              colors: [
-                                AppColors.primary,
-                                AppColors.primary.withOpacity(0.2),
-                                AppColors.danger.withOpacity(0.3),
-                                AppColors.danger,
-                              ],
-                            ),
-                            borderRadius: BorderRadius.circular(1),
-                          ),
-                        ),
-                      ),
-                      // Destination pin
-                      const Icon(Icons.location_on_rounded, size: 16, color: AppColors.danger),
-                    ],
-                  ),
-                  const SizedBox(height: 6),
-
-                  // Cities
-                  Row(
-                    children: [
-                      Expanded(
-                        child: Text(
-                          booking.boardingStop?.name ?? trip.departure,
-                          style: AppTextStyles.bodyLargeSemibold.copyWith(fontSize: 15),
-                        ),
-                      ),
-                      Expanded(
-                        child: Text(
-                          booking.alightingStop?.name ?? trip.arrival,
-                          textAlign: TextAlign.right,
-                          style: AppTextStyles.bodyLargeSemibold.copyWith(fontSize: 15),
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 12),
-
-                  // Time info
-                  Row(
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.all(6),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFFFFF3E0),
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: const Icon(Icons.schedule_rounded, size: 14, color: Color(0xFFE67E22)),
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              '${timeFormat.format(booking.boardingStop?.scheduledAt ?? trip.departureTime)} → '
-                              '${timeFormat.format(booking.alightingStop?.scheduledAt ?? trip.departureTime.add(trip.estimatedDuration))}',
-                              style: AppTextStyles.bodySemibold.copyWith(fontSize: 14),
-                            ),
-                            Text(
-                              dateFormat.format(booking.boardingStop?.scheduledAt ?? trip.departureTime),
-                              style: AppTextStyles.caption.copyWith(color: AppColors.textSecondary),
-                            ),
-                          ],
-                        ),
-                      ),
-                      if (segmentDuration.isNotEmpty)
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                          decoration: BoxDecoration(
-                            color: AppColors.background,
-                            borderRadius: BorderRadius.circular(6),
-                          ),
-                          child: Text(segmentDuration,
-                              style: AppTextStyles.caption.copyWith(
-                                color: AppColors.textSecondary,
-                                fontWeight: FontWeight.w600,
-                              )),
-                        ),
-                    ],
-                  ),
-                ],
+      padding: const EdgeInsets.fromLTRB(16, 14, 16, 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              StatusChip(variant: _chipVariant, customLabel: booking.statusLabel),
+              const Spacer(),
+              Text(
+                formatDayLabel(boardAt),
+                style: AppTextStyles.bodySemibold.copyWith(color: AppColors.textSecondary),
               ),
-            ),
-
-            // Bottom bar
-            Container(
-              padding: const EdgeInsets.symmetric(
-                horizontal: AppSpacing.md,
-                vertical: 10,
+            ],
+          ),
+          const SizedBox(height: 14),
+          RouteTimeline(
+            stops: [
+              RouteTimelineStop(time: time.format(boardAt), place: booking.boardingStop?.name ?? trip.departure),
+              RouteTimelineStop(time: time.format(arriveAt), place: booking.alightingStop?.name ?? trip.arrival),
+            ],
+            duration: segmentDuration,
+          ),
+          const SizedBox(height: 12),
+          const Divider(),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              const Icon(Icons.event_seat_outlined, size: 16, color: AppColors.textSecondary),
+              const SizedBox(width: 4),
+              Text(
+                '${booking.seatsBooked} place${booking.seatsBooked > 1 ? 's' : ''}',
+                style: AppTextStyles.caption,
               ),
-              decoration: const BoxDecoration(
-                color: Color(0xFFFAFAF8),
-                borderRadius: BorderRadius.vertical(
-                    bottom: Radius.circular(AppSpacing.borderRadiusCard - 1)),
-                border: Border(top: BorderSide(color: AppColors.border)),
-              ),
-              child: Row(
-                children: [
-                  const Icon(Icons.airline_seat_recline_normal_rounded,
-                      size: 16, color: AppColors.textMuted),
-                  const SizedBox(width: 5),
-                  Text(
-                    '${booking.seatsBooked} place${booking.seatsBooked > 1 ? 's' : ''}',
-                    style: AppTextStyles.body.copyWith(
-                      color: AppColors.textSecondary,
-                      fontSize: 13,
-                    ),
-                  ),
-                  const Spacer(),
-                  PriceDisplay(
-                    amount: booking.totalPrice,
-                    customStyle: AppTextStyles.priceLarge.copyWith(fontSize: 16),
-                  ),
-                  const SizedBox(width: AppSpacing.sm),
-                  const Icon(
-                    Icons.chevron_right_rounded,
-                    size: 20,
-                    color: AppColors.textMuted,
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
+              const SizedBox(width: 12),
+              Text(formatFcfa(booking.totalPrice), style: AppTextStyles.bodySemibold.copyWith(fontWeight: FontWeight.w800)),
+              const Spacer(),
+              if (action != null) ...[
+                Text(action, style: AppTextStyles.bodySemibold.copyWith(color: AppColors.brandText, fontWeight: FontWeight.w700)),
+                const Icon(Icons.chevron_right_rounded, size: 20, color: AppColors.brandText),
+              ],
+            ],
+          ),
+        ],
       ),
     );
   }
@@ -472,11 +327,8 @@ class _EmptyState extends StatelessWidget {
             Container(
               width: 80,
               height: 80,
-              decoration: BoxDecoration(
-                color: AppColors.primary.withOpacity(0.08),
-                borderRadius: BorderRadius.circular(22),
-              ),
-              child: Icon(icon, size: 40, color: AppColors.primary.withOpacity(0.5)),
+              decoration: const BoxDecoration(color: AppColors.muted, shape: BoxShape.circle),
+              child: Icon(icon, size: 36, color: AppColors.textSecondary),
             ),
             const SizedBox(height: 24),
             Text(
@@ -494,20 +346,11 @@ class _EmptyState extends StatelessWidget {
               textAlign: TextAlign.center,
             ),
             const SizedBox(height: AppSpacing.xl),
-            InkWell(
-              onTap: () => context.go('/home'),
-              borderRadius: BorderRadius.circular(AppSpacing.borderRadiusMd),
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-                decoration: BoxDecoration(
-                  color: AppColors.primary,
-                  borderRadius: BorderRadius.circular(AppSpacing.borderRadiusMd),
-                ),
-                child: Text(
-                  'Rechercher un trajet',
-                  style: AppTextStyles.bodySemibold.copyWith(color: Colors.white),
-                ),
-              ),
+            GlowButton(
+              label: 'Rechercher un trajet',
+              leadingIcon: Icons.search_rounded,
+              expanded: false,
+              onPressed: () => context.go('/home'),
             ),
           ],
         ),
@@ -539,11 +382,8 @@ class _ErrorState extends StatelessWidget {
             const SizedBox(height: 8),
             TextButton.icon(
               onPressed: onRetry,
-              icon: const Icon(Icons.refresh, color: AppColors.primary),
-              label: Text(
-                'Réessayer',
-                style: AppTextStyles.bodySemibold.copyWith(color: AppColors.primary),
-              ),
+              icon: const Icon(Icons.refresh_rounded),
+              label: const Text('Réessayer'),
             ),
           ],
         ),

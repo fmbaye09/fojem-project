@@ -272,7 +272,8 @@ class _PrimaryButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     // Dégradé de marque + halo (`btn-brand` du template).
-    const contentColor = AppColors.onPrimary;
+    // Fond de la couleur de la marque, texte lisible dessus.
+    const contentColor = AppColors.onBrand;
     final button = AnimatedOpacity(
       opacity: isDisabled ? 0.4 : 1,
       duration: const Duration(milliseconds: 200),

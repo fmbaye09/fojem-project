@@ -1,30 +1,36 @@
 import 'dart:io';
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 
 import '../../../core/network/api_exception.dart';
 import '../../../core/theme/app_colors.dart';
-import '../../../core/widgets/glow.dart';
-import '../../../core/widgets/trip_card.dart' show formatFcfa;
 import '../../../core/theme/app_text_styles.dart';
-import '../../../core/theme/app_spacing.dart';
-import '../../../core/widgets/fojem_button.dart';
+import '../../../core/widgets/glow.dart';
 import '../../../core/widgets/meeting_point_card.dart';
-import '../../../core/widgets/price_display.dart';
+import '../../../core/widgets/trip_card.dart' show RouteTimeline, RouteTimelineStop, formatFcfa;
 import '../../../models/proposed_stop.dart';
 import '../../../models/trip.dart';
 import '../../../providers/app_provider.dart';
 import '../../../services/booking_repository.dart';
-import '../widgets/propose_stop_card.dart' show proposalSummary;
 import '../../../services/trip_repository.dart';
+import '../widgets/propose_stop_card.dart' show proposalSummary;
 
+/// Récapitulatif avant d'envoyer la réservation : le trajet, le nombre de
+/// places (le plan des sièges est facultatif), le point de rendez-vous, les
+/// bagages, le paiement en espèces, et ce qui se passe ensuite. Un seul
+/// bouton envoie la demande.
 class BookingConfirmationScreen extends StatefulWidget {
   final String tripId;
 
-  /// Sièges choisis sur le plan du véhicule (au moins un).
+  /// Places choisies sur le plan du véhicule (facultatif).
   final List<String> seatIds;
+
+  /// Nombre de places quand aucune n'est choisie sur le plan.
+  final int seatCount;
 
   /// Arrêts de montée et de descente (points de rendez-vous du chauffeur) ;
   /// à défaut, le trajet complet.
@@ -37,25 +43,27 @@ class BookingConfirmationScreen extends StatefulWidget {
   const BookingConfirmationScreen({
     super.key,
     required this.tripId,
-    required this.seatIds,
+    this.seatIds = const [],
+    this.seatCount = 1,
     this.boardingStopId,
     this.alightingStopId,
     this.proposal,
   });
 
   @override
-  State<BookingConfirmationScreen> createState() =>
-      _BookingConfirmationScreenState();
+  State<BookingConfirmationScreen> createState() => _BookingConfirmationScreenState();
 }
 
-class _BookingConfirmationScreenState
-    extends State<BookingConfirmationScreen> {
+class _BookingConfirmationScreenState extends State<BookingConfirmationScreen> {
   Trip? _trip;
   bool _isLoading = true;
   bool _isConfirming = false;
   bool _hasHeavyLuggage = false;
   final List<File> _luggagePhotos = [];
   final ImagePicker _picker = ImagePicker();
+
+  late List<String> _seats = [...widget.seatIds];
+  late int _count = widget.seatIds.isNotEmpty ? widget.seatIds.length : math.max(1, widget.seatCount);
 
   @override
   void initState() {
@@ -69,8 +77,13 @@ class _BookingConfirmationScreenState
     setState(() {
       _trip = trip;
       _isLoading = false;
+      if (trip != null) _count = _count.clamp(1, _maxSeats(trip));
     });
   }
+
+  static int _maxSeats(Trip trip) => math.max(1, math.min(trip.availableSeats, 8));
+
+  int get _places => _seats.isNotEmpty ? _seats.length : _count;
 
   TripSegment get _segment => _trip!.segment(
         boardingStopId: widget.boardingStopId,
@@ -78,76 +91,69 @@ class _BookingConfirmationScreenState
         proposal: widget.proposal,
       );
 
-  /// `&board=…&alight=…` pour revenir au plan des sièges sans perdre le tronçon.
+  /// `&board=…&alight=…` pour ouvrir le plan des sièges sur le même tronçon.
   String get _segmentQuery => [
         if (widget.boardingStopId != null) '&board=${widget.boardingStopId}',
         if (widget.alightingStopId != null) '&alight=${widget.alightingStopId}',
         if (widget.proposal != null) '&proposal=${widget.proposal!.toQuery()}',
       ].join();
 
+  void _setCount(int count) {
+    setState(() {
+      _count = count.clamp(1, _maxSeats(_trip!));
+      // Le nombre change : les places du plan ne correspondent plus.
+      _seats = [];
+    });
+  }
+
+  Future<void> _pickSeats() async {
+    final picked = await context.push<List<String>>('/seat-selection?tripId=${widget.tripId}&pick=1$_segmentQuery');
+    if (!mounted || picked == null || picked.isEmpty) return;
+    setState(() {
+      _seats = picked;
+      _count = picked.length;
+    });
+  }
+
   Future<void> _pickPhoto(ImageSource source) async {
     try {
-      final picked = await _picker.pickImage(
-        source: source,
-        maxWidth: 1600,
-        maxHeight: 1600,
-        imageQuality: 85,
-      );
-      if (picked != null) {
-        setState(() {
-          _luggagePhotos.add(File(picked.path));
-        });
-      }
-    } catch (e) {
+      final picked = await _picker.pickImage(source: source, maxWidth: 1600, maxHeight: 1600, imageQuality: 85);
+      if (picked != null) setState(() => _luggagePhotos.add(File(picked.path)));
+    } catch (_) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Impossible d\'accéder à la photo.')),
-      );
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Impossible d’accéder à la photo.')));
     }
   }
 
   void _showPhotoSourceSheet() {
-    showModalBottomSheet(
+    showModalBottomSheet<void>(
       context: context,
-      backgroundColor: AppColors.surface,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(AppSpacing.borderRadiusLg)),
-      ),
       builder: (ctx) => SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: AppSpacing.md),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Container(
-                width: 36,
-                height: 4,
-                decoration: BoxDecoration(
-                  color: AppColors.border,
-                  borderRadius: BorderRadius.circular(2),
-                ),
-              ),
-              const SizedBox(height: AppSpacing.md),
-              Text('Photo de vos bagages', style: AppTextStyles.bodyLargeSemibold),
-              const SizedBox(height: AppSpacing.sm),
-              ListTile(
-                leading: const Icon(Icons.camera_alt_rounded, color: AppColors.primary),
-                title: Text('Prendre une photo (Appareil photo)', style: AppTextStyles.body),
-                onTap: () {
-                  Navigator.pop(ctx);
-                  _pickPhoto(ImageSource.camera);
-                },
-              ),
-              ListTile(
-                leading: const Icon(Icons.photo_library_rounded, color: AppColors.primary),
-                title: Text('Choisir dans la galerie', style: AppTextStyles.body),
-                onTap: () {
-                  Navigator.pop(ctx);
-                  _pickPhoto(ImageSource.gallery);
-                },
-              ),
-            ],
-          ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 0, 20, 8),
+              child: Text('Photo de vos bagages', style: AppTextStyles.title2),
+            ),
+            ListTile(
+              leading: const Icon(Icons.photo_camera_outlined),
+              title: const Text('Prendre une photo'),
+              onTap: () {
+                Navigator.pop(ctx);
+                _pickPhoto(ImageSource.camera);
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.photo_library_outlined),
+              title: const Text('Choisir dans la galerie'),
+              onTap: () {
+                Navigator.pop(ctx);
+                _pickPhoto(ImageSource.gallery);
+              },
+            ),
+            const SizedBox(height: 8),
+          ],
         ),
       ),
     );
@@ -160,10 +166,7 @@ class _BookingConfirmationScreenState
 
     if (_hasHeavyLuggage && _luggagePhotos.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Veuillez ajouter au moins une photo de vos bagages lourds.'),
-          backgroundColor: AppColors.danger,
-        ),
+        const SnackBar(content: Text('Ajoutez une photo de vos bagages pour que le chauffeur prévoie la place.')),
       );
       return;
     }
@@ -175,7 +178,8 @@ class _BookingConfirmationScreenState
         passengerId: user.id,
         passengerName: user.name.isEmpty ? user.phoneNumber : user.name,
         passengerPhone: user.phoneNumber,
-        seatIds: widget.seatIds,
+        seatIds: _seats,
+        seatCount: _places,
         hasHeavyLuggage: _hasHeavyLuggage,
         luggagePhotos: _luggagePhotos,
         boardingStopId: _segment.boardingStopId,
@@ -186,356 +190,223 @@ class _BookingConfirmationScreenState
       context.go('/booking/success?bookingId=${booking.id}');
     } catch (e) {
       if (!mounted) return;
-      setState(() => _isConfirming = false);
-      final msg = e is ApiException && e.message.isNotEmpty
-          ? e.message
-          : 'Échec de la demande de réservation. Réessayez.';
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(msg)),
-      );
-      // Place prise entre-temps par un autre passager : retour au plan,
-      // rechargé avec les sièges à jour.
-      if (e is ApiException && (e.fieldErrors?.containsKey('seat_numbers') ?? false)) {
-        context.pushReplacement('/seat-selection?tripId=${trip.id}$_segmentQuery');
-      }
+      final seatTaken = e is ApiException && (e.fieldErrors?.containsKey('seat_numbers') ?? false);
+      setState(() {
+        _isConfirming = false;
+        // Places prises entre-temps : le chauffeur placera le passager.
+        if (seatTaken) _seats = [];
+      });
+      final msg = e is ApiException && e.message.isNotEmpty ? e.message : 'La demande n’a pas pu être envoyée. Réessayez.';
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
     }
   }
 
   @override
   Widget build(BuildContext context) {
     if (_isLoading) {
-      return const Scaffold(
-        backgroundColor: AppColors.background,
-        body: Center(child: CircularProgressIndicator(color: AppColors.primary)),
-      );
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
-    if (_trip == null) {
+    final trip = _trip;
+    if (trip == null) {
       return Scaffold(
-        backgroundColor: AppColors.background,
-        appBar: AppBar(leading: IconButton(onPressed: () => context.pop(), icon: const Icon(Icons.arrow_back))),
-        body: const Center(child: Text('Trajet introuvable')),
+        appBar: BrandAppBar(title: 'Réservation', onBack: () => context.pop()),
+        body: Center(child: Text('Trajet introuvable', style: AppTextStyles.title2)),
       );
     }
-    final trip = _trip!;
     final segment = _segment;
-    final user = context.watch<AppProvider>().user;
-
-    if (widget.seatIds.isEmpty) {
-      return Scaffold(
-        backgroundColor: AppColors.background,
-        appBar: AppBar(leading: IconButton(onPressed: () => context.pop(), icon: const Icon(Icons.arrow_back))),
-        body: Center(
-          child: Padding(
-            padding: const EdgeInsets.all(AppSpacing.lg),
-            child: FojemButton.primary(
-              label: 'Choisir une place',
-              onPressed: () => context.pushReplacement('/seat-selection?tripId=${trip.id}$_segmentQuery'),
-            ),
-          ),
-        ),
-      );
-    }
+    final instant = trip.status == TripStatus.inProgress;
+    final boardAt = segment.boarding?.scheduledAt ?? trip.departureTime;
+    final arriveAt = segment.alighting?.scheduledAt ?? trip.departureTime.add(trip.estimatedDuration);
+    final time = DateFormat('HH:mm');
 
     return Scaffold(
-      backgroundColor: AppColors.background,
       appBar: BrandAppBar(
-        title: 'Confirmer la réservation',
-        subtitle: '${segment.boarding?.name ?? trip.departure} → ${segment.alighting?.name ?? trip.arrival}',
+        title: 'Votre réservation',
+        subtitle: toBeginningOfSentenceCase(DateFormat('EEEE d MMMM', 'fr_FR').format(boardAt)),
         onBack: () => context.pop(),
       ),
-      body: Column(
+      body: ListView(
+        padding: const EdgeInsets.fromLTRB(16, 4, 16, 24),
         children: [
-          Expanded(
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.all(AppSpacing.md),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  _TripSummaryCard(trip: trip, segment: segment),
-                  const SizedBox(height: AppSpacing.lg),
-                  if (segment.boarding != null) ...[
-                    MeetingPointCard(stop: segment.boarding!),
-                    const SizedBox(height: AppSpacing.lg),
-                  ],
-                  if (widget.proposal != null) ...[
-                    _ProposalNotice(proposal: widget.proposal!),
-                    const SizedBox(height: AppSpacing.lg),
-                  ],
-                  Text(
-                    widget.seatIds.length > 1 ? 'Vos places' : 'Votre place',
-                    style: AppTextStyles.title2,
-                  ),
-                  const SizedBox(height: AppSpacing.md),
-                  _SeatSummary(seatIds: widget.seatIds),
-                  const SizedBox(height: AppSpacing.lg),
-                  Text('Récapitulatif passager', style: AppTextStyles.title2),
-                  const SizedBox(height: AppSpacing.md),
-                  _PassengerSummary(
-                    name: user?.name.isNotEmpty == true ? user!.name : 'Votre profil',
-                    phone: user?.phoneNumber ?? '',
-                  ),
-                  const SizedBox(height: AppSpacing.lg),
-                  _LuggageSection(
-                    hasHeavyLuggage: _hasHeavyLuggage,
-                    photos: _luggagePhotos,
-                    onToggle: (val) {
-                      setState(() {
-                        _hasHeavyLuggage = val;
-                        if (!val) _luggagePhotos.clear();
-                      });
-                    },
-                    onAddPhoto: _showPhotoSourceSheet,
-                    onRemovePhoto: (index) {
-                      setState(() {
-                        _luggagePhotos.removeAt(index);
-                      });
-                    },
-                  ),
-                  const SizedBox(height: AppSpacing.lg),
-                  _PriceSummary(
-                    pricePerSeat: segment.pricePerSeat,
-                    seatCount: widget.seatIds.length,
-                  ),
-                ],
-              ),
-            ),
-          ),
-          _ConfirmBar(
-            total: segment.pricePerSeat * widget.seatIds.length,
-            isLoading: _isConfirming,
-            onConfirm: _confirm,
-            // Trajet déjà parti : réservation confirmée d'office.
-            instant: trip.status == TripStatus.inProgress,
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _TripSummaryCard extends StatelessWidget {
-  final Trip trip;
-  final TripSegment segment;
-
-  const _TripSummaryCard({required this.trip, required this.segment});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: AppSpacing.cardPadding,
-      decoration: BoxDecoration(
-        color: AppColors.primarySurface,
-        borderRadius: BorderRadius.circular(AppSpacing.borderRadiusMd),
-        border: Border.all(color: AppColors.primary.withValues(alpha: 0.2)),
-      ),
-      child: Row(
-        children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text('Montée', style: AppTextStyles.caption),
-                Text(segment.boarding?.name ?? trip.departure, style: AppTextStyles.bodyLargeSemibold),
-              ],
-            ),
-          ),
-          Column(
-            children: [
-              const Icon(
-                Icons.arrow_forward,
-                color: AppColors.primary,
-                size: 20,
-              ),
-              Text(segment.durationLabel(trip), style: AppTextStyles.caption),
-            ],
-          ),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.end,
-              children: [
-                Text('Descente', style: AppTextStyles.caption),
-                Text(
-                  segment.alighting?.name ?? trip.arrival,
-                  style: AppTextStyles.bodyLargeSemibold,
-                  textAlign: TextAlign.end,
+          _Card(
+            child: RouteTimeline(
+              stops: [
+                RouteTimelineStop(
+                  time: time.format(boardAt),
+                  place: segment.boarding?.name ?? trip.departure,
+                  hint: segment.boarding?.displayAddress ?? trip.departureAddress,
+                ),
+                RouteTimelineStop(
+                  time: time.format(arriveAt),
+                  place: segment.alighting?.name ?? trip.arrival,
+                  hint: segment.alighting?.displayAddress ?? trip.arrivalAddress,
                 ),
               ],
+              duration: segment.durationLabel(trip),
             ),
           ),
-        ],
-      ),
-    );
-  }
-}
-
-class _SeatSummary extends StatelessWidget {
-  final List<String> seatIds;
-
-  const _SeatSummary({required this.seatIds});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      decoration: AppColors.cardDecoration,
-      child: Padding(
-        padding: AppSpacing.cardPadding,
-        child: Row(
-          children: [
-            const Icon(
-              Icons.event_seat_outlined,
-              color: AppColors.primary,
-              size: 22,
-            ),
-            const SizedBox(width: AppSpacing.md),
-            Expanded(
-              child: Text(
-                seatIds.length > 1
-                    ? 'Places #${seatIds.join(', ')}'
-                    : 'Place #${seatIds.first}',
-                style: AppTextStyles.bodyLargeSemibold,
-              ),
-            ),
+          const SizedBox(height: 12),
+          _SeatsCard(
+            count: _places,
+            max: _maxSeats(trip),
+            seats: _seats,
+            onCount: _setCount,
+            onPickSeats: _pickSeats,
+          ),
+          if (widget.proposal != null) ...[
+            const SizedBox(height: 12),
+            _ProposalNotice(proposal: widget.proposal!),
           ],
-        ),
-      ),
-    );
-  }
-}
-
-class _PassengerSummary extends StatelessWidget {
-  final String name;
-  final String phone;
-
-  const _PassengerSummary({required this.name, required this.phone});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: AppSpacing.cardPadding,
-      decoration: AppColors.cardDecoration,
-      child: Row(
-        children: [
-          Container(
-            width: 44,
-            height: 44,
-            decoration: const BoxDecoration(
-              color: AppColors.primarySurface,
-              shape: BoxShape.circle,
-            ),
-            child: Center(
-              child: Text(
-                _initials(name),
-                style: const TextStyle(
-                  fontSize: 15,
-                  fontWeight: FontWeight.w600,
-                  color: AppColors.primary,
-                ),
-              ),
-            ),
+          if (segment.boarding != null) ...[
+            const SizedBox(height: 12),
+            MeetingPointCard(stop: segment.boarding!),
+          ],
+          const SizedBox(height: 12),
+          _LuggageCard(
+            hasHeavyLuggage: _hasHeavyLuggage,
+            photos: _luggagePhotos,
+            onToggle: (value) => setState(() {
+              _hasHeavyLuggage = value;
+              if (!value) _luggagePhotos.clear();
+            }),
+            onAddPhoto: _showPhotoSourceSheet,
+            onRemovePhoto: (index) => setState(() => _luggagePhotos.removeAt(index)),
           ),
-          const SizedBox(width: AppSpacing.md),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(name, style: AppTextStyles.bodyLargeSemibold),
-              Text(phone, style: AppTextStyles.caption),
-            ],
+          const SizedBox(height: 12),
+          const _InfoRow(
+            icon: Icons.payments_outlined,
+            title: 'Paiement en espèces',
+            body: 'Vous payez le chauffeur à la montée. Aucun frais caché.',
+          ),
+          const SizedBox(height: 8),
+          _InfoRow(
+            icon: instant ? Icons.bolt_rounded : Icons.notifications_active_outlined,
+            title: instant ? 'Confirmation immédiate' : 'Le chauffeur confirme',
+            body: instant
+                ? 'Le trajet est déjà en route : votre place est réservée tout de suite.'
+                : 'Il accepte ou refuse votre demande ; vous êtes prévenu par notification.',
           ),
         ],
       ),
-    );
-  }
-
-  String _initials(String name) {
-    final parts = name.trim().split(' ').where((p) => p.isNotEmpty).toList();
-    if (parts.isEmpty) return '?';
-    if (parts.length == 1) return parts[0][0].toUpperCase();
-    return '${parts[0][0]}${parts[1][0]}'.toUpperCase();
-  }
-}
-
-class _PriceSummary extends StatelessWidget {
-  final double pricePerSeat;
-  final int seatCount;
-
-  const _PriceSummary({required this.pricePerSeat, required this.seatCount});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: AppSpacing.cardPadding,
-      decoration: AppColors.cardDecoration,
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text('Total', style: AppTextStyles.bodyLargeSemibold),
-              if (seatCount > 1)
-                Text(
-                  '$seatCount places × ${pricePerSeat.round()} FCFA',
-                  style: AppTextStyles.caption,
-                ),
-            ],
-          ),
-          PriceDisplay(amount: pricePerSeat * seatCount, isLarge: true),
-        ],
+      bottomNavigationBar: _ConfirmBar(
+        pricePerSeat: segment.pricePerSeat,
+        places: _places,
+        isLoading: _isConfirming,
+        instant: instant,
+        onConfirm: _confirm,
       ),
     );
   }
 }
 
-class _ConfirmBar extends StatelessWidget {
-  final double total;
-  final bool isLoading;
-  final VoidCallback onConfirm;
-  final bool instant;
+class _Card extends StatelessWidget {
+  final Widget child;
 
-  const _ConfirmBar({
-    required this.total,
-    required this.isLoading,
-    required this.onConfirm,
-    this.instant = false,
+  const _Card({required this.child});
+
+  @override
+  Widget build(BuildContext context) => NeuBox(padding: const EdgeInsets.all(16), child: child);
+}
+
+/// Nombre de places, avec le plan des sièges en option.
+class _SeatsCard extends StatelessWidget {
+  final int count;
+  final int max;
+  final List<String> seats;
+  final ValueChanged<int> onCount;
+  final VoidCallback onPickSeats;
+
+  const _SeatsCard({
+    required this.count,
+    required this.max,
+    required this.seats,
+    required this.onCount,
+    required this.onPickSeats,
   });
 
-  /// Barre fixe du bas : total et envoi de la demande.
   @override
   Widget build(BuildContext context) {
-    return BottomActionBar(
-          child: Row(
+    return NeuBox(
+      padding: const EdgeInsets.fromLTRB(16, 12, 8, 4),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
             children: [
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min,
                   children: [
-                    Text('Total', style: AppTextStyles.caption.copyWith(fontWeight: FontWeight.w700)),
-                    Text(formatFcfa(total), style: AppTextStyles.priceLarge.copyWith(fontSize: 20)),
+                    Text('Places', style: AppTextStyles.bodyLargeSemibold),
+                    Text(
+                      seats.isEmpty
+                          ? 'Le chauffeur vous place à la montée'
+                          : 'Sur le plan : n° ${seats.join(', ')}',
+                      style: AppTextStyles.caption,
+                    ),
                   ],
                 ),
               ),
-              GlowButton(
-                label: instant ? 'Réserver' : 'Envoyer la demande',
-                expanded: false,
-                isLoading: isLoading,
-                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 15),
-                onPressed: isLoading ? null : onConfirm,
-              ),
+              _Stepper(value: count, min: 1, max: max, onChanged: onCount),
             ],
           ),
+          TextButton.icon(
+            onPressed: onPickSeats,
+            icon: const Icon(Icons.event_seat_outlined, size: 18),
+            label: Text(seats.isEmpty ? 'Choisir mes places sur le plan' : 'Changer de places'),
+          ),
+        ],
+      ),
     );
   }
 }
 
-class _LuggageSection extends StatelessWidget {
+/// − valeur + : boutons ronds de 48 dp, valeur annoncée aux lecteurs d'écran.
+class _Stepper extends StatelessWidget {
+  final int value;
+  final int min;
+  final int max;
+  final ValueChanged<int> onChanged;
+
+  const _Stepper({required this.value, required this.min, required this.max, required this.onChanged});
+
+  @override
+  Widget build(BuildContext context) {
+    Widget button(IconData icon, String label, VoidCallback? onTap) => IconButton(
+          tooltip: label,
+          onPressed: onTap,
+          style: IconButton.styleFrom(
+            backgroundColor: AppColors.muted,
+            disabledBackgroundColor: AppColors.muted.withValues(alpha: 0.5),
+          ),
+          icon: Icon(icon, size: 20),
+        );
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        button(Icons.remove_rounded, 'Une place de moins', value > min ? () => onChanged(value - 1) : null),
+        SizedBox(
+          width: 36,
+          child: Semantics(
+            liveRegion: true,
+            label: '$value place${value > 1 ? 's' : ''}',
+            child: Text('$value', textAlign: TextAlign.center, style: AppTextStyles.title2),
+          ),
+        ),
+        button(Icons.add_rounded, 'Une place de plus', value < max ? () => onChanged(value + 1) : null),
+      ],
+    );
+  }
+}
+
+class _LuggageCard extends StatelessWidget {
   final bool hasHeavyLuggage;
   final List<File> photos;
   final ValueChanged<bool> onToggle;
   final VoidCallback onAddPhoto;
   final ValueChanged<int> onRemovePhoto;
 
-  const _LuggageSection({
+  const _LuggageCard({
     required this.hasHeavyLuggage,
     required this.photos,
     required this.onToggle,
@@ -545,163 +416,78 @@ class _LuggageSection extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: AppSpacing.cardPadding,
-      decoration: AppColors.cardDecoration,
+    return NeuBox(
+      padding: const EdgeInsets.fromLTRB(16, 8, 8, 8),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            children: [
-              Container(
-                width: 36,
-                height: 36,
-                decoration: BoxDecoration(
-                  color: hasHeavyLuggage ? AppColors.primarySurface : AppColors.background,
-                  borderRadius: BorderRadius.circular(AppSpacing.borderRadiusSm),
-                ),
-                child: Icon(
-                  Icons.luggage_rounded,
-                  size: 20,
-                  color: hasHeavyLuggage ? AppColors.primary : AppColors.textSecondary,
-                ),
-              ),
-              const SizedBox(width: AppSpacing.sm),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text('Bagages lourds ou volumineux ?', style: AppTextStyles.bodyLargeSemibold),
-                    Text(
-                      'Valises volumineuses, malles, cartons…',
-                      style: AppTextStyles.caption.copyWith(color: AppColors.textSecondary),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: AppSpacing.md),
-          Row(
-            children: [
-              Expanded(
-                child: _LuggageChoiceChip(
-                  label: 'Non (Normal)',
-                  icon: Icons.check_circle_outline_rounded,
-                  isSelected: !hasHeavyLuggage,
-                  onTap: () => onToggle(false),
-                ),
-              ),
-              const SizedBox(width: AppSpacing.sm),
-              Expanded(
-                child: _LuggageChoiceChip(
-                  label: 'Oui (Lourds / Grand)',
-                  icon: Icons.luggage_rounded,
-                  isSelected: hasHeavyLuggage,
-                  onTap: () => onToggle(true),
-                ),
-              ),
-            ],
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            value: hasHeavyLuggage,
+            onChanged: onToggle,
+            secondary: const Icon(Icons.luggage_outlined),
+            title: Text('Bagages volumineux', style: AppTextStyles.bodyLargeSemibold),
+            subtitle: Text('Valises, malles, cartons…', style: AppTextStyles.caption),
           ),
           if (hasHeavyLuggage) ...[
-            const SizedBox(height: AppSpacing.md),
-            Container(
-              padding: const EdgeInsets.all(AppSpacing.sm),
-              decoration: BoxDecoration(
-                color: AppColors.amberSurface,
-                borderRadius: BorderRadius.circular(AppSpacing.borderRadiusSm),
-                border: Border.all(color: AppColors.amber.withValues(alpha: 0.4)),
-              ),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Icon(Icons.info_outline_rounded, color: AppColors.amber, size: 18),
-                  const SizedBox(width: AppSpacing.xs),
-                  Expanded(
-                    child: Text(
-                      'Prenez une ou plusieurs photos de vos bagages pour informer le chauffeur et vous assurer qu\'il a la place nécessaire dans son coffre.',
-                      style: AppTextStyles.caption.copyWith(color: AppColors.textPrimary, height: 1.3),
-                    ),
-                  ),
-                ],
+            Padding(
+              padding: const EdgeInsets.only(right: 8, bottom: 8),
+              child: Text(
+                'Ajoutez une photo : le chauffeur vérifie qu’il a la place dans son coffre.',
+                style: AppTextStyles.caption.copyWith(color: AppColors.textPrimary),
               ),
             ),
-            const SizedBox(height: AppSpacing.md),
             SizedBox(
-              height: 84,
+              height: 80,
               child: ListView(
                 scrollDirection: Axis.horizontal,
                 children: [
-                  InkWell(
-                    onTap: onAddPhoto,
-                    borderRadius: BorderRadius.circular(AppSpacing.borderRadiusSm),
-                    child: Container(
-                      width: 84,
-                      height: 84,
-                      decoration: BoxDecoration(
-                        color: AppColors.primarySurface,
-                        borderRadius: BorderRadius.circular(AppSpacing.borderRadiusSm),
-                        border: Border.all(color: AppColors.primary, width: 1.2),
+                  Material(
+                    color: AppColors.muted,
+                    borderRadius: BorderRadius.circular(12),
+                    child: InkWell(
+                      onTap: onAddPhoto,
+                      borderRadius: BorderRadius.circular(12),
+                      child: SizedBox(
+                        width: 80,
+                        height: 80,
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            const Icon(Icons.add_a_photo_outlined),
+                            const SizedBox(height: 4),
+                            Text('Photo', style: AppTextStyles.caption.copyWith(color: AppColors.textPrimary)),
+                          ],
+                        ),
                       ),
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
+                    ),
+                  ),
+                  for (var i = 0; i < photos.length; i++)
+                    Padding(
+                      padding: const EdgeInsets.only(left: 8),
+                      child: Stack(
                         children: [
-                          const Icon(Icons.add_a_photo_rounded, color: AppColors.primary, size: 24),
-                          const SizedBox(height: 4),
-                          Text(
-                            'Photo',
-                            style: AppTextStyles.label.copyWith(color: AppColors.primary, fontSize: 11),
+                          ClipRRect(
+                            borderRadius: BorderRadius.circular(12),
+                            child: Image.file(photos[i], width: 80, height: 80, fit: BoxFit.cover),
+                          ),
+                          Positioned(
+                            top: 0,
+                            right: 0,
+                            child: IconButton(
+                              tooltip: 'Retirer la photo',
+                              onPressed: () => onRemovePhoto(i),
+                              style: IconButton.styleFrom(backgroundColor: Colors.black54, minimumSize: const Size(32, 32)),
+                              icon: const Icon(Icons.close_rounded, color: Colors.white, size: 16),
+                            ),
                           ),
                         ],
                       ),
                     ),
-                  ),
-                  ...photos.asMap().entries.map((entry) {
-                    final index = entry.key;
-                    final file = entry.value;
-                    return Padding(
-                      padding: const EdgeInsets.only(left: 10),
-                      child: Stack(
-                        children: [
-                          ClipRRect(
-                            borderRadius: BorderRadius.circular(AppSpacing.borderRadiusSm),
-                            child: Image.file(
-                              file,
-                              width: 84,
-                              height: 84,
-                              fit: BoxFit.cover,
-                            ),
-                          ),
-                          Positioned(
-                            top: 2,
-                            right: 2,
-                            child: InkWell(
-                              onTap: () => onRemovePhoto(index),
-                              child: Container(
-                                padding: const EdgeInsets.all(2),
-                                decoration: const BoxDecoration(
-                                  color: Colors.black54,
-                                  shape: BoxShape.circle,
-                                ),
-                                child: const Icon(Icons.close, color: Colors.white, size: 14),
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    );
-                  }),
                 ],
               ),
             ),
-            if (photos.isNotEmpty)
-              Padding(
-                padding: const EdgeInsets.only(top: 6),
-                child: Text(
-                  '${photos.length} photo(s) ajoutée(s)',
-                  style: AppTextStyles.caption.copyWith(color: AppColors.success, fontWeight: FontWeight.w600),
-                ),
-              ),
+            const SizedBox(height: 8),
           ],
         ],
       ),
@@ -709,57 +495,89 @@ class _LuggageSection extends StatelessWidget {
   }
 }
 
-class _LuggageChoiceChip extends StatelessWidget {
-  final String label;
+class _InfoRow extends StatelessWidget {
   final IconData icon;
-  final bool isSelected;
-  final VoidCallback onTap;
+  final String title;
+  final String body;
 
-  const _LuggageChoiceChip({
-    required this.label,
-    required this.icon,
-    required this.isSelected,
-    required this.onTap,
+  const _InfoRow({required this.icon, required this.title, required this.body});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 40,
+            height: 40,
+            decoration: const BoxDecoration(color: AppColors.surface, shape: BoxShape.circle),
+            child: Icon(icon, size: 20, color: AppColors.textPrimary),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(title, style: AppTextStyles.bodySemibold),
+                Text(body, style: AppTextStyles.body.copyWith(color: AppColors.textSecondary)),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Barre fixe du bas : total (places × prix) et envoi de la demande.
+class _ConfirmBar extends StatelessWidget {
+  final double pricePerSeat;
+  final int places;
+  final bool isLoading;
+  final bool instant;
+  final VoidCallback onConfirm;
+
+  const _ConfirmBar({
+    required this.pricePerSeat,
+    required this.places,
+    required this.isLoading,
+    required this.instant,
+    required this.onConfirm,
   });
 
   @override
   Widget build(BuildContext context) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(AppSpacing.borderRadiusSm),
-      child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 8),
-        decoration: BoxDecoration(
-          color: isSelected ? AppColors.primarySurface : AppColors.surface,
-          borderRadius: BorderRadius.circular(AppSpacing.borderRadiusSm),
-          border: Border.all(
-            color: isSelected ? AppColors.primary : AppColors.border,
-            width: isSelected ? 1.5 : 1,
-          ),
-        ),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(
-              icon,
-              size: 16,
-              color: isSelected ? AppColors.primary : AppColors.textSecondary,
-            ),
-            const SizedBox(width: 6),
-            Flexible(
-              child: Text(
-                label,
-                style: AppTextStyles.body.copyWith(
-                  color: isSelected ? AppColors.primary : AppColors.textPrimary,
-                  fontWeight: isSelected ? FontWeight.w600 : FontWeight.w400,
-                  fontSize: 13,
+    return BottomActionBar(
+      child: Row(
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  places > 1 ? '$places places × ${formatFcfa(pricePerSeat)}' : '1 place',
+                  style: AppTextStyles.caption,
                 ),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-              ),
+                FittedBox(
+                  fit: BoxFit.scaleDown,
+                  alignment: Alignment.centerLeft,
+                  child: Text(formatFcfa(pricePerSeat * places), maxLines: 1, style: AppTextStyles.priceLarge.copyWith(fontSize: 21)),
+                ),
+              ],
             ),
-          ],
-        ),
+          ),
+          const SizedBox(width: 12),
+          GlowButton(
+            label: instant ? 'Réserver' : 'Envoyer la demande',
+            expanded: false,
+            isLoading: isLoading,
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+            onPressed: isLoading ? null : onConfirm,
+          ),
+        ],
       ),
     );
   }
@@ -776,20 +594,17 @@ class _ProposalNotice extends StatelessWidget {
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: AppColors.primarySurface,
-        borderRadius: BorderRadius.circular(AppSpacing.borderRadiusMd),
-      ),
+      decoration: BoxDecoration(color: AppColors.brandSurface, borderRadius: BorderRadius.circular(16)),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Icon(Icons.add_location_alt_rounded, color: AppColors.primary),
+          const Icon(Icons.add_location_alt_outlined, color: AppColors.brandText),
           const SizedBox(width: 12),
           Expanded(
             child: Text(
               'Vous proposez de ${proposal.isBoarding ? 'monter' : 'descendre'} à ${proposal.name}. '
               '${proposalSummary(proposal)}',
-              style: AppTextStyles.body.copyWith(fontSize: 13.5),
+              style: AppTextStyles.body,
             ),
           ),
         ],

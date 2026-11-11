@@ -4,16 +4,14 @@ import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_text_styles.dart';
-import '../../../core/theme/app_spacing.dart';
-import '../../../core/widgets/fojem_button.dart';
-import '../../../core/widgets/price_display.dart';
-import '../../../core/widgets/fojem_logo.dart';
+import '../../../core/widgets/glow.dart';
+import '../../../core/widgets/trip_card.dart' show formatFcfa;
 import '../../../models/booking.dart';
 import '../../../services/booking_repository.dart';
 
-/// Confirmation d'une **demande** de réservation envoyée au chauffeur
-/// (statut `pending`, Phase 7) — code de confirmation généré et QR réel
-/// (contenant l'id de réservation), plus de code/QR en dur.
+/// Demande de réservation envoyée (ou confirmée d'office) : ce qui va se
+/// passer ensuite, le récapitulatif, et l'accès au suivi de la réservation.
+/// L'écran se met à jour si le chauffeur accepte pendant qu'il est ouvert.
 class BookingSuccessScreen extends StatefulWidget {
   final String bookingId;
 
@@ -23,11 +21,7 @@ class BookingSuccessScreen extends StatefulWidget {
   State<BookingSuccessScreen> createState() => _BookingSuccessScreenState();
 }
 
-class _BookingSuccessScreenState extends State<BookingSuccessScreen>
-    with SingleTickerProviderStateMixin {
-  late AnimationController _controller;
-  late Animation<double> _scaleAnim;
-  late Animation<double> _fadeAnim;
+class _BookingSuccessScreenState extends State<BookingSuccessScreen> {
   Booking? _booking;
   bool _isLoading = true;
   Timer? _pollTimer;
@@ -36,31 +30,11 @@ class _BookingSuccessScreenState extends State<BookingSuccessScreen>
   void initState() {
     super.initState();
     _load();
-
-    _controller = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 600),
-    );
-    _scaleAnim = Tween<double>(begin: 0.5, end: 1.0).animate(
-      CurvedAnimation(parent: _controller, curve: Curves.elasticOut),
-    );
-    _fadeAnim = Tween<double>(begin: 0.0, end: 1.0).animate(
-      CurvedAnimation(
-        parent: _controller,
-        curve: const Interval(0.3, 1.0),
-      ),
-    );
-    _controller.forward();
-
     _pollTimer = Timer.periodic(const Duration(seconds: 5), (_) async {
-      if (!mounted) return;
-      if (_booking?.status == BookingStatus.pending) {
-        final updated = await BookingRepository().fetch(widget.bookingId);
-        if (!mounted || updated == null) return;
-        if (updated.status != _booking?.status) {
-          setState(() => _booking = updated);
-        }
-      }
+      if (!mounted || _booking?.status != BookingStatus.pending) return;
+      final updated = await BookingRepository().fetch(widget.bookingId);
+      if (!mounted || updated == null) return;
+      if (updated.status != _booking?.status) setState(() => _booking = updated);
     });
   }
 
@@ -76,121 +50,96 @@ class _BookingSuccessScreenState extends State<BookingSuccessScreen>
   @override
   void dispose() {
     _pollTimer?.cancel();
-    _controller.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
     if (_isLoading) {
-      return const Scaffold(
-        backgroundColor: AppColors.background,
-        body: Center(child: CircularProgressIndicator(color: AppColors.primary)),
-      );
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
     final booking = _booking;
     if (booking == null || booking.trip == null) {
-      return const Scaffold(
-        backgroundColor: AppColors.background,
-        body: Center(child: Text('Réservation introuvable')),
+      return Scaffold(
+        body: SafeArea(
+          child: Center(
+            child: Padding(
+              padding: const EdgeInsets.all(24),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text('Réservation introuvable', style: AppTextStyles.title2),
+                  const SizedBox(height: 16),
+                  GlowButton(label: 'Mes réservations', dark: true, expanded: false, onPressed: () => context.go('/my-trips')),
+                ],
+              ),
+            ),
+          ),
+        ),
       );
     }
     final confirmed = booking.status == BookingStatus.confirmed;
 
     return Scaffold(
-      backgroundColor: AppColors.background,
+      backgroundColor: AppColors.surface,
       body: SafeArea(
         child: Column(
           children: [
-            Padding(
-              padding: AppSpacing.pagePadding.copyWith(top: AppSpacing.md, bottom: AppSpacing.sm),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  const FojemLogo.icon(),
-                  Icon(Icons.notifications_outlined, color: AppColors.textPrimary, size: 26),
-                ],
-              ),
-            ),
-            Expanded(
-              child: SingleChildScrollView(
-                padding: const EdgeInsets.all(AppSpacing.md),
-                child: Column(
-                  children: [
-                    const SizedBox(height: AppSpacing.xl),
-                    AnimatedBuilder(
-                      animation: _controller,
-                      builder: (context, child) {
-                        return Transform.scale(
-                          scale: _scaleAnim.value,
-                          child: Opacity(
-                            opacity: _controller.value.clamp(0.0, 1.0),
-                            child: child,
-                          ),
-                        );
-                      },
-                      child: _SuccessIcon(),
-                    ),
-                    const SizedBox(height: AppSpacing.xl),
-                    AnimatedBuilder(
-                      animation: _fadeAnim,
-                      builder: (context, child) {
-                        return Opacity(
-                          opacity: _fadeAnim.value,
-                          child: child,
-                        );
-                      },
-                      child: Column(
-                        children: [
-                          Text(
-                            confirmed ? 'Réservation confirmée !' : 'Demande envoyée !',
-                            style: AppTextStyles.title1,
-                            textAlign: TextAlign.center,
-                          ),
-                          const SizedBox(height: AppSpacing.sm),
-                          Text(
-                            // Confirmée d'office pour un trajet déjà parti, ou
-                            // acceptée pendant que l'écran est ouvert.
-                            confirmed
-                                ? 'Votre billet et votre code d’embarquement sont prêts. '
-                                    'Rendez-vous au point de montée avant le passage du chauffeur.'
-                                : 'Votre demande a été transmise au chauffeur. '
-                                    'Vous serez notifié dès qu\'il l\'accepte.',
-                            style: AppTextStyles.bodyLarge.copyWith(
-                              color: AppColors.textSecondary,
-                            ),
-                            textAlign: TextAlign.center,
-                          ),
-                          const SizedBox(height: AppSpacing.xl),
-                          if (!confirmed) ...[
-                            const _PendingTicketCard(),
-                            const SizedBox(height: AppSpacing.lg),
-                          ],
-                          _TripSummaryCard(booking: booking),
-                        ],
-                      ),
-                    ),
-                  ],
+            Align(
+              alignment: Alignment.centerRight,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(8, 8, 8, 0),
+                child: IconButton(
+                  tooltip: 'Fermer',
+                  onPressed: () => context.go('/home'),
+                  icon: const Icon(Icons.close_rounded),
                 ),
               ),
             ),
+            Expanded(
+              child: ListView(
+                padding: const EdgeInsets.fromLTRB(20, 8, 20, 16),
+                children: [
+                  Center(child: _StatusIcon(confirmed: confirmed)),
+                  const SizedBox(height: 20),
+                  Semantics(
+                    header: true,
+                    liveRegion: true,
+                    child: Text(
+                      confirmed ? 'Réservation confirmée' : 'Demande envoyée',
+                      style: AppTextStyles.display.copyWith(fontSize: 26),
+                      textAlign: TextAlign.center,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    // Confirmée d'office pour un trajet déjà parti, ou acceptée
+                    // pendant que l'écran est ouvert.
+                    confirmed
+                        ? 'Votre billet est prêt. Soyez au point de rendez-vous quelques minutes avant l’heure.'
+                        : 'Le chauffeur a reçu votre demande. Vous serez prévenu dès qu’il l’accepte.',
+                    style: AppTextStyles.bodyLarge.copyWith(color: AppColors.textSecondary),
+                    textAlign: TextAlign.center,
+                  ),
+                  const SizedBox(height: 24),
+                  _NextSteps(confirmed: confirmed),
+                  const SizedBox(height: 20),
+                  _Summary(booking: booking),
+                ],
+              ),
+            ),
             Padding(
-              padding: const EdgeInsets.all(AppSpacing.md),
+              padding: const EdgeInsets.fromLTRB(20, 8, 20, 16),
               child: Column(
                 children: [
-                  confirmed
-                      ? FojemButton.primary(
-                          label: 'Voir mon billet',
-                          onPressed: () => context.push('/trip/${booking.tripId}/tracking'),
-                        )
-                      : FojemButton.primary(
-                          label: 'Voir mes réservations',
-                          onPressed: () => context.go('/my-trips'),
-                        ),
-                  const SizedBox(height: AppSpacing.sm),
-                  FojemButton.ghost(
-                    label: 'Retour à l\'accueil',
+                  GlowButton(
+                    label: confirmed ? 'Voir mon billet' : 'Suivre ma réservation',
+                    onPressed: () => context.go('/trip/${booking.tripId}/tracking'),
+                  ),
+                  const SizedBox(height: 4),
+                  TextButton(
                     onPressed: () => context.go('/home'),
+                    child: const Text('Retour à l’accueil'),
                   ),
                 ],
               ),
@@ -202,61 +151,27 @@ class _BookingSuccessScreenState extends State<BookingSuccessScreen>
   }
 }
 
-class _SuccessIcon extends StatelessWidget {
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: 96,
-      height: 96,
-      decoration: const BoxDecoration(
-        color: AppColors.successSurface,
-        shape: BoxShape.circle,
-      ),
-      child: const Icon(
-        Icons.check_circle_outline,
-        size: 52,
-        color: AppColors.success,
-      ),
-    );
-  }
-}
+class _StatusIcon extends StatelessWidget {
+  final bool confirmed;
 
-/// Le billet (code + QR d'embarquement) n'est attribué qu'après
-/// acceptation par le chauffeur : il apparaît alors dans le suivi du trajet.
-class _PendingTicketCard extends StatelessWidget {
-  const _PendingTicketCard();
+  const _StatusIcon({required this.confirmed});
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(AppSpacing.md),
-      decoration: BoxDecoration(
-        color: const Color(0xFFFFFBEB),
-        borderRadius: BorderRadius.circular(AppSpacing.borderRadiusMd),
-        border: Border.all(color: const Color(0xFFF59E0B)),
-      ),
-      child: Row(
+    final color = confirmed ? AppColors.success : AppColors.amber;
+    final surface = confirmed ? AppColors.successSurface : AppColors.amberSurface;
+    return SizedBox(
+      width: 120,
+      height: 120,
+      child: Stack(
+        alignment: Alignment.center,
         children: [
-          const Icon(Icons.hourglass_top_rounded, color: Color(0xFFD97706), size: 30),
-          const SizedBox(width: AppSpacing.md),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text('En attente du chauffeur', style: AppTextStyles.bodySemibold),
-                const SizedBox(height: 4),
-                Text(
-                  'Votre billet et votre QR code d\'embarquement seront '
-                  'disponibles dans le suivi du trajet dès que le chauffeur '
-                  'aura accepté votre demande.',
-                  style: AppTextStyles.body.copyWith(
-                    fontSize: 13,
-                    color: AppColors.textSecondary,
-                  ),
-                ),
-              ],
-            ),
+          if (!confirmed) PulseRing(size: 96, radius: 48, color: color),
+          Container(
+            width: 88,
+            height: 88,
+            decoration: BoxDecoration(color: surface, shape: BoxShape.circle),
+            child: Icon(confirmed ? Icons.check_rounded : Icons.hourglass_top_rounded, size: 44, color: color),
           ),
         ],
       ),
@@ -264,61 +179,97 @@ class _PendingTicketCard extends StatelessWidget {
   }
 }
 
-class _TripSummaryCard extends StatelessWidget {
+/// Les étapes jusqu'au départ, l'étape en cours mise en avant.
+class _NextSteps extends StatelessWidget {
+  final bool confirmed;
+
+  const _NextSteps({required this.confirmed});
+
+  @override
+  Widget build(BuildContext context) {
+    final steps = [
+      ('Demande envoyée', true),
+      ('Le chauffeur accepte', confirmed),
+      ('Billet prêt : rendez-vous au point de montée', confirmed),
+    ];
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(color: AppColors.background, borderRadius: BorderRadius.circular(16)),
+      child: Column(
+        children: [
+          for (var i = 0; i < steps.length; i++)
+            Padding(
+              padding: EdgeInsets.only(bottom: i < steps.length - 1 ? 12 : 0),
+              child: Row(
+                children: [
+                  Container(
+                    width: 26,
+                    height: 26,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: steps[i].$2 ? AppColors.success : AppColors.surface,
+                      border: Border.all(color: steps[i].$2 ? AppColors.success : AppColors.borderStrong, width: 2),
+                    ),
+                    child: steps[i].$2
+                        ? const Icon(Icons.check_rounded, size: 16, color: Colors.white)
+                        : Center(child: Text('${i + 1}', style: AppTextStyles.caption.copyWith(fontWeight: FontWeight.w800))),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      steps[i].$1,
+                      style: AppTextStyles.bodySemibold.copyWith(
+                        color: steps[i].$2 ? AppColors.textPrimary : AppColors.textSecondary,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class _Summary extends StatelessWidget {
   final Booking booking;
 
-  const _TripSummaryCard({required this.booking});
+  const _Summary({required this.booking});
 
   @override
   Widget build(BuildContext context) {
     final trip = booking.trip!;
-    final timeFormat = DateFormat('HH:mm');
-    final dateFormat = DateFormat('EEE d MMMM', 'fr_FR');
-
-    return Container(
-      width: double.infinity,
-      padding: AppSpacing.cardPadding,
-      decoration: AppColors.cardDecoration,
+    final when = booking.boardingStop?.scheduledAt ?? trip.departureTime;
+    return NeuBox(
+      padding: const EdgeInsets.all(16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text('Récapitulatif', style: AppTextStyles.bodySemibold),
-          const SizedBox(height: AppSpacing.md),
-          _Row(
-            label: 'Trajet',
-            value: '${booking.boardingStop?.name ?? trip.departure} → '
-                '${booking.alightingStop?.name ?? trip.arrival}',
+          Text(
+            '${booking.boardingStop?.name ?? trip.departure} → ${booking.alightingStop?.name ?? trip.arrival}',
+            style: AppTextStyles.bodyLargeSemibold.copyWith(fontWeight: FontWeight.w800),
           ),
-          _Row(
-            label: 'Date',
-            value: dateFormat.format(booking.boardingStop?.scheduledAt ?? trip.departureTime),
+          const SizedBox(height: 2),
+          Text(
+            toBeginningOfSentenceCase(DateFormat('EEEE d MMMM · HH:mm', 'fr_FR').format(when)) ?? '',
+            style: AppTextStyles.body.copyWith(color: AppColors.textSecondary),
           ),
+          const SizedBox(height: 12),
+          const Divider(),
+          const SizedBox(height: 12),
           _Row(
+            icon: Icons.place_outlined,
             label: 'Rendez-vous',
-            value: [
-              timeFormat.format(booking.boardingStop?.scheduledAt ?? trip.departureTime),
-              booking.boardingStop?.displayAddress ?? trip.departureAddress,
-            ].join(' · '),
+            value: booking.boardingStop?.displayAddress ?? trip.departureAddress,
           ),
+          if (trip.driver != null) _Row(icon: Icons.person_outline_rounded, label: 'Chauffeur', value: trip.driver!.name),
           _Row(
-            label: 'Chauffeur',
-            value: trip.driver?.name ?? '—',
-          ),
-          _Row(
+            icon: Icons.event_seat_outlined,
             label: booking.seatNumbers.length > 1 ? 'Places' : 'Place',
-            value: booking.seatNumbers.isEmpty
-                ? booking.seatLabel
-                : '#${booking.seatNumbers.join(', ')}',
+            value: booking.seatNumbers.isEmpty ? booking.seatLabel : 'n° ${booking.seatNumbers.join(', ')}',
           ),
-          const Divider(height: AppSpacing.md, color: AppColors.border),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Expanded(child: Text('Montant à régler au chauffeur', style: AppTextStyles.bodySemibold)),
-              const SizedBox(width: AppSpacing.sm),
-              PriceDisplay(amount: booking.price),
-            ],
-          ),
+          _Row(icon: Icons.payments_outlined, label: 'À payer au chauffeur', value: formatFcfa(booking.price), strong: true),
         ],
       ),
     );
@@ -326,23 +277,31 @@ class _TripSummaryCard extends StatelessWidget {
 }
 
 class _Row extends StatelessWidget {
+  final IconData icon;
   final String label;
   final String value;
+  final bool strong;
 
-  const _Row({required this.label, required this.value});
+  const _Row({required this.icon, required this.label, required this.value, this.strong = false});
 
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.only(bottom: AppSpacing.sm),
+      padding: const EdgeInsets.only(bottom: 10),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          Icon(icon, size: 18, color: AppColors.textSecondary),
+          const SizedBox(width: 10),
           Text(label, style: AppTextStyles.body.copyWith(color: AppColors.textSecondary)),
-          const SizedBox(width: AppSpacing.md),
+          const SizedBox(width: 12),
           // Les adresses longues passent à la ligne au lieu de déborder.
           Expanded(
-            child: Text(value, textAlign: TextAlign.end, style: AppTextStyles.bodySemibold),
+            child: Text(
+              value,
+              textAlign: TextAlign.end,
+              style: strong ? AppTextStyles.bodyLargeSemibold.copyWith(fontWeight: FontWeight.w800) : AppTextStyles.bodySemibold,
+            ),
           ),
         ],
       ),

@@ -7,17 +7,17 @@ import 'driver_avatar.dart';
 import 'glow.dart';
 
 enum TripCardLayout {
-  /// Accueil : jour + heure de montée en pied de carte.
+  /// Accueil : jour du départ sous l'arrêt de montée.
   route,
 
-  /// Résultats : distance à pied des arrêts proposés en pied de carte.
+  /// Résultats : distance à pied des arrêts proposés.
   schedule,
 }
 
-/// Carte trajet « Glow Flow » (template fojem-glow-flow) : chauffeur et prix
-/// en tête, bloc en creux « heure · arrêt → durée → heure · arrêt », puis
-/// date (ou distance des arrêts) et places. Affiche le tronçon du passager
-/// (arrêts proposés par la recherche), pas le trajet complet du chauffeur.
+/// Carte trajet : itinéraire du passager à gauche (heure · arrêt de montée,
+/// durée, heure · arrêt de descente), prix à droite, chauffeur et places en
+/// pied de carte. Affiche le tronçon du passager (arrêts proposés par la
+/// recherche), pas le trajet complet du chauffeur.
 class TripCard extends StatelessWidget {
   final Trip trip;
   final VoidCallback onTap;
@@ -39,119 +39,92 @@ class TripCard extends StatelessWidget {
     final time = DateFormat('HH:mm');
     final driver = trip.driver;
     final match = trip.match;
+    final walking = layout == TripCardLayout.schedule && match != null;
+    final from = seg.boarding?.name ?? trip.departure;
+    final to = seg.alighting?.name ?? trip.arrival;
 
     return Semantics(
       button: true,
-      label: '${seg.boarding?.name ?? trip.departure} vers ${seg.alighting?.name ?? trip.arrival}, '
-          '${formatDayLabel(boardAt)} à ${time.format(boardAt)}, '
-          '${formatFcfa(seg.pricePerSeat)}',
+      label: '$from vers $to, ${formatDayLabel(boardAt)} à ${time.format(boardAt)}, '
+          '${formatFcfa(seg.pricePerSeat)}, ${trip.availableSeats} place${trip.availableSeats > 1 ? 's' : ''}',
+      excludeSemantics: true,
       child: NeuBox(
         onTap: onTap,
-        radius: 24,
-        padding: const EdgeInsets.all(16),
+        radius: 20,
+        padding: const EdgeInsets.fromLTRB(16, 16, 16, 12),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
+            if (match != null && match.enRoute) ...[
+              _EnRouteBadge(stop: from, eta: match.boardingEta),
+              const SizedBox(height: 12),
+            ],
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  child: RouteTimeline(
+                    stops: [
+                      RouteTimelineStop(
+                        time: time.format(boardAt),
+                        place: from,
+                        hint: walking ? formatDistanceFromYou(match.boardingDistanceM) : formatDayLabel(boardAt),
+                        hintIcon: walking ? Icons.directions_walk_rounded : null,
+                      ),
+                      RouteTimelineStop(
+                        time: time.format(arriveAt),
+                        place: to,
+                        hint: walking ? formatDistanceFromYou(match.alightingDistanceM) : null,
+                        hintIcon: walking ? Icons.directions_walk_rounded : null,
+                      ),
+                    ],
+                    duration: duration.inMinutes > 0 ? formatTripDuration(duration) : null,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    Text(formatFcfa(seg.pricePerSeat), maxLines: 1, style: AppTextStyles.price),
+                    Text('par place', style: AppTextStyles.caption),
+                  ],
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            const Divider(),
+            const SizedBox(height: 10),
             Row(
               children: [
                 if (driver != null)
-                  DriverAvatar(name: driver.name, photoUrl: driver.photoUrl, size: 40)
+                  DriverAvatar(name: driver.name, photoUrl: driver.photoUrl, size: 32)
                 else
-                  const BrandAvatar(name: '?', size: 40),
-                const SizedBox(width: 12),
+                  const BrandAvatar(name: '?', size: 32),
+                const SizedBox(width: 10),
                 Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        driver?.shortName ?? 'Chauffeur',
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: AppTextStyles.bodySemibold.copyWith(fontWeight: FontWeight.w800),
-                      ),
-                      if (driver != null)
-                        Row(
-                          children: [
+                  child: Text.rich(
+                    TextSpan(
+                      children: [
+                        TextSpan(text: driver?.shortName ?? 'Chauffeur', style: AppTextStyles.bodySemibold),
+                        if (driver != null)
+                          TextSpan(
                             // Pas encore noté : « Nouveau » plutôt qu'un « 0,0 » qui fait fuir.
-                            Icon(driver.rating > 0 ? Icons.star_rounded : Icons.fiber_new_rounded,
-                                size: 14, color: AppColors.accent),
-                            const SizedBox(width: 3),
-                            Flexible(
-                              child: Text(
-                                '${driver.rating > 0 ? driver.rating.toStringAsFixed(1).replaceAll('.', ',') : 'Nouveau'}'
-                                '${driver.totalTrips > 0 ? ' · ${driver.totalTrips} trajets' : ''}',
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: AppTextStyles.caption,
-                              ),
+                            text: driver.rating > 0
+                                ? '  ★ ${driver.rating.toStringAsFixed(1).replaceAll('.', ',')}'
+                                : '  Nouveau',
+                            style: AppTextStyles.caption.copyWith(
+                              color: AppColors.textSecondary,
+                              fontWeight: FontWeight.w600,
                             ),
-                          ],
-                        ),
-                    ],
+                          ),
+                      ],
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
                   ),
                 ),
                 const SizedBox(width: 8),
-                _Price(amount: seg.pricePerSeat),
-              ],
-            ),
-            if (match != null && match.enRoute) ...[
-              const SizedBox(height: 12),
-              _EnRouteBadge(stop: seg.boarding?.name ?? trip.departure, eta: match.boardingEta),
-            ],
-            const SizedBox(height: 14),
-            NeuInset(
-              radius: 18,
-              padding: const EdgeInsets.all(12),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: _TimeAndPlace(time: time.format(boardAt), place: seg.boarding?.name ?? trip.departure),
-                  ),
-                  Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      const Icon(Icons.arrow_forward_rounded, size: 18, color: AppColors.accent),
-                      if (duration.inMinutes > 0)
-                        Text(_durationLabel(duration),
-                            style: AppTextStyles.caption.copyWith(fontSize: 10.5)),
-                    ],
-                  ),
-                  Expanded(
-                    child: _TimeAndPlace(
-                      time: time.format(arriveAt),
-                      place: seg.alighting?.name ?? trip.arrival,
-                      end: true,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 12),
-            Row(
-              children: [
-                Icon(
-                  layout == TripCardLayout.schedule && match != null
-                      ? Icons.directions_walk_rounded
-                      : Icons.schedule_rounded,
-                  size: 15,
-                  color: AppColors.textSecondary,
-                ),
-                const SizedBox(width: 5),
-                Expanded(
-                  child: Text(
-                    layout == TripCardLayout.schedule && match != null
-                        ? 'Montée ${formatDistanceFromYou(match.boardingDistanceM)} · '
-                            'descente ${formatDistanceFromYou(match.alightingDistanceM)}'
-                        : formatDayLabel(boardAt),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: AppTextStyles.caption,
-                  ),
-                ),
-                GlowPill(
-                  icon: Icons.groups_rounded,
-                  label: '${trip.availableSeats} place${trip.availableSeats > 1 ? 's' : ''}',
-                ),
+                _Seats(count: trip.availableSeats),
               ],
             ),
           ],
@@ -159,11 +132,149 @@ class TripCard extends StatelessWidget {
       ),
     );
   }
+}
 
-  static String _durationLabel(Duration d) {
-    if (d.inHours == 0) return '${d.inMinutes}min';
-    final m = d.inMinutes.remainder(60);
-    return m == 0 ? '${d.inHours}h' : '${d.inHours}h${m.toString().padLeft(2, '0')}';
+/// Places restantes : vert tant qu'il en reste, gris quand c'est complet.
+class _Seats extends StatelessWidget {
+  final int count;
+
+  const _Seats({required this.count});
+
+  @override
+  Widget build(BuildContext context) {
+    final full = count <= 0;
+    final color = full ? AppColors.textSecondary : AppColors.success;
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(Icons.event_seat_rounded, size: 16, color: color),
+        const SizedBox(width: 4),
+        Text(
+          full ? 'Complet' : '$count place${count > 1 ? 's' : ''}',
+          style: AppTextStyles.caption.copyWith(color: color, fontWeight: FontWeight.w700),
+        ),
+      ],
+    );
+  }
+}
+
+/// Une étape de [RouteTimeline] : heure, lieu, précision facultative.
+class RouteTimelineStop {
+  final String time;
+  final String place;
+  final String? hint;
+  final IconData? hintIcon;
+
+  const RouteTimelineStop({required this.time, required this.place, this.hint, this.hintIcon});
+}
+
+/// Itinéraire vertical : heures à gauche, pastilles reliées par un trait,
+/// lieux à droite ; la durée s'affiche entre les deux heures.
+class RouteTimeline extends StatelessWidget {
+  final List<RouteTimelineStop> stops;
+  final String? duration;
+
+  const RouteTimeline({super.key, required this.stops, this.duration});
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        for (var i = 0; i < stops.length; i++)
+          IntrinsicHeight(
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                SizedBox(
+                  width: 48,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(stops[i].time, style: AppTextStyles.bodyLargeSemibold.copyWith(fontWeight: FontWeight.w800)),
+                      if (i == 0 && duration != null && stops.length > 1) ...[
+                        const Spacer(),
+                        Text(duration!, style: AppTextStyles.caption.copyWith(fontSize: 11)),
+                        const Spacer(),
+                      ],
+                    ],
+                  ),
+                ),
+                SizedBox(
+                  width: 20,
+                  child: Column(
+                    children: [
+                      const SizedBox(height: 5),
+                      _Dot(filled: i == stops.length - 1),
+                      if (i < stops.length - 1)
+                        Expanded(
+                          child: Container(
+                            width: 2,
+                            margin: const EdgeInsets.symmetric(vertical: 2),
+                            color: AppColors.borderStrong,
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Padding(
+                    padding: EdgeInsets.only(bottom: i < stops.length - 1 ? 14 : 0),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          stops[i].place,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: AppTextStyles.bodyLargeSemibold,
+                        ),
+                        if (stops[i].hint != null)
+                          Row(
+                            children: [
+                              if (stops[i].hintIcon != null) ...[
+                                Icon(stops[i].hintIcon, size: 14, color: AppColors.textSecondary),
+                                const SizedBox(width: 3),
+                              ],
+                              Flexible(
+                                child: Text(
+                                  stops[i].hint!,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: AppTextStyles.caption,
+                                ),
+                              ),
+                            ],
+                          ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+class _Dot extends StatelessWidget {
+  final bool filled;
+
+  const _Dot({required this.filled});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 12,
+      height: 12,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        color: filled ? AppColors.ink : AppColors.surface,
+        border: Border.all(color: AppColors.ink, width: 2.5),
+      ),
+    );
   }
 }
 
@@ -201,31 +312,6 @@ class _EnRouteBadge extends StatelessWidget {
   }
 }
 
-class _TimeAndPlace extends StatelessWidget {
-  final String time;
-  final String place;
-  final bool end;
-
-  const _TimeAndPlace({required this.time, required this.place, this.end = false});
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: end ? CrossAxisAlignment.end : CrossAxisAlignment.start,
-      children: [
-        Text(time, style: AppTextStyles.title2.copyWith(fontSize: 18)),
-        Text(
-          place,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          textAlign: end ? TextAlign.right : TextAlign.left,
-          style: AppTextStyles.caption,
-        ),
-      ],
-    );
-  }
-}
-
 class SeatCountBadge extends StatelessWidget {
   final int count;
 
@@ -255,24 +341,7 @@ class SeatCountBadge extends StatelessWidget {
   }
 }
 
-
-class _Price extends StatelessWidget {
-  final double amount;
-
-  const _Price({required this.amount});
-
-  @override
-  Widget build(BuildContext context) {
-    return Text(
-      formatFcfa(amount),
-      maxLines: 1,
-      style:
-          AppTextStyles.priceLarge.copyWith(fontSize: 19, letterSpacing: -0.3),
-    );
-  }
-}
-
-/// "★ 4,8 (124)" : étoile verte, note en gras, nombre d'avis en gris.
+/// "★ 4,8 (124)" : étoile, note en gras, nombre d'avis en gris.
 class RatingLine extends StatelessWidget {
   final double rating;
   final int count;
@@ -284,7 +353,7 @@ class RatingLine extends StatelessWidget {
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        const Icon(Icons.star_rounded, size: 16, color: AppColors.seatBadge),
+        const Icon(Icons.star_rounded, size: 16, color: AppColors.brand),
         const SizedBox(width: 3),
         Text(
           rating.toStringAsFixed(1).replaceAll('.', ','),
@@ -313,47 +382,45 @@ class TripCardSkeleton extends StatelessWidget {
           height: h,
           decoration: BoxDecoration(
             color: AppColors.shimmerBase,
-            borderRadius: BorderRadius.circular(4),
+            borderRadius: BorderRadius.circular(6),
           ),
         );
 
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: AppColors.softCardDecoration,
-      child: Row(
+      child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                bar(130, 20),
-                const SizedBox(height: 14),
-                bar(110, 12),
-                const SizedBox(height: 10),
-                bar(120, 12),
-              ],
-            ),
-          ),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.end,
+          Row(
             children: [
-              Row(
-                children: [
-                  Container(
-                    width: 44,
-                    height: 44,
-                    decoration: const BoxDecoration(
-                      color: AppColors.shimmerBase,
-                      shape: BoxShape.circle,
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  bar(60, 12),
-                ],
+              bar(44, 16),
+              const SizedBox(width: 16),
+              bar(140, 16),
+              const Spacer(),
+              bar(70, 18),
+            ],
+          ),
+          const SizedBox(height: 24),
+          Row(
+            children: [
+              bar(44, 16),
+              const SizedBox(width: 16),
+              bar(110, 16),
+            ],
+          ),
+          const SizedBox(height: 20),
+          Row(
+            children: [
+              Container(
+                width: 32,
+                height: 32,
+                decoration: const BoxDecoration(color: AppColors.shimmerBase, shape: BoxShape.circle),
               ),
-              const SizedBox(height: 18),
-              bar(80, 18),
+              const SizedBox(width: 10),
+              bar(90, 12),
+              const Spacer(),
+              bar(60, 12),
             ],
           ),
         ],

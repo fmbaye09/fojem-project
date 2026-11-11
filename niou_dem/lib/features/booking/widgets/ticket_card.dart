@@ -5,6 +5,7 @@ import 'package:qr_flutter/qr_flutter.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_text_styles.dart';
 import '../../../core/widgets/status_chip.dart';
+import '../../../core/widgets/trip_card.dart' show formatFcfa;
 import '../../../models/booking.dart';
 import '../../../models/trip.dart';
 
@@ -33,22 +34,22 @@ class _TicketCardState extends State<TicketCard> {
     final folded = isConfirmed && isBoarded && !_showQr;
 
     final Color primaryColor = isCompleted
-        ? const Color(0xFF2E7D32)
+        ? AppColors.success
         : (isBoarded
-            ? const Color(0xFF2E7D32)
-            : (isConfirmed ? AppColors.primary : const Color(0xFFF59E0B)));
+            ? AppColors.success
+            : (isConfirmed ? AppColors.primary : AppColors.amber));
 
     final Color bgColor = isCompleted
-        ? const Color(0xFFE8F5E9)
+        ? AppColors.successSurface
         : (isBoarded
-            ? const Color(0xFFE8F5E9)
-            : (isConfirmed ? AppColors.primarySurface : const Color(0xFFFFFBEB)));
+            ? AppColors.successSurface
+            : (isConfirmed ? AppColors.primarySurface : AppColors.amberSurface));
 
     final String titleText = isCompleted
         ? 'Trajet terminé avec succès'
         : (isBoarded
             ? 'Présence validée à bord'
-            : (isConfirmed ? 'Billet & Code QR d\'embarquement' : 'Réservation en attente'));
+            : (isConfirmed ? 'Votre billet' : 'Réservation en attente'));
 
     final IconData titleIcon = isCompleted
         ? Icons.task_alt_rounded
@@ -107,7 +108,7 @@ class _TicketCardState extends State<TicketCard> {
               child: Column(
                 children: [
                   if (isCompleted) ...[
-                    const Icon(Icons.check_circle_outline_rounded, size: 54, color: Color(0xFF2E7D32)),
+                    const Icon(Icons.check_circle_outline_rounded, size: 54, color: AppColors.success),
                     const SizedBox(height: 12),
                     Text('Bon retour !', style: AppTextStyles.title2),
                     const SizedBox(height: 6),
@@ -122,14 +123,14 @@ class _TicketCardState extends State<TicketCard> {
                       textAlign: TextAlign.center,
                       style: AppTextStyles.body.copyWith(
                         fontSize: 13,
-                        color: const Color(0xFF2E7D32),
+                        color: AppColors.success,
                         fontWeight: FontWeight.w600,
                       ),
                     ),
                   ] else if (isConfirmed) ...[
                     _BoardingPass(booking: booking),
                   ] else ...[
-                    const Icon(Icons.hourglass_top_rounded, size: 40, color: Color(0xFFD97706)),
+                    const Icon(Icons.hourglass_top_rounded, size: 40, color: AppColors.amber),
                     const SizedBox(height: 12),
                     Text(
                       'En attente d\'acceptation',
@@ -166,7 +167,7 @@ class _TicketCardState extends State<TicketCard> {
                       // Réglé en espèces au chauffeur : pas encore « payé » avant le voyage.
                       _DetailItem(
                         label: 'Prix',
-                        value: '${booking.totalPrice.toInt()} FCFA',
+                        value: formatFcfa(booking.totalPrice),
                       ),
                       Container(height: 24, width: 1, color: AppColors.border),
                       // L'heure où il monte, pas le départ du chauffeur plus tôt sur la route.
@@ -264,7 +265,7 @@ class _BoardingPass extends StatelessWidget {
           textAlign: TextAlign.center,
           style: AppTextStyles.body.copyWith(
             fontSize: 12.5,
-            color: isBoarded ? const Color(0xFF2E7D32) : AppColors.textSecondary,
+            color: isBoarded ? AppColors.success : AppColors.textSecondary,
             fontWeight: isBoarded ? FontWeight.w600 : FontWeight.normal,
           ),
         ),

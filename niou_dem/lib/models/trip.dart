@@ -236,7 +236,7 @@ class Trip {
           ? TripLive.fromJson(map['live'] as Map<String, dynamic>)
           : null,
       estimatedDuration: estimatedDuration,
-      seatsTotal: vehicle?.totalSeats ?? seatsAvailable,
+      seatsTotal: int.tryParse('${map['seats_total'] ?? ''}') ?? vehicle?.totalSeats ?? seatsAvailable,
       availableSeats: seatsAvailable,
       // Renvoyé par `GET /trips/{id}` : sièges déjà pris (demandes en
       // attente comprises), à griser sur le plan du véhicule.
