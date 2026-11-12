@@ -10,6 +10,8 @@ use App\Models\Driver;
 use App\Models\User;
 use App\Models\Wallet;
 use App\Services\FirebaseTokenService;
+use App\Services\Otp\OtpService;
+use App\Support\SenegalPhone;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
@@ -29,35 +31,100 @@ class AuthController extends Controller
      */
     public function register(RegisterRequest $request)
     {
-        $user = DB::transaction(function () use ($request) {
-            $isDriver = $request->boolean('is_driver') || $request->input('client_type') === 'driver';
-            $user = User::create([
-                'full_name' => $request->string('full_name'),
-                'email' => strtolower($request->string('email')),
-                'password_hash' => Hash::make($request->string('password')),
-                'phone_number' => $request->string('phone_number'),
-                'gender' => $request->string('gender'),
-                'language' => $request->input('language', 'fr'),
-                'is_driver' => $isDriver,
-            ]);
+        $user = $this->createAccount([
+            'full_name' => $request->string('full_name'),
+            'email' => strtolower($request->string('email')),
+            'password_hash' => Hash::make($request->string('password')),
+            'phone_number' => $request->string('phone_number'),
+            'gender' => $request->string('gender'),
+            'language' => $request->input('language', 'fr'),
+        ], $request->boolean('is_driver') || $request->input('client_type') === 'driver');
 
-            Wallet::create([
-                'user_id' => $user->id,
-                'balance' => 0,
-                'held_balance' => 0,
-            ]);
+        return $this->issueTokenResponse($user, $request, 201);
+    }
 
-            if ($isDriver) {
-                Driver::create([
-                    'user_id' => $user->id,
-                    'verification_status' => 'pending',
+    /**
+     * Connexion par code, étape 1 : envoie un code à 6 chiffres au numéro,
+     * par WhatsApp (par défaut) ou par SMS. Même parcours pour un client
+     * existant et un nouveau : on ne dit pas ici si le numéro a un compte.
+     */
+    public function sendCode(Request $request, OtpService $otp)
+    {
+        $data = $request->validate([
+            'phone_number' => ['required', 'string', 'max:20'],
+            'channel' => ['sometimes', 'in:whatsapp,sms'],
+        ]);
+        $phone = $this->senegalPhone($data['phone_number']);
+        $channel = $data['channel'] ?? 'whatsapp';
+
+        $code = $otp->send($phone, $channel, $request->ip());
+
+        return response()->json([
+            'phone_number' => $phone,
+            'channel' => $channel,
+            'expires_in' => OtpService::TTL_MINUTES * 60,
+            'resend_in' => OtpService::RESEND_SECONDS,
+            ...($otp->exposesCodes() ? ['dev_code' => $code] : []),
+        ]);
+    }
+
+    /**
+     * Étape 2 : vérifie le code. Un client existant est connecté
+     * ({user, token}) ; un nouveau reçoit {new_user, signup_token} et donne
+     * son nom à l'étape 3.
+     */
+    public function verifyCode(Request $request, OtpService $otp)
+    {
+        $data = $request->validate([
+            'phone_number' => ['required', 'string', 'max:20'],
+            'code' => ['required', 'string', 'max:12'],
+            'device_id' => ['sometimes', 'string', 'max:255'],
+        ]);
+        $phone = $this->senegalPhone($data['phone_number']);
+        $verified = $otp->verify($phone, preg_replace('/\D/', '', $data['code']));
+
+        $user = User::whereIn('phone_number', SenegalPhone::variants($phone))->first();
+        if ($user === null) {
+            if (User::onlyTrashed()->whereIn('phone_number', SenegalPhone::variants($phone))->exists()) {
+                $otp->close($verified);
+                throw ValidationException::withMessages([
+                    'code' => ['Ce numéro est lié à un compte supprimé. Contactez le support FOJËM.'],
                 ]);
             }
 
-            return $user;
-        });
+            return response()->json(['new_user' => true, 'signup_token' => $otp->startSignup($verified)]);
+        }
 
-        return $this->issueTokenResponse($user, $request, 201);
+        $otp->close($verified);
+
+        return $this->signInVerified($user, $request);
+    }
+
+    /** Étape 3 (nouveau client) : crée le compte avec le numéro vérifié et le nom. */
+    public function registerWithCode(Request $request, OtpService $otp)
+    {
+        $data = $request->validate([
+            'signup_token' => ['required', 'string', 'max:100'],
+            'first_name' => ['required', 'string', 'max:60'],
+            'last_name' => ['required', 'string', 'max:60'],
+            'device_id' => ['sometimes', 'string', 'max:255'],
+        ]);
+        $verified = $otp->signupFor($data['signup_token']);
+        $phone = $verified->phone_number;
+
+        // Compte créé entre-temps avec ce numéro (autre appareil) : le
+        // numéro vient d'être prouvé, on connecte plutôt que d'échouer.
+        $user = User::whereIn('phone_number', SenegalPhone::variants($phone))->first();
+        $created = $user === null;
+        $user ??= $this->createAccount([
+            'full_name' => Str::squish($data['first_name']).' '.Str::squish($data['last_name']),
+            'phone_number' => $phone,
+            'language' => 'fr',
+        ], false);
+
+        $otp->close($verified);
+
+        return $this->signInVerified($user, $request, $created ? 201 : 200);
     }
 
     public function login(LoginRequest $request)
@@ -148,6 +215,56 @@ class AuthController extends Controller
         });
 
         return response()->json(['message' => 'Profil chauffeur cree, en attente de validation.', 'driver' => $driver], 201);
+    }
+
+    /**
+     * Crée un compte et son portefeuille (1-1, solde à 0), plus le profil
+     * chauffeur en attente de validation si c'en est un.
+     */
+    private function createAccount(array $attributes, bool $isDriver): User
+    {
+        return DB::transaction(function () use ($attributes, $isDriver) {
+            $user = User::create([...$attributes, 'is_driver' => $isDriver, 'account_status' => 'active']);
+
+            Wallet::create([
+                'user_id' => $user->id,
+                'balance' => 0,
+                'held_balance' => 0,
+            ]);
+
+            if ($isDriver) {
+                Driver::create([
+                    'user_id' => $user->id,
+                    'verification_status' => 'pending',
+                ]);
+            }
+
+            return $user;
+        });
+    }
+
+    /** Numéro de mobile sénégalais au format +221…, ou erreur de validation. */
+    private function senegalPhone(string $input): string
+    {
+        return SenegalPhone::normalize($input) ?? throw ValidationException::withMessages([
+            'phone_number' => ['Entrez un numéro de mobile sénégalais : 9 chiffres, commençant par 7.'],
+        ]);
+    }
+
+    /** Connecte un compte dont le numéro vient d'être vérifié par code. */
+    private function signInVerified(User $user, Request $request, int $status = 200)
+    {
+        if ($user->account_status !== 'active') {
+            throw ValidationException::withMessages([
+                'code' => ['Ce compte est désactivé. Contactez le support FOJËM.'],
+            ]);
+        }
+
+        if ($user->phone_verified_at === null) {
+            $user->forceFill(['phone_verified_at' => now()])->save();
+        }
+
+        return $this->issueTokenResponse($user, $request, $status);
     }
 
     private function issueTokenResponse(User $user, Request $request, int $status)

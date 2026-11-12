@@ -42,6 +42,15 @@ Route::prefix('auth')->group(function () {
         Route::post('login', [AuthController::class, 'login']);
     });
 
+    // Connexion par code (appli client) : numéro → code → nom si nouveau.
+    // Compteur par adresse IP distinct de celui de login/register ; les
+    // limites par numéro sont dans OtpService.
+    Route::middleware('throttle:20,1,auth-code')->group(function () {
+        Route::post('code/send', [AuthController::class, 'sendCode']);
+        Route::post('code/verify', [AuthController::class, 'verifyCode']);
+        Route::post('code/register', [AuthController::class, 'registerWithCode']);
+    });
+
     Route::middleware('auth:sanctum')->group(function () {
         Route::post('logout', [AuthController::class, 'logout']);
         Route::get('me', [AuthController::class, 'me']);

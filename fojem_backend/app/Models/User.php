@@ -54,13 +54,15 @@ class User extends Authenticatable
      */
     public function getAuthPassword(): string
     {
-        return $this->password_hash;
+        // Les clients inscrits par code n'ont pas de mot de passe.
+        return $this->password_hash ?? '';
     }
 
     protected function casts(): array
     {
         return [
             'password_hash' => 'hashed',
+            'phone_verified_at' => 'datetime',
             'is_driver' => 'boolean',
             'is_simulated' => 'boolean',
             'identity_submitted_at' => 'datetime',

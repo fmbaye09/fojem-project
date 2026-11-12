@@ -1,5 +1,6 @@
 <?php
 
+use App\Models\OtpCode;
 use App\Services\MeetingPlaceImporter;
 use App\Services\TripLifecycleService;
 use App\Services\TripReminderService;
@@ -37,3 +38,6 @@ Artisan::command('fojem:import-meeting-places {--attempts=4}', function (Meeting
 })->purpose('Importe les gares routières, stations, péages et ronds-points du Sénégal depuis OpenStreetMap');
 
 Schedule::command('fojem:import-meeting-places')->monthlyOn(1, '03:30')->withoutOverlapping();
+
+// Codes de connexion de plus d'un jour.
+Schedule::command('model:prune', ['--model' => [OtpCode::class]])->dailyAt('04:00');

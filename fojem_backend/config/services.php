@@ -39,6 +39,16 @@ return [
         'server_key' => env('FCM_SERVER_KEY'),
     ],
 
+    // Codes de connexion des clients. « log » : aucun envoi, le code est
+    // écrit dans le journal (et renvoyé à l'appli en local). Les envois par
+    // WhatsApp et SMS se brancheront ici. OTP_TEST_NUMBERS donne un code
+    // fixe à quelques numéros (testeurs, validation des stores) :
+    // "+221700000902:123456,+221700000903:654321".
+    'otp' => [
+        'driver' => env('OTP_DRIVER', 'log'),
+        'test_numbers' => env('OTP_TEST_NUMBERS', ''),
+    ],
+
     // Durées de route pour les heures de passage en direct. Serveur public
     // par défaut ; un OSRM auto-hébergé se branche par OSRM_URL. Vide :
     // désactivé, estimation à vol d'oiseau.

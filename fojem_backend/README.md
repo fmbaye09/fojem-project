@@ -171,6 +171,9 @@ Base URL : `/api`. Toutes les routes protegees attendent un header
 |---|---|---|---|
 | POST | `/auth/register` | `full_name, email, password, phone_number, gender, language?` | Cree le compte + son wallet. Throttle 10/min. |
 | POST | `/auth/login` | `email, password` | Retourne `{ user, token, firebase_custom_token }`. Throttle 10/min. |
+| POST | `/auth/code/send` | `phone_number, channel?` (`whatsapp` par defaut, ou `sms`) | Envoie un code a 6 chiffres (valable 10 min ; 1 par minute et 5 par heure par numero ; mobiles senegalais uniquement). Retourne `{ phone_number, channel, expires_in, resend_in }`, plus `dev_code` en local avec `OTP_DRIVER=log`. Throttle 20/min. |
+| POST | `/auth/code/verify` | `phone_number, code` | Client existant : `{ user, token, firebase_custom_token }`. Nouveau : `{ new_user: true, signup_token }`. 5 essais par code. |
+| POST | `/auth/code/register` | `signup_token, first_name, last_name` | Cree le compte client (sans e-mail ni mot de passe) dans les 30 min suivant la verification. Retourne `{ user, token, firebase_custom_token }`. |
 | POST | `/auth/logout` | - | Revoque le token courant. Auth requise. |
 | GET | `/auth/me` | - | Profil courant (+ driver, wallet). Auth requise. |
 | POST | `/auth/become-driver` | - | Cree le profil `drivers` (pending). Auth requise. |
