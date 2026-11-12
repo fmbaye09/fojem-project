@@ -2,54 +2,48 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 import '../../../core/network/api_exception.dart';
-import '../../../core/widgets/step_auth_flow.dart';
+import '../../../core/widgets/phone_auth_flow.dart';
 import '../../../providers/app_provider.dart';
 
-/// Connexion / inscription voyageur, page par page.
+/// Connexion / inscription client : numéro, code reçu, puis nom si nouveau.
 class AuthScreen extends StatelessWidget {
   const AuthScreen({super.key});
 
-  static AuthFailure _failure(Object e, String fallback) {
-    if (e is ApiException) {
-      final field = e.fieldErrors?.keys.isNotEmpty == true ? e.fieldErrors!.keys.first : null;
-      return AuthFailure(e.message, field: field);
-    }
-    return AuthFailure(fallback);
-  }
+  static AuthFailure _failure(Object e) =>
+      AuthFailure(e is ApiException ? e.message : 'Une erreur est survenue. Réessayez.');
 
   @override
   Widget build(BuildContext context) {
     final app = context.read<AppProvider>();
-    return StepAuthFlow(
-      welcomeTitle: 'Bienvenue chez FOJËM',
-      welcomeSubtitle: 'Trouvez un trajet entre villes, avec des chauffeurs vérifiés.',
-      onLogin: (login, password) async {
+    return PhoneAuthFlow(
+      onSendCode: (phone, channel) async {
         try {
-          await app.login(
-            email: login.contains('@') ? login : null,
-            phoneNumber: login.contains('@') ? null : login,
-            password: password,
-          );
-          return null;
+          final sent = await app.sendCode(phone, channel: channel.name);
+          return SendCodeResult.sent(resendIn: sent.resendIn, devCode: sent.devCode);
         } catch (e) {
-          return _failure(e, 'Connexion impossible. Réessayez.');
+          return SendCodeResult.failed(_failure(e));
         }
       },
-      onSignup: (data) async {
+      onCheckCode: (phone, code) async {
         try {
-          await app.register(
-            fullName: data.fullName,
-            email: data.email,
-            password: data.password,
-            phoneNumber: data.phoneNumber,
-            gender: data.gender,
-          );
+          final check = await app.verifyCode(phone, code);
+          final token = check.signupToken;
+          return token != null ? CheckCodeResult.newCustomer(token) : const CheckCodeResult.signedIn();
+        } catch (e) {
+          return CheckCodeResult.failed(_failure(e));
+        }
+      },
+      onCreateAccount: (token, firstName, lastName) async {
+        try {
+          await app.registerWithCode(signupToken: token, firstName: firstName, lastName: lastName);
           return null;
         } catch (e) {
-          return _failure(e, 'Inscription impossible. Réessayez.');
+          return _failure(e);
         }
       },
       onDone: () => context.go('/home'),
+      onOpenTerms: () => context.push('/profile/terms'),
+      onOpenPrivacy: () => context.push('/profile/privacy'),
     );
   }
 }

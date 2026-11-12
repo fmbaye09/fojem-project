@@ -49,6 +49,9 @@ CustomTransitionPage<void> _tabPage(GoRouterState state, Widget child) {
 /// Chemins accessibles sans session (avant connexion).
 const _publicPaths = {'/splash', '/onboarding', '/role-selection'};
 
+/// Lisibles avec ou sans session : liens de l'écran de connexion.
+const _openPaths = {'/profile/terms', '/profile/privacy'};
+
 GoRouter _buildRouter(AppProvider appProvider) => GoRouter(
   initialLocation: '/splash',
   debugLogDiagnostics: false,
@@ -56,6 +59,7 @@ GoRouter _buildRouter(AppProvider appProvider) => GoRouter(
   redirect: (context, state) {
     final path = state.matchedLocation;
     if (appProvider.isLoading) return null;
+    if (_openPaths.contains(path)) return null;
 
     // Session stockée mais serveur injoignable : on reste sur l'accueil,
     // qui propose de réessayer, au lieu de renvoyer vers la connexion.

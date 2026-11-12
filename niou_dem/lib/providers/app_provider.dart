@@ -10,7 +10,7 @@ import '../services/push_notification_service.dart';
 ///
 /// Le token Sanctum est persisté par [ApiAuthService]/`SecureTokenStorage` —
 /// ce provider ne fait que refléter l'état d'auth courant pour l'UI et
-/// exposer les actions register/login/logout.
+/// exposer la connexion par code et la déconnexion.
 class AppProvider extends ChangeNotifier {
   final AuthService authService;
   final PushNotificationService _pushService;
@@ -93,32 +93,22 @@ class AppProvider extends ChangeNotifier {
     }
   }
 
-  Future<void> register({
-    required String fullName,
-    required String email,
-    required String password,
-    required String phoneNumber,
-    required String gender,
-  }) async {
-    await authService.register(
-      fullName: fullName,
-      email: email,
-      password: password,
-      phoneNumber: phoneNumber,
-      gender: gender,
-    );
-  }
+  /// Connexion par code : envoi, vérification, puis nom pour un nouveau client.
+  Future<CodeSent> sendCode(String phoneNumber, {String channel = 'whatsapp'}) =>
+      authService.sendCode(phoneNumber: phoneNumber, channel: channel);
 
-  Future<void> login({
-    String? email,
-    String? phoneNumber,
-    required String password,
+  Future<CodeCheck> verifyCode(String phoneNumber, String code) =>
+      authService.verifyCode(phoneNumber: phoneNumber, code: code);
+
+  Future<void> registerWithCode({
+    required String signupToken,
+    required String firstName,
+    required String lastName,
   }) async {
-    await authService.login(
-      email: email,
-      phoneNumber: phoneNumber,
-      password: password,
-      clientType: 'passenger',
+    await authService.registerWithCode(
+      signupToken: signupToken,
+      firstName: firstName,
+      lastName: lastName,
     );
   }
 

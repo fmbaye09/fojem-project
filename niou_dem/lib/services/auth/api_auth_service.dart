@@ -6,9 +6,9 @@ import '../../core/storage/secure_token_storage.dart';
 import '../../models/app_user.dart';
 import 'auth_service.dart';
 
-/// Implémentation email/mot de passe contre le backend Laravel (Sanctum).
+/// Connexion par numéro + code contre le backend Laravel (Sanctum).
 ///
-/// Après un register/login réussi, si la réponse contient un
+/// Après une connexion ou une inscription réussie, si la réponse contient un
 /// `firebase_custom_token` non nul, on l'utilise pour ouvrir une session
 /// Firebase Auth *en plus* de la session API — c'est le seul pont dont le
 /// chat (resté sur Firestore) a besoin. Si le champ est absent (backend pas
@@ -56,35 +56,41 @@ class ApiAuthService implements AuthService {
   }
 
   @override
-  Future<AppUser> register({
-    required String fullName,
-    required String email,
-    required String password,
-    required String phoneNumber,
-    required String gender,
-  }) async {
-    final response = await _client.post('/auth/register', data: {
-      'full_name': fullName,
-      'email': email,
-      'password': password,
+  Future<CodeSent> sendCode({required String phoneNumber, String channel = 'whatsapp'}) async {
+    final response = await _client.post('/auth/code/send', data: {
       'phone_number': phoneNumber,
-      'gender': gender,
+      'channel': channel,
     });
-    return _handleAuthResponse(response);
+    return CodeSent(
+      channel: response['channel'] as String? ?? channel,
+      resendIn: (response['resend_in'] as num?)?.toInt() ?? 60,
+      devCode: response['dev_code'] as String?,
+    );
   }
 
   @override
-  Future<AppUser> login({
-    String? email,
-    String? phoneNumber,
-    required String password,
-    String clientType = 'passenger',
+  Future<CodeCheck> verifyCode({required String phoneNumber, required String code}) async {
+    final response = await _client.post('/auth/code/verify', data: {
+      'phone_number': phoneNumber,
+      'code': code,
+    });
+    final signupToken = response['signup_token'] as String?;
+    if (response['new_user'] == true && signupToken != null) {
+      return CodeCheck.newCustomer(signupToken);
+    }
+    return CodeCheck.signedIn(await _handleAuthResponse(response));
+  }
+
+  @override
+  Future<AppUser> registerWithCode({
+    required String signupToken,
+    required String firstName,
+    required String lastName,
   }) async {
-    final response = await _client.post('/auth/login', data: {
-      if (email != null && email.isNotEmpty) 'email': email,
-      if (phoneNumber != null && phoneNumber.isNotEmpty) 'phone_number': phoneNumber,
-      'password': password,
-      'client_type': clientType,
+    final response = await _client.post('/auth/code/register', data: {
+      'signup_token': signupToken,
+      'first_name': firstName,
+      'last_name': lastName,
     });
     return _handleAuthResponse(response);
   }
