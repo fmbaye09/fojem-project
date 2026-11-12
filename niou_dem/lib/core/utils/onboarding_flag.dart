@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 /// L'onboarding (3 slides) n'est montré qu'à la première ouverture.
@@ -9,7 +10,8 @@ class OnboardingFlag {
   static Future<bool> isDone() async {
     try {
       return (await SharedPreferences.getInstance()).getBool(_key) ?? false;
-    } catch (_) {
+    } catch (e) {
+      debugPrint('[OnboardingFlag] lecture impossible : $e');
       return false;
     }
   }
@@ -17,6 +19,8 @@ class OnboardingFlag {
   static Future<void> markDone() async {
     try {
       await (await SharedPreferences.getInstance()).setBool(_key, true);
-    } catch (_) {}
+    } catch (e) {
+      debugPrint('[OnboardingFlag] écriture impossible : $e');
+    }
   }
 }
